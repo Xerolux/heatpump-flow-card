@@ -1,6 +1,6 @@
 {
   "name": "heatpump-flow-card",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "Animated hydraulic scheme for Home Assistant: heat pump, buffer tank, hot water, PV, solar thermal and up to seven heating circuits.",
   "license": "MIT",
   "author": "Xerolux",

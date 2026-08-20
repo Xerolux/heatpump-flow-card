@@ -389,3 +389,20 @@ The same goes for controlling it — anything writable works, whether that is a
 
 One of the example files happens to be wired up for the IDM integration because
 it exposes all of those entity types; that is an example, not a requirement.
+
+## Changelog
+
+Every release is written up in [CHANGELOG.md](CHANGELOG.md).
+
+## Support
+
+The card is free and stays free. If it makes your plant easier to live with and
+you would like to support the work, any of these is hugely motivating — and none
+of them is expected:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Buy%20me%20a%20coffee!-yellow?logo=buy-me-a-coffee&style=for-the-badge)](https://www.buymeacoffee.com/xerolux)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20the%20work-ff5e5b?logo=ko-fi&style=for-the-badge)](https://ko-fi.com/xerolux)
+[![PayPal](https://img.shields.io/badge/PayPal-Thanks%20for%20your%20support!-blue?logo=paypal&style=for-the-badge)](https://paypal.me/xerolux)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-ea4aaa?logo=githubsponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/Xerolux)
+
+[Tesla Referral](https://ts.la/sebastian564489) · or simply star the repository.

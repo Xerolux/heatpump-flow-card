@@ -398,3 +398,20 @@ Für die Bedienung gilt dasselbe – alles Schreibbare funktioniert, egal ob
 Eine der Beispieldateien ist zufällig auf die IDM-Integration verdrahtet, weil
 die genau diese Entitätstypen bereitstellt. Das ist ein Beispiel, keine
 Voraussetzung.
+
+## Changelog
+
+Jedes Release ist in [CHANGELOG.md](CHANGELOG.md) beschrieben.
+
+## Unterstützen
+
+Die Karte ist kostenlos und bleibt es. Wenn sie dir das Leben mit deiner Anlage
+leichter macht und du die Arbeit unterstützen möchtest, freut mich jedes davon
+riesig – erwartet wird nichts:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Spendier%20mir%20einen%20Kaffee!-yellow?logo=buy-me-a-coffee&style=for-the-badge)](https://www.buymeacoffee.com/xerolux)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Arbeit%20unterst%C3%BCtzen-ff5e5b?logo=ko-fi&style=for-the-badge)](https://ko-fi.com/xerolux)
+[![PayPal](https://img.shields.io/badge/PayPal-Danke%20f%C3%BCr%20deine%20Unterst%C3%BCtzung!-blue?logo=paypal&style=for-the-badge)](https://paypal.me/xerolux)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-ea4aaa?logo=githubsponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/Xerolux)
+
+[Tesla Referral](https://ts.la/sebastian564489) · oder einfach ein Stern für das Repository.

@@ -20,7 +20,8 @@ const packageVersion = JSON.parse(read("package.json")).version;
 if (cardVersion !== packageVersion) {
   problems.push(`CARD_VERSION is ${cardVersion} but package.json says ${packageVersion}`);
 }
-if (!read("CHANGELOG.md").includes(`## ${cardVersion}`)) {
+const changelogHeading = new RegExp(`^## \\[?${cardVersion.replace(/\./g, "\\.")}\\]?`, "m");
+if (!changelogHeading.test(read("CHANGELOG.md"))) {
   problems.push(`CHANGELOG.md has no section for ${cardVersion}`);
 }
 
