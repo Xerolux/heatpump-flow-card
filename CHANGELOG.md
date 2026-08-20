@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.2
+
+* The README header now renders in the HACS store. HACS strips `<picture>` and
+  `<source>`, so the logo came through as literal markup with a broken image
+  next to it; both READMEs use plain markdown for the logo and the badges now.
+* New `docs/brand/logo-plate.png`: the wordmark on its own dark plate. Renderers
+  that drop `<picture>` cannot switch per theme, so the READMEs need one logo
+  that stays readable on a light and on a dark page alike.
+
 ## 1.6.1
 
 * The wiki job now says what actually has to happen when it cannot push:

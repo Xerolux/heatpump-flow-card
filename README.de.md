@@ -1,16 +1,9 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-dark.png">
-    <img src="docs/brand/logo.png" alt="Heat Pump Flow Card" width="580">
-  </picture>
-</p>
+![Heat Pump Flow Card](docs/brand/logo-plate.png)
 
-<p align="center">
-  <a href="https://hacs.xyz/"><img alt="HACS" src="https://img.shields.io/badge/HACS-custom-41BDF5.svg"></a>
-  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <a href="https://github.com/Xerolux/heatpump-flow-card/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/Xerolux/heatpump-flow-card?display_name=tag&color=0369a1"></a>
-  <a href="https://xerolux.github.io/heatpump-flow-card/"><img alt="demo" src="https://img.shields.io/badge/live-demo-0ea5e9"></a>
-</p>
+[![HACS](https://img.shields.io/badge/HACS-custom-41BDF5.svg)](https://hacs.xyz/)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![release](https://img.shields.io/github/v/release/Xerolux/heatpump-flow-card?display_name=tag&color=0369a1)](https://github.com/Xerolux/heatpump-flow-card/releases/latest)
+[![demo](https://img.shields.io/badge/live-demo-0ea5e9)](https://xerolux.github.io/heatpump-flow-card/)
 
 Ein animiertes Hydraulikschema für Home Assistant. Die Karte zeichnet deine
 Heizungsanlage so, wie sie verrohrt ist – Wärmepumpe, Pufferspeicher,

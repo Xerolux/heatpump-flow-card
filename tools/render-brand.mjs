@@ -51,6 +51,27 @@ const wordmark = (title, subtitle) => `<body style="margin:0">
 await shoot(wordmark("#0f2136", "#5b6b7d"), 1000, 220, "logo.png", 2);
 await shoot(wordmark("#e8f1fa", "#93a7ba"), 1000, 220, "logo-dark.png", 2);
 
+// the same wordmark on its own plate. Markdown renderers that drop <picture>
+// cannot switch per theme, so the READMEs use this one: it stays readable on a
+// light and on a dark page alike.
+const plate = `<body style="margin:0">
+     <div style="width:1000px;height:220px;box-sizing:border-box;border-radius:30px;
+                 background:linear-gradient(135deg,#12283e,#060d15);
+                 display:flex;align-items:center;gap:28px;padding:0 46px;font-family:${font}">
+       <div style="width:172px;height:172px;flex:none">${icon}</div>
+       <div>
+         <div style="font-size:56px;font-weight:800;letter-spacing:-1.5px;line-height:1.05;color:#e8f1fa">
+           Heat Pump <span style="color:#ff7a5c">Flow</span> Card
+         </div>
+         <div style="font-size:22px;color:#9db4c8;margin-top:8px">
+           An animated hydraulic scheme for Home&nbsp;Assistant
+         </div>
+       </div>
+     </div>
+   </body>`;
+
+await shoot(plate, 1000, 220, "logo-plate.png", 2);
+
 // GitHub social preview
 await shoot(
   `<body style="margin:0">
