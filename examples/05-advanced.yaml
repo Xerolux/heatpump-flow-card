@@ -1,0 +1,68 @@
+# Advanced options:
+#   * no buffer tank - the heat pump feeds the circuits directly
+#   * four circuits, including a fan coil and a pool heat exchanger
+#   * long form fields with their own name, unit, decimals and tap action
+#   * a climate entity as the heat pump: tapping it opens more-info
+type: custom:heatpump-flow-card
+layout: dual
+title: Heizung Detail
+animation: true
+flow_speed: 1.4
+temperature_colors: true
+buffer: false
+heatpump:
+  name: Luft/Wasser WP
+  entity: climate.waermepumpe
+  mode: climate.waermepumpe          # hvac_action is used automatically
+  power:
+    entity: sensor.wp_leistung
+    name: Aufnahme
+    decimals: 0
+  cop:
+    entity: sensor.wp_cop
+    decimals: 2
+  flow_temp: sensor.wp_vorlauf
+  return_temp: sensor.wp_ruecklauf
+  outside_temp: sensor.aussentemperatur
+  compressor: sensor.wp_verdichterlast
+  power_threshold: 50                # below this the heat pump counts as idle
+dhw:
+  name: Warmwasser
+  entity: switch.warmwasser
+  temp: sensor.ww_temperatur
+  target_temp:
+    entity: water_heater.warmwasser
+    attribute: temperature
+    unit: "°C"
+  tap_action:
+    action: more-info
+circuits:
+  - name: Heizkörper EG
+    type: radiator
+    flow_temp: sensor.hk1_vorlauf
+    return_temp: sensor.hk1_ruecklauf
+    room_temp:
+      entity: climate.wohnzimmer
+      attribute: current_temperature
+      unit: "°C"
+    pump: binary_sensor.hk1_pumpe
+  - name: Fußboden OG
+    type: underfloor
+    flow_temp: sensor.hk2_vorlauf
+    return_temp: sensor.hk2_ruecklauf
+    pump: binary_sensor.hk2_pumpe
+    valve: sensor.hk2_mischer
+  - name: Konvektor Büro
+    type: fancoil
+    flow_temp: sensor.hk3_vorlauf
+    pump: binary_sensor.hk3_pumpe
+    entity: switch.hk3
+    hold_action:
+      action: navigate
+      navigation_path: /lovelace/buero
+  - name: Poolheizung
+    type: pool
+    flow_temp: sensor.pool_vorlauf
+    return_temp: sensor.pool_ruecklauf
+    room_temp: sensor.pool_temperatur
+    pump: switch.poolpumpe
