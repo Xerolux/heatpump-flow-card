@@ -24,22 +24,22 @@ as long as *any* circuit draws.
 
 ```yaml
 circuits:
-  - name: Heizkreis A
+  - name: Heating circuit A
     type: radiator
     mode: select.hk_a_mode
     pump: binary_sensor.hk_a_pump
     flow_temp: sensor.hk_a_flow
     return_temp: sensor.hk_a_return
     room_temp: sensor.living_room
-  - name: Heizkreis B
+  - name: Heating circuit B
     type: underfloor
     mode: select.hk_b_mode
     pump: binary_sensor.hk_b_pump
-  - name: Heizkreis C
+  - name: Heating circuit C
     type: underfloor
     mode: select.hk_c_mode
     pump: binary_sensor.hk_c_pump
-  - name: Heizkreis D
+  - name: Heating circuit D
     type: fancoil
     mode: select.hk_d_mode
     pump: binary_sensor.hk_d_pump
@@ -70,7 +70,7 @@ dhw:
   target_temp: number.idm_heatpump_dhw_setpoint
   boost: switch.idm_heatpump_demand_onetime_dhw
 circuits:
-  - name: Heizkreis A
+  - name: Heating circuit A
     type: underfloor
     mode: select.idm_heatpump_circuit_a_mode
     flow_temp: sensor.idm_heatpump_circuit_a_flow_temp
