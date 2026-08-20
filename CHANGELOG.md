@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1
+
+* The documentation workflow no longer needs the repository to be prepared by
+  hand: Pages is enabled on the first run, and a wiki that has never been
+  written to is created instead of failing the job. If wikis are switched off
+  entirely, the job warns instead of turning the branch red.
+
 ## 1.2.0
 
 * **Eighteen layout presets** instead of four: with or without hot water, PV,
