@@ -31,8 +31,9 @@ Nothing yet.
   `Added` / `Changed` / `Fixed` / `Removed` per version, a date on every
   section, comparison links between the tags, and the support and feedback
   block at the end — the same shape the IDM heat pump integration uses.
-- `check:docs` accepts both heading styles, so `## [1.6.3] - 2026-08-20` counts
-  as the section for the version the card carries.
+- `check:docs` and the release workflow accept both heading styles, so
+  `## [1.6.3] - 2026-08-20` counts as the section for the version the card
+  carries.
 
 ### Added
 
