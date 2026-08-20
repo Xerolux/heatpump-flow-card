@@ -41,14 +41,29 @@ for (const file of readdirSync(resolve(root, "examples")).filter((f) => f.endsWi
     problems.push(`${file} is not valid YAML: ${error.message}`);
     continue;
   }
-  if (config.type !== "custom:heatpump-flow-card") {
-    problems.push(`${file} does not declare the card type`);
+  // A file is either one card, or a whole dashboard view holding cards.
+  const cards = [];
+  const collect = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach(collect);
+      return;
+    }
+    if (node.type === "custom:heatpump-flow-card") cards.push(node);
+    for (const value of Object.values(node)) collect(value);
+  };
+  collect(config);
+
+  if (!cards.length) {
+    problems.push(`${file} contains no heatpump-flow-card`);
   }
-  if (config.layout && !layouts.has(config.layout)) {
-    problems.push(`${file} uses the unknown layout "${config.layout}"`);
-  }
-  if (Array.isArray(config.circuits) && config.circuits.length > 7) {
-    problems.push(`${file} configures ${config.circuits.length} circuits, the card draws seven`);
+  for (const card of cards) {
+    if (card.layout && !layouts.has(card.layout)) {
+      problems.push(`${file} uses the unknown layout "${card.layout}"`);
+    }
+    if (Array.isArray(card.circuits) && card.circuits.length > 7) {
+      problems.push(`${file} configures ${card.circuits.length} circuits, the card draws seven`);
+    }
   }
 }
 

@@ -373,7 +373,8 @@ Schema Vorlauf rot / Rücklauf blau.
   Karte im Browser, ganz ohne Home Assistant
 * **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** – Installation,
   alle Optionen, Bedienung, Problemlösung, Entwicklung
-* **[Beispiele](examples)** – sechs fertige Konfigurationen
+* **[Beispiele](examples)** – neun fertige Konfigurationen, darunter ein
+  komplettes Dashboard
 
 ## Entwicklung
 

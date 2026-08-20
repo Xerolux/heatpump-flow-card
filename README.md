@@ -366,7 +366,8 @@ red-flow / blue-return scheme.
   in your browser, no Home Assistant needed
 * **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** — installation,
   every option, controls, troubleshooting, development
-* **[Examples](examples)** — six ready-made configurations
+* **[Examples](examples)** — nine ready-made configurations, including a whole
+  dashboard view
 
 ## Development
 

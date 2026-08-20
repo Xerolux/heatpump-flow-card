@@ -2,6 +2,15 @@
 
 ## 1.6.0
 
+* The live demo gained the two new views: four circuits each with their own
+  state, and a defrost cycle with the second heat generator and the element in
+  the tank running.
+* A whole dashboard as an example, not just a card: `09-dashboard-idm.yaml` is
+  a complete view with the flow card, a COP gauge, cycle counters, a 24 hour
+  graph, hot water, both circuits, photovoltaics and solar thermal.
+* A wiki page that lists what the HACS default store requires and how to submit
+  the card to it.
+
 * **Nothing overlaps any more.** A new `check:overlaps` step renders every demo
   layout in a browser and fails the build when two labels, or a label and a
   pill, cover each other. It found three: a long circuit name running under its

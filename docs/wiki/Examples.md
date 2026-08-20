@@ -14,6 +14,7 @@ and can be pasted into a manual card editor as they are.
 | `06-idm-heatpump.yaml` | Wired up for the IDM heat pump integration |
 | `07-idm-solaredge-paradigma.yaml` | A whole plant: IDM heat pump, SolarEdge PV, Paradigma solar thermal |
 | `08-immersion-heater.yaml` | An AC-Thor element in the buffer tank, plus the bivalent stage |
+| `09-dashboard-idm.yaml` | A whole dashboard view around that plant — the card plus built-in cards |
 
 ## Every circuit keeps its own state
 
@@ -109,6 +110,17 @@ engages.
 
 For photovoltaics with several inverters, sum them in a template sensor and
 point `pv.power` at that — the card draws one PV source.
+
+## A whole dashboard, not just a card
+
+`09-dashboard-idm.yaml` is a complete view: the flow card across the top, then
+the heat pump with its COP gauge, cycle counters and a 24 hour graph, hot water
+with its thermostat and boost buttons, both heating circuits, photovoltaics,
+solar thermal and the second heat generator.
+
+Paste it under `views:` in **dashboard → pencil → three dots → Raw
+configuration editor**. Everything except the first card is a built-in Home
+Assistant card, so nothing else has to be installed.
 
 ## An electric element in the tank
 

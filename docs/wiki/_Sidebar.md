@@ -9,6 +9,7 @@
 * [Colours and Themes](Colours-and-Themes)
 * [Troubleshooting](Troubleshooting)
 * [Development](Development)
+* [Publishing to HACS](Publishing-to-HACS)
 
 ### Deutsch
 
