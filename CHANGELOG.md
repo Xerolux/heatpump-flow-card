@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.1
+
+* A logo: the card's own visual language as an icon — the temperature ramp as a
+  ring, its flow dots, and the heat pump fan in the middle. Rendered from one
+  SVG into app icons, a favicon, a light and a dark wordmark and a social
+  preview; the demo page and both READMEs use it.
+
+* The documentation workflow no longer needs the repository to be prepared by
+  hand: Pages is enabled on the first run, and a wiki that has never been
+  written to is created instead of failing the job. If wikis are switched off
+  entirely, the job warns instead of turning the branch red.
+
 ## 1.2.0
 
 * **Eighteen layout presets** instead of four: with or without hot water, PV,

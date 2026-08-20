@@ -1,7 +1,16 @@
-# Heat Pump Flow Card
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-dark.png">
+    <img src="docs/brand/logo.png" alt="Heat Pump Flow Card" width="580">
+  </picture>
+</p>
 
-[![hacs](https://img.shields.io/badge/HACS-custom-41BDF5.svg)](https://hacs.xyz/)
-[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://hacs.xyz/"><img alt="HACS" src="https://img.shields.io/badge/HACS-custom-41BDF5.svg"></a>
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://github.com/Xerolux/heatpump-flow-card/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/Xerolux/heatpump-flow-card?display_name=tag&color=0369a1"></a>
+  <a href="https://xerolux.github.io/heatpump-flow-card/"><img alt="demo" src="https://img.shields.io/badge/live-demo-0ea5e9"></a>
+</p>
 
 An animated hydraulic scheme for Home Assistant. The card draws your heating
 plant the way it is actually plumbed — heat pump, buffer tank, hot water,

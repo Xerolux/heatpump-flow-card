@@ -53,7 +53,13 @@ configuration without losing YAML-only options.
 
 ```bash
 npm run screenshots  # regenerates docs/images/*.png
+npm run brand        # regenerates docs/brand/*.png from icon.svg
 ```
+
+`docs/brand/icon.svg` is the single source for the icon: the ring is the card's
+temperature ramp, the dots are its flow animation and the fan is the heat pump.
+Everything else — the app icons, the favicon, both wordmarks and the social
+preview — is rendered from it.
 
 Every image in the README and the wiki comes from this script, so they never
 drift away from the actual rendering.
