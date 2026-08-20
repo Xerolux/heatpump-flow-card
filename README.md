@@ -193,6 +193,67 @@ A `climate` or `water_heater` entity used as `target_temp`, `temp` or
 Set `controls: false` to go back to plain more-info dialogs, or override a
 single element with its own `tap_action`.
 
+### The bits that switch in and out
+
+![Defrosting, with the element in the tank running](docs/images/extras.png)
+
+Three things a heat pump does that are easy to miss, and hard to explain
+afterwards:
+
+* **The second heat generator.** `aux_heat` and `aux_heat_power` add a row to
+  the heat pump panel that lights up while the bivalent stage carries load, so
+  you can see it engage instead of finding it in the electricity bill.
+* **Defrosting.** When the heat pump reports a defrost cycle, vapour rises off
+  the unit and the fan ring turns icy. Detected from `status` (or `mode`), or
+  from an explicit `defrost` binary sensor.
+* **An electric element in the tank.** `heater` and `heater_power` on `buffer`
+  or `dhw` draw a heating element inside the tank — a my-PV AC-Thor, a booster,
+  a backup heater — glowing while it draws power, captioned with its name, its
+  power and, with `heater_temp`, its own temperature. Give it a `heater_mode`
+  and one tap offers off / automatic / boost.
+
+```yaml
+heatpump:
+  mode: select.system_mode        # what it was told to do, and how you change it
+  status: sensor.operating_state  # what it is doing right now
+  aux_heat: binary_sensor.second_heat_generator
+  aux_heat_power: sensor.heating_element_power
+buffer:
+  heater: switch.ac_thor
+  heater_power: sensor.ac_thor_power
+```
+
+### One value out of several entities
+
+Four inverters, two batteries, three room sensors — any value takes a list and
+folds it into one number:
+
+```yaml
+pv:
+  power:                       # added up
+    - sensor.inverter_1_ac_power
+    - sensor.inverter_2_ac_power
+    - sensor.inverter_3_ac_power
+    - sensor.inverter_4_ac_power
+  battery:                     # averaged, because it is a percentage
+    - sensor.battery_1_soc
+    - sensor.battery_2_soc
+```
+
+Powers, energies and flow rates are **added up**; percentages and temperatures
+are **averaged**. Override it, and set the usual extras, with the long form:
+
+```yaml
+power:
+  entities: [sensor.inverter_1_ac_power, sensor.inverter_2_ac_power]
+  combine: max               # sum (default), avg, min, max, first
+  name: Roof
+  decimals: 1
+```
+
+Entities that are missing or unavailable are skipped rather than dragging the
+total down, and a tap opens the first one in the list.
+
 ## Options
 
 ### Card
@@ -230,7 +291,8 @@ Without `state_entity` the card falls back to `power` > threshold, then
 
 ### `buffer`
 
-`name`, `entity`, `top`, `middle`, `bottom`, `charge`
+`name`, `entity`, `top`, `middle`, `bottom`, `charge`, `heater`, `heater_power`,
+`heater_temp`, `heater_mode`
 
 The tank is filled with a gradient between the layer temperatures. `charge` is
 printed under the name. `buffer: false` connects the heat pump straight to the
@@ -238,14 +300,15 @@ circuits.
 
 ### `dhw`
 
-`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`, `mode`, `boost`
+`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`, `mode`, `boost`, `heater`,
+`heater_power`
 
 ### `pv` / `solar`
 
 | Section | Options |
 | --- | --- |
 | `pv` | `name`, `entity`, `power`, `battery`, `grid`, `threshold` (watts, default `5`) |
-| `solar` | `name`, `entity`, `collector_temp`, `pump`, `yield`, `return_temp` |
+| `solar` | `name`, `entity`, `collector_temp`, `flow_temp`, `return_temp`, `pump`, `yield` |
 
 The solar circuit is drawn into the bottom of the buffer tank, so it needs a
 buffer to connect to.
@@ -303,7 +366,8 @@ red-flow / blue-return scheme.
   in your browser, no Home Assistant needed
 * **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** — installation,
   every option, controls, troubleshooting, development
-* **[Examples](examples)** — six ready-made configurations
+* **[Examples](examples)** — nine ready-made configurations, including a whole
+  dashboard view
 
 ## Development
 

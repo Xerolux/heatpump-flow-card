@@ -108,6 +108,76 @@ window.demoStates["sensor.circuit_d_flow"] = {
   attributes: { unit_of_measurement: "°C" },
 };
 
+// Second heat generator, an element in the tank, and a defrost cycle
+window.demoStates["sensor.hp_status"] = {
+  entity_id: "sensor.hp_status",
+  state: "defrost",
+  attributes: { friendly_name: "Operating state" },
+};
+window.demoStates["binary_sensor.aux_heat"] = {
+  entity_id: "binary_sensor.aux_heat",
+  state: "on",
+  attributes: { friendly_name: "Second heat generator" },
+};
+window.demoStates["sensor.aux_heat_power"] = {
+  entity_id: "sensor.aux_heat_power",
+  state: "3000",
+  attributes: { friendly_name: "Element power", unit_of_measurement: "W", device_class: "power" },
+};
+window.demoStates["switch.tank_heater"] = {
+  entity_id: "switch.tank_heater",
+  state: "on",
+  attributes: { friendly_name: "Immersion heater" },
+};
+window.demoStates["sensor.tank_heater_power"] = {
+  entity_id: "sensor.tank_heater_power",
+  state: "2450",
+  attributes: { friendly_name: "Immersion heater power", unit_of_measurement: "W", device_class: "power" },
+};
+
+// A string of inverters and two batteries: the card adds the powers up and
+// averages the states of charge.
+const inverters = { pv_inverter_1: 1180, pv_inverter_2: 980, pv_inverter_3: 760, pv_inverter_4: 560 };
+for (const [key, watts] of Object.entries(inverters)) {
+  window.demoStates[`sensor.${key}`] = {
+    entity_id: `sensor.${key}`,
+    state: String(watts),
+    attributes: {
+      friendly_name: `Inverter ${key.slice(-1)}`,
+      unit_of_measurement: "W",
+      device_class: "power",
+    },
+  };
+}
+for (const [key, soc] of Object.entries({ battery_1_soc: 84, battery_2_soc: 78 })) {
+  window.demoStates[`sensor.${key}`] = {
+    entity_id: `sensor.${key}`,
+    state: String(soc),
+    attributes: { friendly_name: `Battery ${key.slice(8, 9)}`, unit_of_measurement: "%" },
+  };
+}
+
+window.demoStates["sensor.hp_flow_rate"] = {
+  entity_id: "sensor.hp_flow_rate",
+  state: "18.4",
+  attributes: { friendly_name: "Flow rate", unit_of_measurement: "l/min" },
+};
+window.demoStates["sensor.solar_flow_temperature"] = {
+  entity_id: "sensor.solar_flow_temperature",
+  state: "58.2",
+  attributes: { friendly_name: "Solar flow", unit_of_measurement: "°C" },
+};
+window.demoStates["sensor.tank_heater_temperature"] = {
+  entity_id: "sensor.tank_heater_temperature",
+  state: "48.6",
+  attributes: { friendly_name: "Element temperature", unit_of_measurement: "°C" },
+};
+window.demoStates["select.tank_heater_mode"] = {
+  entity_id: "select.tank_heater_mode",
+  state: "Automatic",
+  attributes: { friendly_name: "Element mode", options: ["Off", "Automatic", "Boost"] },
+};
+
 window.serviceCalls = [];
 
 window.makeHass = (language) => ({
