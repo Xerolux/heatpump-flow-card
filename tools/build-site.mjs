@@ -15,5 +15,8 @@ cpSync(resolve(root, "dist/heatpump-flow-card.js"), resolve(out, "heatpump-flow-
 cpSync(resolve(root, "tools/demo-hass.js"), resolve(out, "demo-hass.js"));
 cpSync(resolve(root, "tools/preview-config.js"), resolve(out, "preview-config.js"));
 cpSync(resolve(root, "docs/images"), resolve(out, "images"), { recursive: true });
+for (const asset of ["icon.svg", "icon-256.png", "favicon-32.png", "social-preview.png"]) {
+  cpSync(resolve(root, "docs/brand", asset), resolve(out, asset));
+}
 
 console.log(`site written to ${out}`);

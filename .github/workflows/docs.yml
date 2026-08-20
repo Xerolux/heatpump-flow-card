@@ -37,6 +37,10 @@ jobs:
         with:
           node-version: 20
       - uses: actions/configure-pages@v5
+        with:
+          # Turns Pages on for the repository the first time this runs, so the
+          # demo does not need a manual visit to Settings -> Pages.
+          enablement: true
       - name: Build the demo site
         run: node tools/build-site.mjs
       - uses: actions/upload-pages-artifact@v4
@@ -69,11 +73,23 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Clone the wiki
+      - name: Clone the wiki, or start it
+        id: wiki
         if: steps.changes.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: git clone "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.wiki.git" /tmp/wiki
+        run: |
+          url="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.wiki.git"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          if git clone "$url" /tmp/wiki 2>/dev/null; then
+            echo 'Wiki cloned.'
+          else
+            # A wiki that has never been written to has no repository yet.
+            echo 'No wiki repository yet - starting an empty one.'
+            mkdir -p /tmp/wiki
+            git -C /tmp/wiki init -q -b master
+            git -C /tmp/wiki remote add origin "$url"
+          fi
 
       - name: Copy the pages over
         if: steps.changes.outputs.changed == 'true'
@@ -90,7 +106,9 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo 'Wiki already up to date.'
-          else
-            git commit -m 'docs: sync wiki from docs/wiki [skip ci]'
-            git push
+            exit 0
+          fi
+          git commit -q -m 'docs: sync wiki from docs/wiki [skip ci]'
+          if ! git push origin HEAD; then
+            echo "::warning title=Wiki not published::Could not push to the wiki. Enable Settings -> Features -> Wikis for this repository, then re-run this workflow."
           fi

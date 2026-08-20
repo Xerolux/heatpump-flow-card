@@ -67,9 +67,14 @@ const wikiPages = new Set(
 
 for (const file of markdown) {
   const text = read(file);
-  for (const [, target] of text.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g)) {
+  const references = [
+    ...[...text.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g)].map((m) => m[1]),
+    ...[...text.matchAll(/<img[^>]+src="([^"]+)"/g)].map((m) => m[1]),
+    ...[...text.matchAll(/srcset="([^"]+)"/g)].map((m) => m[1]),
+  ];
+  for (const target of references) {
     if (target.startsWith("http")) {
-      const remote = target.match(/heatpump-flow-card\/main\/(docs\/images\/[^)\s]+)/);
+      const remote = target.match(/heatpump-flow-card\/main\/(docs\/(?:images|brand)\/[^)\s"]+)/);
       if (remote && !existsSync(resolve(root, remote[1]))) {
         problems.push(`${file} links the missing image ${remote[1]}`);
       }
