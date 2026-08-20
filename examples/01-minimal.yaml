@@ -1,0 +1,14 @@
+# The smallest useful configuration: a heat pump, a buffer tank and one circuit.
+# Every option is optional - whatever you leave out is simply drawn empty.
+type: custom:heatpump-flow-card
+layout: single
+heatpump:
+  entity: switch.waermepumpe
+  flow_temp: sensor.wp_vorlauf
+  return_temp: sensor.wp_ruecklauf
+buffer:
+  top: sensor.puffer_oben
+  bottom: sensor.puffer_unten
+circuits:
+  - type: radiator
+    pump: binary_sensor.hk1_pumpe

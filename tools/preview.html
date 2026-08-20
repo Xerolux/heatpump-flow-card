@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>heatpump-flow-card preview</title>
+    <style>
+      :root {
+        --primary-text-color: #212121;
+        --secondary-text-color: #727272;
+        --divider-color: #e0e0e0;
+        --card-background-color: #fff;
+        --primary-color: #03a9f4;
+        --info-color: #39b0e5;
+        --success-color: #43a047;
+        --warning-color: #ffa726;
+        --error-color: #db4437;
+        --ha-card-header-font-size: 22px;
+      }
+      body.dark {
+        --primary-text-color: #e1e1e1;
+        --secondary-text-color: #9b9b9b;
+        --divider-color: #3a3f45;
+        --card-background-color: #1c1f24;
+        background: #111418;
+      }
+      body { margin: 0; padding: 20px; background: #f2f4f7; font-family: Roboto, sans-serif; }
+      .wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 22px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap" id="wrap"></div>
+    <script>
+      class HaCard extends HTMLElement {
+        constructor() {
+          super();
+          this.attachShadow({ mode: "open" }).innerHTML =
+            `<style>:host{display:block;background:var(--card-background-color,#fff);
+             border-radius:12px;box-shadow:0 2px 6px rgba(0,0,0,.12);color:var(--primary-text-color)}
+             </style><slot></slot>`;
+        }
+      }
+      customElements.define("ha-card", HaCard);
+    </script>
+    <script src="./demo-hass.js"></script>
+    <script src="../dist/heatpump-flow-card.js"></script>
+    <script src="./preview-config.js"></script>
+    <script>
+      window.moreInfo = [];
+      document.addEventListener("hass-more-info", (event) => window.moreInfo.push(event.detail.entityId));
+      const params = new URLSearchParams(location.search);
+      if (params.get("theme") === "dark") document.body.classList.add("dark");
+      const only = params.get("layout");
+      const hass = window.makeHass(params.get("lang") || "de");
+      const wrap = document.getElementById("wrap");
+      const configs = window.previewConfigs;
+      for (const name of Object.keys(configs)) {
+        if (only && only !== name) continue;
+        const card = document.createElement("heatpump-flow-card");
+        card.setConfig(configs[name]);
+        card.hass = hass;
+        card.id = `card-${name}`;
+        wrap.appendChild(card);
+      }
+    </script>
+  </body>
+</html>

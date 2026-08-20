@@ -1,0 +1,38 @@
+# Two heating circuits: radiators downstairs, underfloor heating upstairs.
+type: custom:heatpump-flow-card
+layout: dual
+title: Wärmepumpe & Heizkreise
+heatpump:
+  name: Wärmepumpe
+  entity: switch.waermepumpe
+  state_entity: binary_sensor.wp_verdichter
+  mode: sensor.wp_betriebsart
+  power: sensor.wp_leistung
+  cop: sensor.wp_cop
+  flow_temp: sensor.wp_vorlauf
+  return_temp: sensor.wp_ruecklauf
+  outside_temp: sensor.aussentemperatur
+  compressor: sensor.wp_verdichterlast
+buffer:
+  name: Pufferspeicher
+  top: sensor.puffer_oben
+  middle: sensor.puffer_mitte
+  bottom: sensor.puffer_unten
+  charge: sensor.puffer_ladung
+circuits:
+  - name: Heizkörper EG
+    type: radiator
+    entity: switch.hk1
+    flow_temp: sensor.hk1_vorlauf
+    return_temp: sensor.hk1_ruecklauf
+    room_temp: sensor.wohnzimmer_temperatur
+    pump: binary_sensor.hk1_pumpe
+    valve: sensor.hk1_mischer
+  - name: Fußbodenheizung OG
+    type: underfloor
+    entity: switch.hk2
+    flow_temp: sensor.hk2_vorlauf
+    return_temp: sensor.hk2_ruecklauf
+    room_temp: sensor.bad_temperatur
+    pump: binary_sensor.hk2_pumpe
+    valve: sensor.hk2_mischer
