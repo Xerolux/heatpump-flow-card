@@ -8,7 +8,14 @@
       name="description"
       content="Animated hydraulic scheme for Home Assistant: heat pump, buffer tank, hot water, PV, solar thermal and heating circuits."
     />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🔥</text></svg>" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" href="./icon-256.png" />
+    <meta property="og:title" content="Heat Pump Flow Card" />
+    <meta
+      property="og:description"
+      content="An animated hydraulic scheme for Home Assistant — heat pump, tanks, PV, solar thermal and up to seven heating circuits."
+    />
+    <meta property="og:image" content="./social-preview.png" />
     <style>
       :root {
         color-scheme: light;
@@ -47,7 +54,15 @@
         line-height: 1.55;
       }
       header { max-width: 1100px; margin: 0 auto; padding: 48px 0 24px; }
-      h1 { font-size: clamp(28px, 4vw, 42px); margin: 0 0 8px; letter-spacing: -0.02em; }
+      h1 {
+        font-size: clamp(28px, 4vw, 42px);
+        margin: 0 0 8px;
+        letter-spacing: -0.02em;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      h1 img { border-radius: 12px; }
       .lede { margin: 0 0 20px; color: var(--secondary-text-color); max-width: 62ch; font-size: 17px; }
       .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
       .bar a, .bar button {
@@ -89,7 +104,7 @@
   </head>
   <body>
     <header>
-      <h1>Heat Pump Flow Card</h1>
+      <h1><img src="./icon.svg" alt="" width="52" height="52" />Heat Pump Flow Card</h1>
       <p class="lede">
         An animated hydraulic scheme for Home Assistant. Heat pump, buffer tank, hot water,
         photovoltaics, solar thermal and up to four heating circuits — with the live values where

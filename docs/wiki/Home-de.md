@@ -1,4 +1,8 @@
-# Heat Pump Flow Card
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Xerolux/heatpump-flow-card/main/docs/brand/logo-dark.png">
+  <img src="https://raw.githubusercontent.com/Xerolux/heatpump-flow-card/main/docs/brand/logo.png" alt="Heat Pump Flow Card" width="520">
+</picture>
+
 
 Ein animiertes Hydraulikschema für Home Assistant: Wärmepumpe,
 Pufferspeicher, Warmwasser, Photovoltaik, Solarthermie und bis zu sieben

@@ -1,7 +1,11 @@
-# Heat Pump Flow Card
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Xerolux/heatpump-flow-card/main/docs/brand/logo-dark.png">
+  <img src="https://raw.githubusercontent.com/Xerolux/heatpump-flow-card/main/docs/brand/logo.png" alt="Heat Pump Flow Card" width="520">
+</picture>
+
 
 An animated hydraulic scheme for Home Assistant: heat pump, buffer tank, hot
-water, photovoltaics, solar thermal and up to four heating circuits — with the
+water, photovoltaics, solar thermal and up to seven heating circuits — with the
 live values where they belong on the drawing, and everything operable by tapping
 it.
 

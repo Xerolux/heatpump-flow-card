@@ -15,7 +15,8 @@
     "check:docs": "node tools/check-docs.mjs",
     "test": "node --test test/*.test.mjs",
     "screenshots": "node tools/screenshot.mjs",
-    "site": "node tools/build-site.mjs"
+    "site": "node tools/build-site.mjs",
+    "brand": "node tools/render-brand.mjs"
   },
   "devDependencies": {
     "js-yaml": "^5.3.0",
