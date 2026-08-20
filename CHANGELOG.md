@@ -2,6 +2,10 @@
 
 ## 1.3.0
 
+* The release workflow can be started by hand from the Actions tab; it creates
+  the tag from the version in the card, and refuses to publish unless
+  `CARD_VERSION`, `package.json`, the tag and the CHANGELOG agree.
+
 * English is the project's default language and German is a translation of it,
   the way the integrations are built. The demo, the example configurations,
   the entity ids in the documentation and every screenshot are English now.

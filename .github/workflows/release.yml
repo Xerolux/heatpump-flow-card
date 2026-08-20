@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, without the "v" (defaults to the version in the card)'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -11,17 +17,44 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - name: Check that the tag matches the card version
+        with:
+          fetch-depth: 0
+
+      - name: Work out the version, and check every source agrees
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          file=$(grep -oP 'CARD_VERSION = "\K[^"]+' dist/heatpump-flow-card.js)
+          card=$(grep -oP 'CARD_VERSION = "\K[^"]+' dist/heatpump-flow-card.js)
           pkg=$(node -p "require('./package.json').version")
-          echo "tag=$tag card=$file package=$pkg"
-          test "$tag" = "$file" && test "$tag" = "$pkg"
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          elif [ -n "$INPUT_VERSION" ]; then
+            version="${INPUT_VERSION#v}"
+          else
+            version="$card"
+          fi
+          echo "version=$version card=$card package=$pkg"
+          if [ "$version" != "$card" ] || [ "$version" != "$pkg" ]; then
+            echo "::error::CARD_VERSION ($card), package.json ($pkg) and the release ($version) must match."
+            exit 1
+          fi
+          if ! grep -q "^## $version" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for $version."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
+          # On a tag push this is the tag; started by hand it creates the tag
+          # at the commit that was checked out.
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
           files: dist/heatpump-flow-card.js
           generate_release_notes: true
+          make_latest: true
