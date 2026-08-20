@@ -42,7 +42,10 @@ jobs:
             echo "::error::CARD_VERSION ($card), package.json ($pkg) and the release ($version) must match."
             exit 1
           fi
-          if ! grep -q "^## $version" CHANGELOG.md; then
+          # Keep a Changelog brackets the version when it links to a tag and
+          # leaves it bare when there is none; both are the section for it.
+          escaped=${version//./\\.}
+          if ! grep -qE "^## \\[?${escaped}\\]?" CHANGELOG.md; then
             echo "::error::CHANGELOG.md has no section for $version."
             exit 1
           fi
