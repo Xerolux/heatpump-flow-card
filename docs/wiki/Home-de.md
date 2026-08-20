@@ -48,6 +48,12 @@ circuits:
 Nichts ist Pflicht. Fehlt ein Sensor, bleibt die Stelle leer, statt dass die
 Karte kaputtgeht.
 
+Die Beschriftungen in der Zeichnung folgen der Sprache deiner
+Home-Assistant-Instanz – auf Deutsch also „Vorlauf“, „Rücklauf“, „Warmwasser“.
+Beispiele, Entitäts-IDs und Screenshots in dieser Dokumentation sind englisch,
+weil Englisch die Standardsprache des Projekts ist; jeder `name:` überschreibt
+die Beschriftung ohnehin.
+
 ## Was sie besonders macht
 
 * **Rohre führen Temperaturen.** Jedes Rohr wird nach der geführten Temperatur

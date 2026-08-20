@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0
+
+* English is the project's default language and German is a translation of it,
+  the way the integrations are built. The demo, the example configurations,
+  the entity ids in the documentation and every screenshot are English now.
+* The live demo starts in English and has a button that switches the card to
+  German, which is also how it behaves in Home Assistant: the labels follow the
+  language of your instance, and any `name:` you set wins over both.
+* The demo entities were renamed along with it, from `sensor.wp_vorlauf` to
+  `sensor.hp_flow_temperature` and so on, so a copied example reads the same in
+  any language.
+
 ## 1.2.1
 
 * A logo: the card's own visual language as an icon — the temperature ramp as a

@@ -1,29 +1,29 @@
 # Compact layout - fits next to other cards in a column.
 type: custom:heatpump-flow-card
 layout: compact
-title: Heizung
+title: Heating
 heatpump:
-  name: Wärmepumpe
-  entity: switch.waermepumpe
-  state_entity: binary_sensor.wp_verdichter
-  mode: sensor.wp_betriebsart
-  power: sensor.wp_leistung
-  cop: sensor.wp_cop
-  flow_temp: sensor.wp_vorlauf
-  return_temp: sensor.wp_ruecklauf
-  outside_temp: sensor.aussentemperatur
+  name: Heat pump
+  entity: switch.heat_pump
+  state_entity: binary_sensor.compressor
+  mode: sensor.hp_operating_mode
+  power: sensor.hp_power
+  cop: sensor.hp_cop
+  flow_temp: sensor.hp_flow_temperature
+  return_temp: sensor.hp_return_temperature
+  outside_temp: sensor.outside_temperature
 buffer:
-  name: Pufferspeicher
-  top: sensor.puffer_oben
-  middle: sensor.puffer_mitte
-  bottom: sensor.puffer_unten
-  charge: sensor.puffer_ladung
+  name: Buffer tank
+  top: sensor.buffer_top
+  middle: sensor.buffer_middle
+  bottom: sensor.buffer_bottom
+  charge: sensor.buffer_charge
 circuits:
-  - name: Heizkörper EG
+  - name: Radiators, ground floor
     type: radiator
-    entity: switch.hk1
-    flow_temp: sensor.hk1_vorlauf
-    return_temp: sensor.hk1_ruecklauf
-    room_temp: sensor.wohnzimmer_temperatur
-    pump: binary_sensor.hk1_pumpe
-    valve: sensor.hk1_mischer
+    entity: switch.circuit_a
+    flow_temp: sensor.circuit_a_flow
+    return_temp: sensor.circuit_a_return
+    room_temp: sensor.living_room_temperature
+    pump: binary_sensor.circuit_a_pump
+    valve: sensor.circuit_a_mixer
