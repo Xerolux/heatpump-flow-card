@@ -83,9 +83,12 @@ every state change, so animations never restart.
 ## Releasing
 
 1. Bump `CARD_VERSION` in `dist/heatpump-flow-card.js` and `version` in
-   `package.json`, add a CHANGELOG entry.
+   `package.json`, and add a CHANGELOG section for that version.
 2. Merge to `main`.
-3. `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
+3. Either push a tag — `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z` —
+   or start **Actions → Release → Run workflow**, which creates the tag for you
+   from the version in the card.
 
-The release workflow checks that tag, `CARD_VERSION` and `package.json` agree,
-then publishes the release with the card attached.
+Either way the workflow refuses to publish unless `CARD_VERSION`,
+`package.json`, the tag and the CHANGELOG all agree, and then publishes the
+release with `heatpump-flow-card.js` attached.
