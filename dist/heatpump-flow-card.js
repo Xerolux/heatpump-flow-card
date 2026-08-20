@@ -7,7 +7,7 @@
  * MIT License - Copyright (c) 2026 Xerolux
  */
 
-const CARD_VERSION = "1.5.0";
+const CARD_VERSION = "1.6.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -93,6 +93,10 @@ function fieldEntities(field) {
   if (!field) return [];
   if (field.entities && field.entities.length) return field.entities;
   return field.entity ? [field.entity] : [];
+}
+
+function isTemperatureUnit(unit) {
+  return typeof unit === "string" && (unit.includes("°") || unit === "K");
 }
 
 function isShareLike(unit) {
@@ -713,7 +717,9 @@ function drawPanel(scene, box, title, options) {
     })
   );
   if (title) {
-    group.appendChild(svgText(box.x + 14, box.y + 21, title, { class: "hpfc-title" }));
+    const node = svgText(box.x + 14, box.y + 21, title, { class: "hpfc-title" });
+    group.appendChild(node);
+    if (opts.titleWidth) fitText(scene, node, title, opts.titleWidth);
   }
   scene.root.appendChild(group);
   if (opts.entity || opts.tap_action) {
@@ -725,6 +731,32 @@ function drawPanel(scene, box, title, options) {
     });
   }
   return group;
+}
+
+/**
+ * Trims a label with an ellipsis so it cannot run into whatever sits next to
+ * it. Measured once the card is laid out, which is why it rides along with the
+ * updaters.
+ */
+function fitText(scene, node, text, maxWidth) {
+  let done = false;
+  scene.add(() => {
+    if (done) return;
+    let width = 0;
+    try {
+      width = node.getComputedTextLength();
+    } catch (err) {
+      width = 0;
+    }
+    if (!width) return;
+    done = true;
+    if (width <= maxWidth) return;
+    let content = text;
+    while (content.length > 1 && node.getComputedTextLength() > maxWidth) {
+      content = content.slice(0, -1);
+      node.textContent = `${content.trimEnd()}…`;
+    }
+  });
 }
 
 /** Small "label over value" block. Returns nothing, registers its updater. */
@@ -764,8 +796,9 @@ function drawReadout(scene, group, x, y, label, field, options) {
     block.classList.toggle("hpfc-unset", !field || !field.entity || isMissing(st));
     if (opts.colorize) {
       const num = numberValue(hass, field);
-      const color = scene.config.temperature_colors === false ? null : tempTextColor(num);
-      value.style.fill = color || "";
+      const colored =
+        scene.config.temperature_colors !== false && isTemperatureUnit(unitOf(hass, field));
+      value.style.fill = (colored ? tempTextColor(num) : null) || "";
     }
     const operable =
       scene.config.controls !== false && field && field.entity && isControllable(hass, field.entity);
@@ -814,7 +847,9 @@ function drawBadge(scene, x, y, field, options) {
     rect.setAttribute("x", String(x - width / 2));
     rect.setAttribute("width", String(width));
     const num = numberValue(hass, field);
-    const color = scene.config.temperature_colors === false ? null : tempColor(num);
+    const colored =
+      scene.config.temperature_colors !== false && isTemperatureUnit(unitOf(hass, field));
+    const color = colored ? tempColor(num) : null;
     rect.style.fill = color || "";
     group.classList.toggle("hpfc-badge-plain", !color);
     group.classList.toggle("hpfc-unset", !field || !field.entity || isMissing(stateOf(hass, field)));
@@ -922,6 +957,7 @@ const TEXTS = {
     outside: "Outside",
     flow: "Flow",
     ret: "Return",
+    flow_rate: "Flow rate",
     buffer: "Buffer tank",
     dhw: "Hot water",
     pv: "Photovoltaics",
@@ -962,6 +998,7 @@ const TEXTS = {
     outside: "Außen",
     flow: "Vorlauf",
     ret: "Rücklauf",
+    flow_rate: "Durchfluss",
     buffer: "Pufferspeicher",
     dhw: "Warmwasser",
     pv: "Photovoltaik",
@@ -1297,7 +1334,7 @@ function drawHeatPump(scene, box, cfg) {
 
   // Second heat generator: the bit that quietly switches in on cold days
   if (cfg.aux_heat || cfg.aux_heat_power) {
-    const auxY = box.y + box.h - 62;
+    const auxY = box.y + box.h - 58;
     const aux = svgEl("g", { class: "hpfc-aux" });
     aux.appendChild(
       svgEl("rect", { x: box.x + 14, y: auxY - 13, width: box.w - 28, height: 26, rx: 9, class: "hpfc-aux-plate" })
@@ -1446,7 +1483,7 @@ function drawTank(scene, box, cfg, options) {
 
   // Electric element in the tank - an AC-Thor, a booster, a backup heater
   if (opts.heater) {
-    const heaterY = tank.y + tank.h * 0.62;
+    const heaterY = tank.y + tank.h * 0.55;
     const heater = svgEl("g", { class: "hpfc-heater" });
     const coilStart = tank.x + tank.w * 0.42;
     const step = (tank.w * 0.58 - 12) / 5;
@@ -1458,17 +1495,29 @@ function drawTank(scene, box, cfg, options) {
       svgEl("line", { x1: tank.x + 8, y1: heaterY, x2: coilStart, y2: heaterY, class: "hpfc-heater-rod" })
     );
     heater.appendChild(svgEl("path", { d: coil, fill: "none", class: "hpfc-heater-rod" }));
-    const heaterValue = svgText(tank.x + tank.w / 2, heaterY + 24, "", {
+    // A caption only fits under the element in a full height tank.
+    const roomy = tank.h >= 150;
+    const heaterName = roomy
+      ? svgText(tank.x + tank.w / 2, heaterY + 17, "", {
+          class: "hpfc-heater-name",
+          "text-anchor": "middle",
+        })
+      : null;
+    const heaterValue = svgText(tank.x + tank.w / 2, heaterY + (roomy ? 31 : 17), "", {
       class: "hpfc-heater-value",
       "text-anchor": "middle",
     });
+    if (heaterName) heater.appendChild(heaterName);
     heater.appendChild(heaterValue);
     group.appendChild(heater);
 
+    // Tapping it operates the mode when there is one - off, auto, boost -
+    // and the element itself otherwise.
+    const control = opts.heaterMode || opts.heater;
     attachAction(scene, heater, {
-      entity: opts.heater.entity,
-      tap_action: opts.heater.tap_action,
-      hold_action: opts.heater.hold_action,
+      entity: control.entity,
+      tap_action: control.tap_action,
+      hold_action: control.hold_action,
       label: opts.heaterLabel,
     });
 
@@ -1477,7 +1526,18 @@ function drawTank(scene, box, cfg, options) {
       const power = numberValue(hass, opts.heaterPower);
       const running = isActive(hass, opts.heater) || (power !== null && power > 0);
       heater.classList.toggle("hpfc-on", running);
-      heaterValue.textContent = opts.heaterPower ? displayValue(hass, opts.heaterPower, "") : "";
+
+      const parts = [];
+      if (opts.heaterPower) parts.push(displayValue(hass, opts.heaterPower, ""));
+      if (opts.heaterTemp) parts.push(displayValue(hass, opts.heaterTemp, ""));
+      heaterValue.textContent = parts.filter(Boolean).join(" · ");
+
+      if (heaterName) {
+        const name =
+          (opts.heater && opts.heater.name) || opts.heaterLabel || textsFor(hass).heater;
+        const mode = opts.heaterMode ? displayValue(hass, opts.heaterMode, "") : "";
+        heaterName.textContent = mode ? `${name} · ${mode}` : name;
+      }
     });
   }
 
@@ -1857,6 +1917,7 @@ function drawCircuit(scene, box, cfg) {
     entity: cfg.entity,
     tap_action: cfg.tap_action,
     hold_action: cfg.hold_action,
+    titleWidth: box.w - (cfg.mode ? 170 : 44),
   });
   group.classList.add("hpfc-circuit");
 
@@ -1945,6 +2006,7 @@ function drawDhw(scene, box, cfg) {
     entity: cfg.entity,
     tap_action: cfg.tap_action,
     hold_action: cfg.hold_action,
+    titleWidth: box.w - 44 - (cfg.mode ? 126 : 0) - (cfg.boost ? 74 : 0),
   });
   group.classList.add("hpfc-dhw");
 
@@ -1990,6 +2052,8 @@ function drawDhw(scene, box, cfg) {
       layers: [{ label: texts.dhw, field: cfg.temp, pill: false }],
       heater: cfg.heater,
       heaterPower: cfg.heater_power,
+      heaterTemp: cfg.heater_temp,
+      heaterMode: cfg.heater_mode,
       heaterLabel: texts.heater,
       entity: cfg.entity,
       tap_action: cfg.tap_action,
@@ -2068,11 +2132,23 @@ const SECTION_FIELDS = {
     "aux_heat",
     "aux_heat_power",
     "defrost",
+    "flow_rate",
   ],
   pv: ["power", "battery", "grid"],
-  solar: ["collector_temp", "pump", "yield", "return_temp"],
-  buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power"],
-  dhw: ["temp", "target_temp", "charge", "pump", "mode", "boost", "heater", "heater_power"],
+  solar: ["collector_temp", "pump", "yield", "return_temp", "flow_temp"],
+  buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power", "heater_temp", "heater_mode"],
+  dhw: [
+    "temp",
+    "target_temp",
+    "charge",
+    "pump",
+    "mode",
+    "boost",
+    "heater",
+    "heater_power",
+    "heater_temp",
+    "heater_mode",
+  ],
   circuit: [
     "flow_temp",
     "return_temp",
@@ -2219,7 +2295,7 @@ function buildScene(card) {
   const dhwHeight = 118;
   const showSources = Boolean(config.pv || config.solar);
   const hpHeight =
-    config.heatpump.aux_heat || config.heatpump.aux_heat_power ? G.hp.h + 26 : G.hp.h;
+    config.heatpump.aux_heat || config.heatpump.aux_heat_power ? G.hp.h + 34 : G.hp.h;
 
   // ---- horizontal placement -------------------------------------------
   let x = G.pad;
@@ -2263,9 +2339,9 @@ function buildScene(card) {
   }
 
   const solarLanes = config.solar && config.buffer;
-  const height = G.pad + contentH + (solarLanes ? 48 : G.pad);
-  const laneA = G.pad + contentH + 16;
-  const laneB = G.pad + contentH + 32;
+  const height = G.pad + contentH + (solarLanes ? 88 : G.pad);
+  const laneA = G.pad + contentH + 20;
+  const laneB = G.pad + contentH + 54;
 
   // ---- scene scaffolding ----------------------------------------------
   const svg = svgEl("svg", {
@@ -2319,6 +2395,8 @@ function buildScene(card) {
     drawTank(scene, { x: bufX, y: bufY, w: G.buffer.w, h: bufH }, config.buffer, {
       heater: config.buffer.heater,
       heaterPower: config.buffer.heater_power,
+      heaterTemp: config.buffer.heater_temp,
+      heaterMode: config.buffer.heater_mode,
       heaterLabel: texts.heater,
       title: config.buffer.name || texts.buffer,
       subtitle: config.buffer.charge ? { label: texts.charge, field: config.buffer.charge } : null,
@@ -2411,6 +2489,11 @@ function buildScene(card) {
   if (config.heatpump.return_temp) {
     drawBadge(scene, hpRight + 28, hpReturnY + 17, config.heatpump.return_temp, {
       label: textsFor(scene.hass()).ret,
+    });
+  }
+  if (config.heatpump.flow_rate) {
+    drawBadge(scene, hpRight + 28, hpFlowY + 17, config.heatpump.flow_rate, {
+      label: textsFor(scene.hass()).flow_rate,
     });
   }
 
@@ -2525,6 +2608,18 @@ function buildScene(card) {
       to: config.solar.return_temp || config.buffer.bottom,
       active: solar.running,
     });
+
+    // What the collector sends down and what comes back up
+    const solarTexts = textsFor(scene.hass());
+    const solarBadgeX = (srcX + G.solar.w - 42 + tankCenter - 18) / 2;
+    if (config.solar.flow_temp || config.solar.collector_temp) {
+      drawBadge(scene, solarBadgeX, laneA - 16, config.solar.flow_temp || config.solar.collector_temp, {
+        label: solarTexts.flow,
+      });
+    }
+    if (config.solar.return_temp) {
+      drawBadge(scene, solarBadgeX, laneB + 16, config.solar.return_temp, { label: solarTexts.ret });
+    }
   }
 
   // photovoltaic energy line
@@ -2723,7 +2818,8 @@ ha-card.hpfc-has-title { padding-top: 4px; }
   fill: none;
   transition: stroke 0.5s ease;
 }
-.hpfc-heater-value { font-size: 11px; font-weight: 700; fill: #ffffff; opacity: 0.85; }
+.hpfc-heater-name { font-size: 10px; font-weight: 600; fill: #ffffff; opacity: 0.8; }
+.hpfc-heater-value { font-size: 11px; font-weight: 700; fill: #ffffff; opacity: 0.9; }
 .hpfc-heater.hpfc-on .hpfc-heater-rod { stroke: #fff3c4; animation: hpfc-glow 1.4s ease-in-out infinite; }
 
 .hpfc-status { fill: var(--hpfc-muted); opacity: 0.4; }
@@ -3279,11 +3375,12 @@ const EDITOR_SECTIONS = {
     "aux_heat",
     "aux_heat_power",
     "defrost",
+    "flow_rate",
   ],
-  buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power"],
+  buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power", "heater_temp", "heater_mode"],
   dhw: ["temp", "target_temp", "mode", "boost", "pump", "charge"],
   pv: ["power", "battery", "grid"],
-  solar: ["collector_temp", "pump", "yield", "return_temp"],
+  solar: ["collector_temp", "pump", "yield", "return_temp", "flow_temp"],
 };
 const EDITOR_CIRCUIT_FIELDS = [
   "flow_temp",

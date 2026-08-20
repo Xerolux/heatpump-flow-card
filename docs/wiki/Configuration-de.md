@@ -34,6 +34,7 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `aux_heat` | Zweiter Wärmeerzeuger – eigene Zeile im Panel, leuchtet unter Last |
 | `aux_heat_power` | Dessen Leistung, in derselben Zeile |
 | `defrost` | Binärsensor, der die Abtau-Darstellung erzwingt, wenn der Statustext sie nicht hergibt |
+| `flow_rate` | Durchfluss durch die Wärmepumpe, als Pille unter der Vorlauftemperatur |
 | `power` | Leistung, neben dem Außengerät |
 | `cop` | Arbeitszahl / COP |
 | `outside_temp` | Außentemperatur |
@@ -60,6 +61,8 @@ fließen.
 | `charge` | Ladezustand, unter dem Namen |
 | `heater` | Heizstab im Speicher – glüht, solange er Leistung zieht, Klick bedient ihn |
 | `heater_power` | Dessen Leistung, unter dem Heizstab |
+| `heater_temp` | Seine eigene Temperatur, neben der Leistung |
+| `heater_mode` | Aus / Automatik / Boost – übernimmt den Klick auf den Heizstab |
 
 Nur `top` und `bottom` konfiguriert → zwei Pillen. Gar nichts → drei leere.
 `buffer: false` verrohrt die Wärmepumpe direkt auf die Heizkreise.
@@ -75,11 +78,13 @@ Nur `top` und `bottom` konfiguriert → zwei Pillen. Gar nichts → drei leere.
 | Abschnitt | Optionen |
 | --- | --- |
 | `pv` | `name`, `entity`, `power`, `battery`, `grid`, `threshold` (Watt, Standard `5`) |
-| `solar` | `name`, `entity`, `collector_temp`, `pump`, `yield`, `return_temp` |
+| `solar` | `name`, `entity`, `collector_temp`, `flow_temp`, `return_temp`, `pump`, `yield` |
 
 Die PV-Fläche zeichnet eine gestrichelte Energielinie zur Wärmepumpe, solange
 sie produziert. Der Solarkreis wird unten in den Pufferspeicher geführt und
-braucht deshalb einen Puffer.
+braucht deshalb einen Puffer; beide Temperaturen erscheinen als Pillen an
+seinen Rohren: `flow_temp` (oder der Kollektor) auf dem Weg nach unten,
+`return_temp` auf dem Rückweg.
 
 **Läuft Solar?** `pump` → `yield` über 0 → Kollektor über 35 °C.
 

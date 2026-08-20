@@ -157,6 +157,27 @@ for (const [key, soc] of Object.entries({ battery_1_soc: 84, battery_2_soc: 78 }
   };
 }
 
+window.demoStates["sensor.hp_flow_rate"] = {
+  entity_id: "sensor.hp_flow_rate",
+  state: "18.4",
+  attributes: { friendly_name: "Flow rate", unit_of_measurement: "l/min" },
+};
+window.demoStates["sensor.solar_flow_temperature"] = {
+  entity_id: "sensor.solar_flow_temperature",
+  state: "58.2",
+  attributes: { friendly_name: "Solar flow", unit_of_measurement: "°C" },
+};
+window.demoStates["sensor.tank_heater_temperature"] = {
+  entity_id: "sensor.tank_heater_temperature",
+  state: "48.6",
+  attributes: { friendly_name: "Element temperature", unit_of_measurement: "°C" },
+};
+window.demoStates["select.tank_heater_mode"] = {
+  entity_id: "select.tank_heater_mode",
+  state: "Automatic",
+  attributes: { friendly_name: "Element mode", options: ["Off", "Automatic", "Boost"] },
+};
+
 window.serviceCalls = [];
 
 window.makeHass = (language) => ({

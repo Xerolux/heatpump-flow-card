@@ -26,6 +26,8 @@ heatpump:
   flow_temp: sensor.alm6_15_warmepumpen_vorlauftemperatur
   return_temp: sensor.alm6_15_warmepumpen_rucklauftemperatur
   outside_temp: sensor.alm6_15_aussentemperatur
+  # flow rate through the heat sink, shown as a badge under the flow temperature
+  flow_rate: sensor.alm6_15_durchfluss_warmesenke_b2
   # the bivalent stage: shown as its own row, glowing while it carries load
   aux_heat: binary_sensor.alm6_15_zweiter_warmeerzeuger_web
   aux_heat_power: sensor.alm6_15_e_heizstab_leistung
@@ -59,6 +61,8 @@ pv:
 
 solar:
   name: Paradigma solar thermal
+  # both ends of the solar circuit end up as badges on its pipes: what the
+  # collector sends down, and what comes back up
   collector_temp: sensor.systasolar_aqua_s3_kollektor_temp
   return_temp: sensor.systasolar_aqua_s3_eintritt_temp
   pump: binary_sensor.systasolar_aqua_s3_solar_aktiv

@@ -18,6 +18,8 @@ heatpump:
   flow_temp: sensor.alm6_15_warmepumpen_vorlauftemperatur
   return_temp: sensor.alm6_15_warmepumpen_rucklauftemperatur
   outside_temp: sensor.alm6_15_aussentemperatur
+  # flow rate through the heat sink, shown as a badge under the flow temperature
+  flow_rate: sensor.alm6_15_durchfluss_warmesenke_b2
   aux_heat: binary_sensor.alm6_15_zweiter_warmeerzeuger_web
   aux_heat_power: sensor.alm6_15_e_heizstab_leistung
 
@@ -25,10 +27,17 @@ buffer:
   name: Buffer tank
   top: sensor.alm6_15_warmespeichertemperatur
   bottom: sensor.alm6_15_ladefuhler_temperatur
-  # the AC-Thor: `heater` decides whether the element glows, `heater_power`
-  # is printed underneath it
-  heater: switch.ac_thor_betriebsmodus
+  # The AC-Thor. `heater` decides whether the element glows - a power sensor
+  # counts as running above zero - and its name is printed under the element.
+  # `heater_mode` takes over the tap, so one tap operates the mode.
+  heater:
+    entity: sensor.ac_thor_power
+    name: AC-Thor
   heater_power: sensor.ac_thor_power
+  heater_temp: sensor.ac_thor_temp1
+  heater_mode: switch.ac_thor_betriebsmodus
+  # a one-off push instead:
+  # heater_mode: switch.ac_thor_boost_aktivieren
 
 dhw:
   name: Hot water
@@ -38,8 +47,9 @@ dhw:
   target_temp: number.alm6_15_warmwasser_sollwert
   boost: button.alm6_15_warmwasser_boost_starten
   # an AC-Thor on the hot water tank instead would go here:
-  # heater: switch.ac_thor_boost_aktivieren
+  # heater: sensor.ac_thor_power
   # heater_power: sensor.ac_thor_power
+  # heater_temp: sensor.ac_thor_temp1
 
 pv:
   name: SolarEdge

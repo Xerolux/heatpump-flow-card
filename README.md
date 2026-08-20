@@ -208,8 +208,9 @@ afterwards:
   from an explicit `defrost` binary sensor.
 * **An electric element in the tank.** `heater` and `heater_power` on `buffer`
   or `dhw` draw a heating element inside the tank — a my-PV AC-Thor, a booster,
-  a backup heater — glowing while it draws power. Tapping it operates the
-  entity behind `heater`.
+  a backup heater — glowing while it draws power, captioned with its name, its
+  power and, with `heater_temp`, its own temperature. Give it a `heater_mode`
+  and one tap offers off / automatic / boost.
 
 ```yaml
 heatpump:
@@ -290,7 +291,8 @@ Without `state_entity` the card falls back to `power` > threshold, then
 
 ### `buffer`
 
-`name`, `entity`, `top`, `middle`, `bottom`, `charge`, `heater`, `heater_power`
+`name`, `entity`, `top`, `middle`, `bottom`, `charge`, `heater`, `heater_power`,
+`heater_temp`, `heater_mode`
 
 The tank is filled with a gradient between the layer temperatures. `charge` is
 printed under the name. `buffer: false` connects the heat pump straight to the
@@ -306,7 +308,7 @@ circuits.
 | Section | Options |
 | --- | --- |
 | `pv` | `name`, `entity`, `power`, `battery`, `grid`, `threshold` (watts, default `5`) |
-| `solar` | `name`, `entity`, `collector_temp`, `pump`, `yield`, `return_temp` |
+| `solar` | `name`, `entity`, `collector_temp`, `flow_temp`, `return_temp`, `pump`, `yield` |
 
 The solar circuit is drawn into the bottom of the buffer tank, so it needs a
 buffer to connect to.

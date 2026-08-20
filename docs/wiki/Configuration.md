@@ -34,6 +34,7 @@ empty, a section you set to `false` is not drawn at all.
 | `aux_heat` | Second heat generator — an extra row on the panel, lit while it carries load |
 | `aux_heat_power` | Its power, printed in that row |
 | `defrost` | Binary sensor that forces the defrost look, if the status text does not say it |
+| `flow_rate` | Flow rate through the heat pump, as a badge under the flow temperature |
 | `power` | Electrical or thermal power, shown next to the unit |
 | `cop` | Efficiency / COP |
 | `outside_temp` | Outdoor temperature |
@@ -60,6 +61,8 @@ tank flow.
 | `charge` | Charge level, printed under the name |
 | `heater` | Electric element inside the tank — glows while it draws power, tap to operate |
 | `heater_power` | Its power, printed under the element |
+| `heater_temp` | Its own temperature, printed next to the power |
+| `heater_mode` | Off / automatic / boost — takes over the tap on the element |
 
 Configure only `top` and `bottom` and the tank shows two pills; configure none
 and it shows three empty ones. `buffer: false` wires the heat pump straight to
@@ -83,11 +86,13 @@ the circuits.
 | Section | Options |
 | --- | --- |
 | `pv` | `name`, `entity`, `power`, `battery`, `grid`, `threshold` (watts, default `5`) |
-| `solar` | `name`, `entity`, `collector_temp`, `pump`, `yield`, `return_temp` |
+| `solar` | `name`, `entity`, `collector_temp`, `flow_temp`, `return_temp`, `pump`, `yield` |
 
 The PV panel draws a dashed energy line to the heat pump while it produces. The
 solar circuit is plumbed into the bottom of the buffer tank, so it needs a
-buffer to connect to.
+buffer to connect to, and both of its temperatures appear as badges on its
+pipes: `flow_temp` (or the collector) on the way down, `return_temp` on the way
+back up.
 
 **Is solar running?** `pump` → `yield` above 0 → collector above 35 °C.
 

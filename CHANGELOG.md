@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.6.0
+
+* **Nothing overlaps any more.** A new `check:overlaps` step renders every demo
+  layout in a browser and fails the build when two labels, or a label and a
+  pill, cover each other. It found three: a long circuit name running under its
+  mode chip, the outside temperature under the second heat generator, and the
+  element caption under the bottom layer of the tank. All three are fixed, and
+  long panel titles are now trimmed with an ellipsis instead of colliding.
+* **The element in the tank is captioned**: its name, its power and, with
+  `heater_temp`, its own temperature. `heater_mode` takes over the tap, so one
+  tap offers off / automatic / boost.
+* **The solar circuit shows both ends**: what the collector sends down and what
+  comes back up, as badges on its pipes. New `solar.flow_temp` for plants that
+  measure it separately from the collector.
+* **New `heatpump.flow_rate`**, as a badge under the flow temperature.
+* Values are only coloured by the temperature ramp when they actually carry a
+  temperature — a flow rate in l/min stays neutral.
+
 ## 1.5.0
 
 * **Any value can read several entities at once.** Four inverters become one PV

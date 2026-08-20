@@ -214,8 +214,9 @@ schlecht erklären kann:
   (oder `mode`), oder aus einem eigenen `defrost`-Binärsensor.
 * **Ein Heizstab im Speicher.** `heater` und `heater_power` bei `buffer` oder
   `dhw` zeichnen einen Heizstab in den Speicher – ein my-PV AC-Thor, ein
-  Booster, eine Notheizung –, der glüht, solange er Leistung zieht. Ein Klick
-  bedient die Entität hinter `heater`.
+  Booster, eine Notheizung –, der glüht, solange er Leistung zieht,
+  beschriftet mit Namen, Leistung und – über `heater_temp` – seiner eigenen
+  Temperatur. Mit `heater_mode` bietet ein Klick Aus / Automatik / Boost an.
 
 ```yaml
 heatpump:
@@ -297,7 +298,8 @@ zuletzt der Zustand von `entity` ausgewertet.
 
 ### `buffer`
 
-`name`, `entity`, `top`, `middle`, `bottom`, `charge`, `heater`, `heater_power`
+`name`, `entity`, `top`, `middle`, `bottom`, `charge`, `heater`, `heater_power`,
+`heater_temp`, `heater_mode`
 
 Der Speicher wird mit einem Verlauf zwischen den Schichttemperaturen gefüllt.
 `charge` erscheint unter dem Namen. Mit `buffer: false` speist die Wärmepumpe
@@ -312,7 +314,7 @@ die Heizkreise direkt.
 | Abschnitt | Optionen |
 | --- | --- |
 | `pv` | `name`, `entity`, `power`, `battery`, `grid`, `threshold` (Watt, Standard `5`) |
-| `solar` | `name`, `entity`, `collector_temp`, `pump`, `yield`, `return_temp` |
+| `solar` | `name`, `entity`, `collector_temp`, `flow_temp`, `return_temp`, `pump`, `yield` |
 
 Der Solarkreis wird in den unteren Teil des Pufferspeichers gezeichnet und
 braucht deshalb einen Puffer.

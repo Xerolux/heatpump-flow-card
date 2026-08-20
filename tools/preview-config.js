@@ -11,6 +11,7 @@ const heatpump = {
   outside_temp: "sensor.outside_temperature",
   compressor: "sensor.compressor_load",
   mode: "select.system_mode",
+  flow_rate: "sensor.hp_flow_rate",
 };
 
 const buffer = {
@@ -58,8 +59,10 @@ window.previewConfigs = {
     },
     buffer: {
       ...buffer,
-      heater: "switch.tank_heater",
+      heater: { entity: "switch.tank_heater", name: "AC-Thor" },
       heater_power: "sensor.tank_heater_power",
+      heater_temp: "sensor.tank_heater_temperature",
+      heater_mode: "select.tank_heater_mode",
     },
     dhw: {
       name: "Hot water",
@@ -213,6 +216,7 @@ window.previewConfigs = {
     solar: {
       name: "Solar thermal",
       collector_temp: "sensor.collector_temperature",
+      flow_temp: "sensor.solar_flow_temperature",
       pump: "binary_sensor.solar_pump",
       yield: "sensor.solar_yield",
       return_temp: "sensor.solar_return_temperature",

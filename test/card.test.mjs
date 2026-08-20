@@ -542,21 +542,71 @@ test("a defrost cycle is visible on the heat pump", async () => {
   assert.equal(after.chip, "Heating");
 });
 
-test("an electric element in the tank is drawn and operable", async () => {
+test("an electric element in the tank is drawn, named and operable", async () => {
   await page.goto(`${previewUrl}?layout=extras`);
   const state = await page.evaluate(() => {
     window.serviceCalls = [];
     const root = document.getElementById("card-extras").shadowRoot;
     const heater = root.querySelector(".hpfc-heater");
-    const value = heater.querySelector(".hpfc-heater-value").textContent;
+    const shown = {
+      running: heater.classList.contains("hpfc-on"),
+      name: heater.querySelector(".hpfc-heater-name").textContent,
+      value: heater.querySelector(".hpfc-heater-value").textContent,
+    };
+    // it carries a mode, so a tap offers the modes rather than toggling
     heater.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    return { running: heater.classList.contains("hpfc-on"), value, calls: window.serviceCalls };
+    const options = [...root.querySelectorAll(".hpfc-pop-options button")].map((b) => b.textContent);
+    root.querySelectorAll(".hpfc-pop-options button")[2].click();
+    return { ...shown, options, calls: window.serviceCalls };
   });
   assert.equal(state.running, true);
-  assert.equal(state.value, "2,450 W");
+  assert.equal(state.name, "AC-Thor · Automatic");
+  assert.equal(state.value, "2,450 W · 48.6 °C");
+  assert.deepEqual(state.options, ["Off", "Automatic", "Boost"]);
   assert.deepEqual(state.calls, [
+    {
+      domain: "select",
+      service: "select_option",
+      data: { entity_id: "select.tank_heater_mode", option: "Boost" },
+    },
+  ]);
+});
+
+test("an element without a mode is switched by tapping it", async () => {
+  const calls = await page.evaluate(() => {
+    window.serviceCalls = [];
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "single",
+      heatpump: {},
+      buffer: {
+        top: "sensor.buffer_top",
+        bottom: "sensor.buffer_bottom",
+        heater: "switch.tank_heater",
+        heater_power: "sensor.tank_heater_power",
+      },
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    card.shadowRoot.querySelector(".hpfc-heater").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    return window.serviceCalls;
+  });
+  assert.deepEqual(calls, [
     { domain: "homeassistant", service: "toggle", data: { entity_id: "switch.tank_heater" } },
   ]);
+});
+
+test("the solar circuit shows what it sends and what comes back", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  const badges = await page.evaluate(() => {
+    const root = document.getElementById("card-full").shadowRoot;
+    return [...root.querySelectorAll(".hpfc-badge text")].map((t) => t.textContent);
+  });
+  // heat pump flow and return, its flow rate, then the solar flow and return
+  assert.ok(badges.includes("58.2 °C"), `solar flow missing: ${badges.join(", ")}`);
+  assert.ok(badges.includes("31 °C"), `solar return missing: ${badges.join(", ")}`);
+  assert.ok(badges.includes("18.4 l/min"), `flow rate missing: ${badges.join(", ")}`);
 });
 
 test("several entities in one value: powers add up, shares average", async () => {
