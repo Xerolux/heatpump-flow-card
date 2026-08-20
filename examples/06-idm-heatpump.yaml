@@ -1,0 +1,61 @@
+# Wired up for the IDM heat pump integration
+# (https://github.com/Xerolux/idm-heatpump-hass).
+#
+# The entity id prefix follows the device name you gave the integration, so
+# `idm_heatpump` below may be `navigator_10` or similar on your system - check
+# Settings -> Devices & Services -> IDM Heatpump -> Entities.
+#
+# Everything with an arrow in the card can be operated directly:
+#   * system mode and circuit mode are `select` entities -> option list
+#   * the DHW target is a `number` -> plus/minus stepper
+#   * a circuit bound to its `climate` entity -> hvac modes plus setpoint
+#   * the one-time DHW charge is a `switch` -> toggled with one tap
+type: custom:heatpump-flow-card
+layout: full
+title: IDM Wärmepumpe
+
+heatpump:
+  name: IDM Navigator
+  entity: select.idm_heatpump_system_mode
+  mode: select.idm_heatpump_system_mode
+  power: sensor.idm_heatpump_current_heating_power
+  cop: sensor.idm_heatpump_calculated_cop
+  flow_temp: sensor.idm_heatpump_hp_flow_temperature
+  return_temp: sensor.idm_heatpump_hp_return_temperature
+  outside_temp: sensor.idm_heatpump_outdoor_temperature
+  compressor: sensor.idm_heatpump_compressor_status_1
+
+buffer:
+  name: Pufferspeicher
+  top: sensor.idm_heatpump_storage_tank_temperature
+  bottom: sensor.idm_heatpump_cold_storage_temperature
+
+dhw:
+  name: Warmwasser
+  entity: water_heater.idm_heatpump
+  mode: water_heater.idm_heatpump
+  temp: sensor.idm_heatpump_dhw_temp_top
+  target_temp: number.idm_heatpump_dhw_setpoint
+  boost: switch.idm_heatpump_demand_onetime_dhw
+
+pv:
+  name: PV-Überschuss
+  power: sensor.idm_heatpump_pv_surplus
+
+circuits:
+  - name: Heizkreis A
+    type: underfloor
+    entity: climate.idm_heatpump_circuit_a
+    mode: select.idm_heatpump_circuit_a_mode
+    flow_temp: sensor.idm_heatpump_circuit_a_flow_temp
+    room_temp: sensor.idm_heatpump_circuit_a_room_temp
+    target_temp: number.idm_heatpump_circuit_a_room_setpoint_heat_normal
+  - name: Heizkreis B
+    type: radiator
+    # Bound to the climate entity instead: one tap offers the hvac modes and
+    # the room setpoint in the same little panel.
+    entity: climate.idm_heatpump_circuit_b
+    mode: climate.idm_heatpump_circuit_b
+    target_temp: climate.idm_heatpump_circuit_b
+    room_temp: climate.idm_heatpump_circuit_b
+    flow_temp: sensor.idm_heatpump_circuit_b_flow_temp

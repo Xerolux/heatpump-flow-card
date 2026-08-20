@@ -10,6 +10,7 @@ const heatpump = {
   return_temp: "sensor.wp_ruecklauf",
   outside_temp: "sensor.aussentemperatur",
   compressor: "sensor.wp_verdichterlast",
+  mode: "select.wp_systemmodus",
 };
 
 const buffer = {
@@ -29,6 +30,8 @@ const radiators = {
   room_temp: "sensor.wohnzimmer_temperatur",
   pump: "binary_sensor.hk1_pumpe",
   valve: "sensor.hk1_mischer",
+  mode: "climate.hk1",
+  target_temp: "climate.hk1",
 };
 
 const underfloor = {
@@ -43,6 +46,75 @@ const underfloor = {
 };
 
 window.previewConfigs = {
+  "dhw-dual": {
+    type: "custom:heatpump-flow-card",
+    layout: "dhw-dual",
+    title: "Ohne PV und Thermie",
+    heatpump,
+    buffer,
+    dhw: {
+      name: "Warmwasser",
+      entity: "switch.warmwasser",
+      temp: "sensor.ww_temperatur",
+      target_temp: "number.ww_soll",
+      pump: "binary_sensor.ww_ladepumpe",
+      boost: "button.ww_boost",
+    },
+    circuits: [radiators, underfloor],
+  },
+  "pv-dual": {
+    type: "custom:heatpump-flow-card",
+    layout: "pv-dual",
+    title: "Mit PV, ohne Solarthermie",
+    heatpump,
+    buffer,
+    pv: { name: "Photovoltaik", power: "sensor.pv_leistung", battery: "sensor.batterie_soc" },
+    circuits: [radiators, underfloor],
+  },
+  circuits: {
+    type: "custom:heatpump-flow-card",
+    layout: "full",
+    title: "Vier Heizkreise, jeder mit eigenem Zustand",
+    pv: false,
+    solar: false,
+    dhw: false,
+    heatpump,
+    buffer,
+    circuits: [
+      {
+        name: "Heizkreis A",
+        type: "radiator",
+        mode: "select.hk_a_mode",
+        pump: "binary_sensor.hk1_pumpe",
+        flow_temp: "sensor.hk1_vorlauf",
+        return_temp: "sensor.hk1_ruecklauf",
+        room_temp: "sensor.wohnzimmer_temperatur",
+      },
+      {
+        name: "Heizkreis B",
+        type: "underfloor",
+        mode: "select.hk_b_mode",
+        pump: "binary_sensor.hk2_pumpe",
+        flow_temp: "sensor.hk2_vorlauf",
+        return_temp: "sensor.hk2_ruecklauf",
+        room_temp: "sensor.bad_temperatur",
+      },
+      {
+        name: "Heizkreis C",
+        type: "underfloor",
+        mode: "select.hk_c_mode",
+        pump: "binary_sensor.hk_c_pumpe",
+        flow_temp: "sensor.hk_c_vorlauf",
+      },
+      {
+        name: "Heizkreis D",
+        type: "fancoil",
+        mode: "select.hk_d_mode",
+        pump: "binary_sensor.hk_d_pumpe",
+        flow_temp: "sensor.hk_d_vorlauf",
+      },
+    ],
+  },
   advanced: {
     type: "custom:heatpump-flow-card",
     layout: "dual",
@@ -56,6 +128,7 @@ window.previewConfigs = {
       temp: "sensor.ww_temperatur",
       target_temp: "number.ww_soll",
       pump: "binary_sensor.ww_ladepumpe",
+      boost: "button.ww_boost",
     },
     circuits: [
       radiators,
@@ -99,6 +172,7 @@ window.previewConfigs = {
       temp: "sensor.ww_temperatur",
       target_temp: "number.ww_soll",
       pump: "binary_sensor.ww_ladepumpe",
+      boost: "button.ww_boost",
     },
     pv: { name: "Photovoltaik", power: "sensor.pv_leistung", battery: "sensor.batterie_soc" },
     solar: {

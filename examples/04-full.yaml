@@ -7,7 +7,7 @@ heatpump:
   name: Wärmepumpe
   entity: switch.waermepumpe
   state_entity: binary_sensor.wp_verdichter
-  mode: sensor.wp_betriebsart
+  mode: select.wp_systemmodus        # a select becomes a mode picker
   power: sensor.wp_leistung
   cop: sensor.wp_cop
   flow_temp: sensor.wp_vorlauf
@@ -34,8 +34,10 @@ dhw:
   name: Warmwasser
   entity: switch.warmwasser
   temp: sensor.ww_temperatur
-  target_temp: number.ww_soll
+  target_temp: number.ww_soll        # tap it for a plus/minus stepper
   pump: binary_sensor.ww_ladepumpe
+  mode: select.ww_betriebsart        # tap it to pick an operating mode
+  boost: button.ww_einmalladung      # tap it to press the button
 circuits:
   - name: Heizkörper EG
     type: radiator
@@ -47,6 +49,8 @@ circuits:
     valve: sensor.hk1_mischer
   - name: Fußbodenheizung OG
     type: underfloor
+    mode: climate.hk2                # hvac modes + setpoint in one panel
+    target_temp: climate.hk2
     entity: switch.hk2
     flow_temp: sensor.hk2_vorlauf
     return_temp: sensor.hk2_ruecklauf

@@ -171,3 +171,305 @@ test("a section switched off in the editor stays off", async () => {
   });
   assert.equal(result.buffer, false);
 });
+
+test("tapping the operating mode offers the modes of a select entity", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  const popup = await page.evaluate(() => {
+    const root = document.getElementById("card-full").shadowRoot;
+    root.querySelector(".hpfc-heatpump .hpfc-chip").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const pop = root.querySelector(".hpfc-pop");
+    return {
+      title: pop.querySelector(".hpfc-pop-title").textContent,
+      options: [...pop.querySelectorAll(".hpfc-pop-options button")].map((b) => b.textContent),
+      active: pop.querySelector(".hpfc-pop-options button.hpfc-on").textContent,
+      hasStepper: Boolean(pop.querySelector(".hpfc-pop-step")),
+    };
+  });
+  assert.equal(popup.title, "Systemmodus");
+  assert.deepEqual(popup.options, ["Standby", "Automatik", "Abwesend", "Nur Warmwasser", "Nur Heizen/Kühlen"]);
+  assert.equal(popup.active, "Automatik");
+  assert.equal(popup.hasStepper, false);
+
+  const calls = await page.evaluate(() => {
+    window.serviceCalls = [];
+    const root = document.getElementById("card-full").shadowRoot;
+    [...root.querySelectorAll(".hpfc-pop-options button")]
+      .find((b) => b.textContent === "Nur Warmwasser")
+      .click();
+    return window.serviceCalls;
+  });
+  assert.deepEqual(calls, [
+    {
+      domain: "select",
+      service: "select_option",
+      data: { entity_id: "select.wp_systemmodus", option: "Nur Warmwasser" },
+    },
+  ]);
+});
+
+test("a setpoint can be nudged straight from the card", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  const result = await page.evaluate(() => {
+    window.serviceCalls = [];
+    const root = document.getElementById("card-full").shadowRoot;
+    const readouts = [...root.querySelectorAll(".hpfc-dhw .hpfc-readout")];
+    const target = readouts[1]; // Ist | Soll | Pumpe
+    target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const pop = root.querySelector(".hpfc-pop");
+    const value = pop.querySelector(".hpfc-pop-value").textContent;
+    const buttons = pop.querySelectorAll(".hpfc-pop-step button");
+    buttons[1].click(); // +
+    buttons[0].click(); // −
+    return { value, calls: window.serviceCalls };
+  });
+  assert.equal(result.value, "55,0 °C");
+  assert.deepEqual(result.calls, [
+    { domain: "number", service: "set_value", data: { entity_id: "number.ww_soll", value: 55.5 } },
+    { domain: "number", service: "set_value", data: { entity_id: "number.ww_soll", value: 54.5 } },
+  ]);
+});
+
+test("a button entity is pressed directly, without a popover", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  const result = await page.evaluate(() => {
+    window.serviceCalls = [];
+    const root = document.getElementById("card-full").shadowRoot;
+    const chips = [...root.querySelectorAll(".hpfc-dhw .hpfc-chip")];
+    chips[chips.length - 1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    return { calls: window.serviceCalls, pop: Boolean(root.querySelector(".hpfc-pop")) };
+  });
+  assert.equal(result.pop, false);
+  assert.deepEqual(result.calls, [
+    { domain: "button", service: "press", data: { entity_id: "button.ww_boost" } },
+  ]);
+});
+
+test("a climate circuit offers its hvac modes and its setpoint", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  const result = await page.evaluate(() => {
+    window.serviceCalls = [];
+    const root = document.getElementById("card-full").shadowRoot;
+    root.querySelector(".hpfc-circuit .hpfc-chip").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const pop = root.querySelector(".hpfc-pop");
+    const options = [...pop.querySelectorAll(".hpfc-pop-options button")];
+    const value = pop.querySelector(".hpfc-pop-value").textContent;
+    options.find((b) => b.textContent === "Kühlen").click();
+    return { labels: options.map((b) => b.textContent), value, calls: window.serviceCalls };
+  });
+  assert.deepEqual(result.labels, ["Aus", "Automatik", "Heizen", "Kühlen"]);
+  assert.equal(result.value, "21,5 °C");
+  assert.deepEqual(result.calls, [
+    { domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.hk1", hvac_mode: "cool" } },
+  ]);
+});
+
+test("values that can be operated are marked", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  const marked = await page.evaluate(() => {
+    const root = document.getElementById("card-full").shadowRoot;
+    return [...root.querySelectorAll(".hpfc-affordance")].filter(
+      (line) => line.style.display !== "none" && Number(line.getAttribute("x2")) > Number(line.getAttribute("x1"))
+    ).length;
+  });
+  assert.ok(marked >= 2, `expected marked values, got ${marked}`);
+});
+
+test("controls can be switched off", async () => {
+  const result = await page.evaluate(() => {
+    window.moreInfo = [];
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "single",
+      controls: false,
+      dhw: { temp: "sensor.ww_temperatur", target_temp: "number.ww_soll" },
+      circuits: [{ type: "radiator" }],
+    });
+    card.hass = window.makeHass("de");
+    document.body.appendChild(card);
+    const readouts = [...card.shadowRoot.querySelectorAll(".hpfc-dhw .hpfc-readout")];
+    readouts[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    return {
+      pop: Boolean(card.shadowRoot.querySelector(".hpfc-pop")),
+      moreInfo: window.moreInfo,
+      affordances: [...card.shadowRoot.querySelectorAll(".hpfc-affordance")].filter(
+        (line) => line.style.display !== "none"
+      ).length,
+    };
+  });
+  assert.equal(result.pop, false);
+  assert.deepEqual(result.moreInfo, ["number.ww_soll"]);
+  assert.equal(result.affordances, 0);
+});
+
+test("draws up to seven heating circuits, A to G", async () => {
+  await page.goto(`${previewUrl}?layout=dual`);
+  const result = await page.evaluate(() => {
+    const types = ["radiator", "underfloor", "radiator", "underfloor", "fancoil", "radiator", "pool"];
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "full",
+      pv: false,
+      solar: false,
+      heatpump: { entity: "switch.waermepumpe", flow_temp: "sensor.wp_vorlauf" },
+      buffer: { top: "sensor.puffer_oben", bottom: "sensor.puffer_unten" },
+      dhw: { temp: "sensor.ww_temperatur" },
+      circuits: types.map((type, index) => ({
+        name: `Heizkreis ${String.fromCharCode(65 + index)}`,
+        type,
+        flow_temp: "sensor.hk1_vorlauf",
+        pump: "binary_sensor.hk1_pumpe",
+      })),
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("de");
+    const root = card.shadowRoot;
+    const names = [...root.querySelectorAll(".hpfc-circuit .hpfc-title")].map((t) => t.textContent);
+    return {
+      circuits: root.querySelectorAll(".hpfc-circuit").length,
+      names,
+      // one flow and one return branch per consumer, circuits plus hot water
+      branches: root.querySelectorAll(".hpfc-pipe").length,
+    };
+  });
+  assert.equal(result.circuits, 7);
+  assert.equal(result.names[3], "Heizkreis D");
+  assert.equal(result.names[6], "Heizkreis G");
+  assert.ok(result.branches >= 16, `expected a branch per consumer, got ${result.branches}`);
+});
+
+test("an eighth circuit is dropped rather than drawn off canvas", async () => {
+  const count = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      circuits: Array.from({ length: 9 }, (_, index) => ({ name: `HK ${index}`, type: "radiator" })),
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("de");
+    return card.shadowRoot.querySelectorAll(".hpfc-circuit").length;
+  });
+  assert.equal(count, 7);
+});
+
+test("every circuit shows its own state - A running does not mean D is", async () => {
+  await page.goto(`${previewUrl}?layout=circuits`);
+  const state = await page.evaluate(() => {
+    const root = document.getElementById("card-circuits").shadowRoot;
+    const pipe = (part) => {
+      const node = root.querySelector(`.hpfc-pipe-group[data-part="${part}"]`);
+      return node ? !node.classList.contains("hpfc-stopped") : null;
+    };
+    const panel = (part) => {
+      const node = root.querySelector(`.hpfc-circuit[data-part="${part}"]`);
+      return node ? node.classList.contains("hpfc-running") : null;
+    };
+    return {
+      flow: [1, 2, 3, 4].map((index) => pipe(`flow-circuit-${index}`)),
+      ret: [1, 2, 3, 4].map((index) => pipe(`return-circuit-${index}`)),
+      panels: [1, 2, 3, 4].map((index) => panel(`circuit-${index}`)),
+      trunk: pipe("flow-trunk"),
+      spine: pipe("flow-spine"),
+    };
+  });
+  // A and C are served, B (pump off) and D (mode "Aus") are not
+  assert.deepEqual(state.panels, [true, false, true, false]);
+  assert.deepEqual(state.flow, [true, false, true, false]);
+  assert.deepEqual(state.ret, [true, false, true, false]);
+  // the distributor carries water as long as any circuit draws
+  assert.equal(state.trunk, true);
+  assert.equal(state.spine, true);
+});
+
+test("a circuit parked in its off mode stays off while the heat pump runs", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: { entity: "switch.waermepumpe", state_entity: "binary_sensor.wp_verdichter" },
+      circuits: [
+        { name: "ohne alles", type: "radiator" },
+        { name: "Aus", type: "radiator", mode: "select.hk_d_mode" },
+      ],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("de");
+    const root = card.shadowRoot;
+    return [1, 2].map((index) =>
+      root.querySelector(`.hpfc-circuit[data-part="circuit-${index}"]`).classList.contains("hpfc-running")
+    );
+  });
+  // no state source of its own -> follows the heat pump; parked mode -> off
+  assert.deepEqual(result, [true, false]);
+});
+
+test("every layout preset renders", async () => {
+  await page.goto(`${previewUrl}?layout=dual`);
+  const layouts = [
+    "compact",
+    "compact-dual",
+    "single",
+    "dual",
+    "triple",
+    "quad",
+    "dhw",
+    "dhw-dual",
+    "dhw-quad",
+    "pv-single",
+    "pv-dual",
+    "pv-dhw-dual",
+    "solar-dual",
+    "full",
+    "full-quad",
+    "direct",
+    "direct-dual",
+    "direct-dhw",
+  ];
+  const result = await page.evaluate((names) => {
+    const report = {};
+    for (const layout of names) {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout,
+        heatpump: { entity: "switch.waermepumpe", flow_temp: "sensor.wp_vorlauf" },
+      });
+      document.body.appendChild(card);
+      card.hass = window.makeHass("de");
+      const root = card.shadowRoot;
+      report[layout] = {
+        circuits: root.querySelectorAll(".hpfc-circuit").length,
+        tank: root.querySelectorAll(".hpfc-tank").length,
+        dhw: root.querySelectorAll(".hpfc-dhw").length,
+        pv: root.querySelectorAll(".hpfc-pv").length,
+        solar: root.querySelectorAll(".hpfc-solar").length,
+        error: Boolean(root.querySelector(".hpfc-error")),
+      };
+      card.remove();
+    }
+    return report;
+  }, layouts);
+
+  for (const layout of layouts) {
+    assert.equal(result[layout].error, false, `${layout} renders`);
+    assert.ok(result[layout].circuits >= 1, `${layout} has circuits`);
+  }
+  assert.equal(result.quad.circuits, 4);
+  assert.equal(result["dhw-quad"].circuits, 4);
+  assert.equal(result["dhw-dual"].dhw, 1);
+  assert.equal(result["dhw-dual"].pv, 0);
+  assert.equal(result["dhw-dual"].solar, 0);
+  assert.equal(result["pv-dual"].pv, 1);
+  assert.equal(result["pv-dual"].solar, 0);
+  assert.equal(result["pv-dual"].dhw, 0);
+  assert.equal(result["solar-dual"].solar, 1);
+  assert.equal(result["solar-dual"].pv, 0);
+  // the direct layouts draw no buffer tank at all
+  assert.equal(result.direct.tank, 0);
+  assert.equal(result["direct-dual"].tank, 0);
+  assert.equal(result["direct-dhw"].tank, 1); // the hot water tank, not a buffer
+  assert.equal(result.dual.tank, 1);
+});
