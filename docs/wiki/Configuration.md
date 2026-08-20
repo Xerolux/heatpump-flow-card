@@ -89,7 +89,7 @@ buffer to connect to.
 
 ```yaml
 circuits:
-  - name: Heizkreis A
+  - name: Heating circuit A
     type: underfloor
     entity: climate.circuit_a
     mode: select.circuit_a_mode

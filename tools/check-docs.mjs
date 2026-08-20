@@ -88,6 +88,44 @@ for (const file of markdown) {
   }
 }
 
+/* ---- English is the default language ------------------------------------ */
+const GERMAN_MARKERS = [
+  "wärme",
+  "heizkreis",
+  "vorlauf",
+  "rücklauf",
+  "warmwasser",
+  "pufferspeicher",
+  "heizkörper",
+  "fußboden",
+  "betriebsart",
+  "solarthermie",
+  "kollektor",
+  "umwälz",
+  "zeitprogramm",
+];
+const englishFiles = [
+  "README.md",
+  ...readdirSync(resolve(root, "docs/wiki"))
+    .filter((f) => f.endsWith(".md") && !f.endsWith("-de.md"))
+    .map((f) => join("docs/wiki", f)),
+  ...readdirSync(resolve(root, "examples")).map((f) => join("examples", f)),
+  join("docs/site", "index.html"),
+  // this file carries the marker list itself
+  ...readdirSync(resolve(root, "tools"))
+    .filter((f) => f !== "check-docs.mjs")
+    .map((f) => join("tools", f)),
+];
+for (const file of englishFiles) {
+  const lines = read(file).split("\n");
+  lines.forEach((line, index) => {
+    // entity ids from the rename are quoted history, not user facing text
+    if (line.includes("sensor.wp_") || line.includes("switch.hk")) return;
+    const hit = GERMAN_MARKERS.find((word) => line.toLowerCase().includes(word));
+    if (hit) problems.push(`${file}:${index + 1} still says "${hit}" - English is the default`);
+  });
+}
+
 if (problems.length) {
   console.error(`${problems.length} problem(s):`);
   for (const problem of problems) console.error(` - ${problem}`);
