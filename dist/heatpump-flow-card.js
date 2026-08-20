@@ -1,0 +1,2629 @@
+/*!
+ * heatpump-flow-card
+ * An animated hydraulic scheme for Home Assistant: heat pump, buffer tank,
+ * domestic hot water, PV, solar thermal and up to four heating circuits.
+ *
+ * https://github.com/Xerolux/heatpump-flow-card
+ * MIT License - Copyright (c) 2026 Xerolux
+ */
+
+const CARD_VERSION = "1.0.0";
+
+console.info(
+  `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
+  "color:#fff;background:#0369a1;font-weight:700;border-radius:3px 0 0 3px;padding:2px 4px",
+  "color:#0369a1;background:#e0f2fe;font-weight:700;border-radius:0 3px 3px 0;padding:2px 4px"
+);
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/* =========================================================================
+ * Generic helpers
+ * ========================================================================= */
+
+const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
+
+const TOGGLE_DOMAINS = new Set([
+  "switch",
+  "light",
+  "fan",
+  "input_boolean",
+  "automation",
+  "humidifier",
+  "siren",
+  "valve",
+  "script",
+]);
+
+const ON_STATES = new Set([
+  "on",
+  "true",
+  "open",
+  "opening",
+  "active",
+  "running",
+  "heat",
+  "heating",
+  "cool",
+  "cooling",
+  "auto",
+  "home",
+  "playing",
+  "1",
+]);
+
+function domainOf(entityId) {
+  return typeof entityId === "string" && entityId.includes(".")
+    ? entityId.split(".")[0]
+    : "";
+}
+
+function fireEvent(node, type, detail) {
+  const event = new Event(type, { bubbles: true, cancelable: false, composed: true });
+  event.detail = detail || {};
+  node.dispatchEvent(event);
+  return event;
+}
+
+/**
+ * Config fields accept either a plain entity id or an object with extras:
+ *   flow_temp: sensor.vl
+ *   flow_temp: { entity: sensor.vl, name: "VL", decimals: 1, attribute: temperature }
+ */
+function asField(value) {
+  if (!value) return null;
+  if (typeof value === "string") return { entity: value };
+  if (typeof value === "object" && (value.entity || value.attribute)) return { ...value };
+  return null;
+}
+
+function stateOf(hass, field) {
+  if (!hass || !field || !field.entity) return undefined;
+  return hass.states[field.entity];
+}
+
+function isMissing(st) {
+  return (
+    !st ||
+    st.state === undefined ||
+    st.state === "unavailable" ||
+    st.state === "unknown" ||
+    st.state === "none" ||
+    st.state === ""
+  );
+}
+
+/** Raw value of a field, honouring an optional attribute. */
+function rawValue(hass, field) {
+  const st = stateOf(hass, field);
+  if (!st) return undefined;
+  if (field.attribute) return st.attributes ? st.attributes[field.attribute] : undefined;
+  return st.state;
+}
+
+/** Numeric value of a field, or null when it is not a number. */
+function numberValue(hass, field) {
+  const raw = rawValue(hass, field);
+  if (raw === undefined || raw === null || raw === "") return null;
+  const parsed = typeof raw === "number" ? raw : parseFloat(String(raw).replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Truthiness of a field: on-ish states, or a number above the threshold. */
+function isActive(hass, field) {
+  if (!field) return false;
+  const raw = rawValue(hass, field);
+  if (raw === undefined || raw === null) return false;
+  if (typeof raw === "boolean") return raw;
+  const num = numberValue(hass, field);
+  if (num !== null) return num > (field.threshold !== undefined ? field.threshold : 0);
+  return ON_STATES.has(String(raw).toLowerCase());
+}
+
+function unitOf(hass, field) {
+  if (field && field.unit !== undefined) return field.unit;
+  const st = stateOf(hass, field);
+  return st && st.attributes ? st.attributes.unit_of_measurement || "" : "";
+}
+
+/** Display text of a field, localized through Home Assistant when possible. */
+function displayValue(hass, field, fallback) {
+  const dash = fallback === undefined ? "–" : fallback;
+  if (!hass || !field || !field.entity) return dash;
+  const st = hass.states[field.entity];
+  if (isMissing(st)) return dash;
+
+  if (field.attribute) {
+    const raw = rawValue(hass, field);
+    if (raw === undefined || raw === null || raw === "") return dash;
+    const num = numberValue(hass, field);
+    if (num === null) return String(raw);
+    return formatNumber(hass, num, field) + suffix(unitOf(hass, field));
+  }
+
+  const num = numberValue(hass, field);
+  if (num !== null) {
+    if (field.decimals !== undefined || field.unit !== undefined) {
+      return formatNumber(hass, num, field) + suffix(unitOf(hass, field));
+    }
+    if (typeof hass.formatEntityState === "function") {
+      try {
+        return hass.formatEntityState(st);
+      } catch (err) {
+        /* fall through to the manual formatter */
+      }
+    }
+    return formatNumber(hass, num, field) + suffix(unitOf(hass, field));
+  }
+
+  if (typeof hass.formatEntityState === "function") {
+    try {
+      return hass.formatEntityState(st);
+    } catch (err) {
+      /* fall through */
+    }
+  }
+  return String(st.state);
+}
+
+function suffix(unit) {
+  if (!unit) return "";
+  return unit === "%" || unit === "°" ? unit : ` ${unit}`;
+}
+
+function formatNumber(hass, value, field) {
+  const decimals =
+    field && field.decimals !== undefined
+      ? field.decimals
+      : Math.abs(value) >= 100 || Number.isInteger(value)
+        ? 0
+        : 1;
+  const locale = hass && hass.locale ? hass.locale.language : undefined;
+  try {
+    return value.toLocaleString(locale, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  } catch (err) {
+    return value.toFixed(decimals);
+  }
+}
+
+/* =========================================================================
+ * Colours
+ * ========================================================================= */
+
+const TEMP_STOPS = [
+  [-10, [29, 78, 216]],
+  [5, [59, 130, 246]],
+  [15, [56, 189, 248]],
+  [22, [148, 163, 184]],
+  [30, [251, 191, 36]],
+  [40, [249, 115, 22]],
+  [50, [239, 68, 68]],
+  [70, [185, 28, 28]],
+];
+
+const COLOR_FLOW = "#ef4444";
+const COLOR_RETURN = "#3b82f6";
+const COLOR_SOLAR = "#f59e0b";
+const COLOR_PV = "#fbbf24";
+
+function tempColor(celsius) {
+  if (celsius === null || celsius === undefined || !Number.isFinite(celsius)) return null;
+  const stops = TEMP_STOPS;
+  if (celsius <= stops[0][0]) return rgb(stops[0][1]);
+  if (celsius >= stops[stops.length - 1][0]) return rgb(stops[stops.length - 1][1]);
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [t0, c0] = stops[i];
+    const [t1, c1] = stops[i + 1];
+    if (celsius >= t0 && celsius <= t1) {
+      const f = (celsius - t0) / (t1 - t0);
+      return rgb([
+        Math.round(c0[0] + (c1[0] - c0[0]) * f),
+        Math.round(c0[1] + (c1[1] - c0[1]) * f),
+        Math.round(c0[2] + (c1[2] - c0[2]) * f),
+      ]);
+    }
+  }
+  return rgb(stops[stops.length - 1][1]);
+}
+
+function rgb(triplet) {
+  return `rgb(${triplet[0]}, ${triplet[1]}, ${triplet[2]})`;
+}
+
+/**
+ * Temperature colour for text. Near-neutral values (roughly room temperature)
+ * keep the theme text colour so they stay readable on light and dark cards.
+ */
+function tempTextColor(celsius) {
+  const color = tempColor(celsius);
+  if (!color) return null;
+  const parts = color.match(/\d+/g);
+  if (!parts) return null;
+  const values = parts.map(Number);
+  const chroma = Math.max(...values) - Math.min(...values);
+  return chroma < 70 ? null : color;
+}
+
+/* =========================================================================
+ * SVG primitives
+ * ========================================================================= */
+
+function svgEl(tag, attrs, children) {
+  const node = document.createElementNS(SVG_NS, tag);
+  if (attrs) {
+    for (const key of Object.keys(attrs)) {
+      const value = attrs[key];
+      if (value === undefined || value === null || value === false) continue;
+      node.setAttribute(key, String(value));
+    }
+  }
+  if (children) {
+    for (const child of children) {
+      if (child) node.appendChild(child);
+    }
+  }
+  return node;
+}
+
+function svgText(x, y, content, attrs) {
+  const node = svgEl("text", { x, y, ...(attrs || {}) });
+  node.textContent = content === undefined || content === null ? "" : String(content);
+  return node;
+}
+
+/** Orthogonal polyline with rounded corners. */
+function roundedPath(points, radius) {
+  const pts = points.filter((point, index) => {
+    if (index === 0) return true;
+    const prev = points[index - 1];
+    return prev[0] !== point[0] || prev[1] !== point[1];
+  });
+  if (pts.length < 2) return "";
+  const r = radius === undefined ? 14 : radius;
+  let d = `M ${pts[0][0]} ${pts[0][1]}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const [px, py] = pts[i - 1];
+    const [cx, cy] = pts[i];
+    const [nx, ny] = pts[i + 1];
+    const len1 = Math.hypot(cx - px, cy - py);
+    const len2 = Math.hypot(nx - cx, ny - cy);
+    if (!len1 || !len2) continue;
+    const corner = Math.min(r, len1 / 2, len2 / 2);
+    const ax = cx - ((cx - px) / len1) * corner;
+    const ay = cy - ((cy - py) / len1) * corner;
+    const bx = cx + ((nx - cx) / len2) * corner;
+    const by = cy + ((ny - cy) / len2) * corner;
+    d += ` L ${ax} ${ay} Q ${cx} ${cy} ${bx} ${by}`;
+  }
+  const last = pts[pts.length - 1];
+  d += ` L ${last[0]} ${last[1]}`;
+  return d;
+}
+
+/* =========================================================================
+ * Tap / hold actions
+ * ========================================================================= */
+
+const TOGGLE_VIA_HOMEASSISTANT = new Set(["climate", "water_heater", "media_player", "cover"]);
+
+function defaultActionFor(entityId) {
+  if (!entityId) return { action: "none" };
+  const domain = domainOf(entityId);
+  if (TOGGLE_DOMAINS.has(domain)) return { action: "toggle" };
+  return { action: "more-info" };
+}
+
+function performAction(node, hass, actionConfig, entityId) {
+  const config = actionConfig || defaultActionFor(entityId);
+  const action = config.action || "more-info";
+  const target = config.entity || entityId;
+
+  switch (action) {
+    case "none":
+      return;
+    case "more-info":
+      if (target) fireEvent(node, "hass-more-info", { entityId: target });
+      return;
+    case "toggle": {
+      if (!target || !hass) return;
+      const domain = domainOf(target);
+      if (TOGGLE_DOMAINS.has(domain) || TOGGLE_VIA_HOMEASSISTANT.has(domain)) {
+        hass.callService("homeassistant", "toggle", { entity_id: target });
+      } else {
+        fireEvent(node, "hass-more-info", { entityId: target });
+      }
+      return;
+    }
+    case "navigate":
+      if (!config.navigation_path) return;
+      history.pushState(null, "", config.navigation_path);
+      fireEvent(window, "location-changed", { replace: false });
+      return;
+    case "url":
+      if (config.url_path) window.open(config.url_path, config.new_tab === false ? "_self" : "_blank");
+      return;
+    case "call-service":
+    case "perform-action": {
+      const call = config.perform_action || config.service;
+      if (!hass || !call || !call.includes(".")) return;
+      const [domain, service] = call.split(".", 2);
+      hass.callService(domain, service, config.data || config.service_data || {}, config.target);
+      return;
+    }
+    default:
+      if (target) fireEvent(node, "hass-more-info", { entityId: target });
+  }
+}
+
+/**
+ * Makes an SVG group clickable (mouse, touch and keyboard) with tap and hold
+ * actions. Falls back to "toggle" for switchable entities and "more-info"
+ * for everything else.
+ */
+function attachAction(scene, node, options) {
+  const entityId = options && options.entity;
+  const tapAction = options && options.tap_action;
+  const holdAction = options && options.hold_action;
+  if (!entityId && (!tapAction || tapAction.action === "none")) return;
+  if (tapAction && tapAction.action === "none" && !holdAction) return;
+
+  node.classList.add("hpfc-clickable");
+  node.setAttribute("tabindex", "0");
+  node.setAttribute("role", "button");
+  if (options && options.label) node.setAttribute("aria-label", options.label);
+
+  let holdTimer = null;
+  let held = false;
+
+  const start = () => {
+    held = false;
+    if (!holdAction) return;
+    holdTimer = window.setTimeout(() => {
+      held = true;
+      performAction(node, scene.hass(), holdAction, entityId);
+    }, 500);
+  };
+  const cancel = () => {
+    if (holdTimer) {
+      window.clearTimeout(holdTimer);
+      holdTimer = null;
+    }
+  };
+  const finish = (event) => {
+    cancel();
+    if (held) {
+      held = false;
+      return;
+    }
+    event.stopPropagation();
+    performAction(node, scene.hass(), tapAction, entityId);
+  };
+
+  node.addEventListener("pointerdown", start);
+  node.addEventListener("pointercancel", cancel);
+  node.addEventListener("pointerleave", cancel);
+  node.addEventListener("click", finish);
+  node.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    performAction(node, scene.hass(), tapAction, entityId);
+  });
+}
+
+/* =========================================================================
+ * Building blocks
+ * ========================================================================= */
+
+/** Rounded container with an optional heading. */
+function drawPanel(scene, box, title, options) {
+  const opts = options || {};
+  const group = svgEl("g", { class: "hpfc-node" });
+  group.appendChild(
+    svgEl("rect", {
+      x: box.x,
+      y: box.y,
+      width: box.w,
+      height: box.h,
+      rx: 16,
+      class: "hpfc-panel",
+    })
+  );
+  if (title) {
+    group.appendChild(svgText(box.x + 14, box.y + 21, title, { class: "hpfc-title" }));
+  }
+  scene.root.appendChild(group);
+  if (opts.entity || opts.tap_action) {
+    attachAction(scene, group, {
+      entity: opts.entity,
+      tap_action: opts.tap_action,
+      hold_action: opts.hold_action,
+      label: title,
+    });
+  }
+  return group;
+}
+
+/** Small "label over value" block. Returns nothing, registers its updater. */
+function drawReadout(scene, group, x, y, label, field, options) {
+  const opts = options || {};
+  const anchor = opts.anchor || "start";
+  const block = svgEl("g", { class: "hpfc-readout" });
+  block.appendChild(svgText(x, y, label, { class: "hpfc-label", "text-anchor": anchor }));
+  const value = svgText(x, y + 16, "–", {
+    class: opts.strong ? "hpfc-value hpfc-value-strong" : "hpfc-value",
+    "text-anchor": anchor,
+  });
+  block.appendChild(value);
+  group.appendChild(block);
+
+  if (field && field.entity) {
+    attachAction(scene, block, {
+      entity: field.entity,
+      tap_action: field.tap_action,
+      hold_action: field.hold_action,
+      label,
+    });
+  }
+
+  scene.add(() => {
+    const hass = scene.hass();
+    value.textContent = displayValue(hass, field);
+    const st = stateOf(hass, field);
+    block.classList.toggle("hpfc-unset", !field || !field.entity || isMissing(st));
+    if (opts.colorize) {
+      const num = numberValue(hass, field);
+      const color = scene.config.temperature_colors === false ? null : tempTextColor(num);
+      value.style.fill = color || "";
+    }
+  });
+  return block;
+}
+
+/** Pill shaped value badge that sits on a pipe. */
+function drawBadge(scene, x, y, field, options) {
+  const opts = options || {};
+  const group = svgEl("g", { class: "hpfc-badge" });
+  const rect = svgEl("rect", { x: x - 27, y: y - 11, width: 54, height: 22, rx: 11 });
+  const text = svgText(x, y + 4, "–", { "text-anchor": "middle" });
+  group.appendChild(rect);
+  group.appendChild(text);
+  scene.root.appendChild(group);
+
+  if (field && field.entity) {
+    attachAction(scene, group, {
+      entity: field.entity,
+      tap_action: field.tap_action,
+      hold_action: field.hold_action,
+      label: opts.label,
+    });
+  }
+
+  scene.add(() => {
+    const hass = scene.hass();
+    const value = displayValue(hass, field);
+    text.textContent = value;
+    const width = Math.max(46, value.length * 6.6 + 16);
+    rect.setAttribute("x", String(x - width / 2));
+    rect.setAttribute("width", String(width));
+    const num = numberValue(hass, field);
+    const color = scene.config.temperature_colors === false ? null : tempColor(num);
+    rect.style.fill = color || "";
+    group.classList.toggle("hpfc-badge-plain", !color);
+    group.classList.toggle("hpfc-unset", !field || !field.entity || isMissing(stateOf(hass, field)));
+  });
+  return group;
+}
+
+let gradientCounter = 0;
+
+/**
+ * A pipe: coloured base line plus a dashed overlay whose dashes travel along
+ * the path while the circuit is running.
+ *
+ * options:
+ *   points        orthogonal polyline [[x, y], ...]
+ *   role          "flow" | "return" | "solar" | "pv"
+ *   from / to     temperature fields for the colour gradient (to is optional)
+ *   active        field deciding whether the medium moves
+ *   reverse       animate the dashes against the path direction
+ */
+function drawPipe(scene, options) {
+  const points = options.points;
+  const d = roundedPath(points, options.radius);
+  const group = svgEl("g", {
+    class: `hpfc-pipe-group${options.className ? ` ${options.className}` : ""}`,
+  });
+
+  const gradientId = `hpfc-grad-${++gradientCounter}`;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const stopA = svgEl("stop", { offset: "0%" });
+  const stopB = svgEl("stop", { offset: "100%" });
+  const gradient = svgEl(
+    "linearGradient",
+    {
+      id: gradientId,
+      gradientUnits: "userSpaceOnUse",
+      x1: first[0],
+      y1: first[1],
+      x2: last[0],
+      y2: last[1],
+    },
+    [stopA, stopB]
+  );
+  scene.defs.appendChild(gradient);
+
+  const base = svgEl("path", {
+    d,
+    class: "hpfc-pipe",
+    stroke: `url(#${gradientId})`,
+    fill: "none",
+  });
+  const dots = svgEl("path", {
+    d,
+    class: `hpfc-dots${options.reverse ? " hpfc-dots-reverse" : ""}`,
+    fill: "none",
+  });
+  group.appendChild(base);
+  group.appendChild(dots);
+  scene.pipeLayer.appendChild(group);
+
+  const fallback =
+    options.role === "return"
+      ? COLOR_RETURN
+      : options.role === "solar"
+        ? COLOR_SOLAR
+        : options.role === "pv"
+          ? COLOR_PV
+          : COLOR_FLOW;
+
+  scene.add(() => {
+    const hass = scene.hass();
+    const colored = scene.config.temperature_colors !== false;
+    const cFrom = colored ? tempColor(numberValue(hass, options.from)) : null;
+    const cTo = colored ? tempColor(numberValue(hass, options.to)) : null;
+    const start = cFrom || fallback;
+    const end = cTo || start;
+    stopA.setAttribute("stop-color", start);
+    stopB.setAttribute("stop-color", end);
+
+    const running =
+      options.active === undefined
+        ? true
+        : typeof options.active === "function"
+          ? options.active(hass)
+          : isActive(hass, options.active);
+    group.classList.toggle("hpfc-idle", !running);
+    dots.style.display = running && scene.config.animation !== false ? "" : "none";
+  });
+
+  return group;
+}
+
+/* =========================================================================
+ * Localisation (only the built-in labels - every name can be overridden)
+ * ========================================================================= */
+
+const TEXTS = {
+  en: {
+    heatpump: "Heat pump",
+    power: "Power",
+    cop: "COP",
+    outside: "Outside",
+    flow: "Flow",
+    ret: "Return",
+    buffer: "Buffer tank",
+    dhw: "Hot water",
+    pv: "Photovoltaics",
+    solar: "Solar thermal",
+    collector: "Collector",
+    room: "Room",
+    target: "Target",
+    pump: "Pump",
+    mixer: "Mixer",
+    circuit: "Heating circuit",
+    radiators: "Radiators",
+    underfloor: "Underfloor heating",
+    yield: "Yield",
+    charge: "Charge",
+    top: "Top",
+    middle: "Middle",
+    bottom: "Bottom",
+    battery: "Battery",
+    grid: "Grid",
+    current: "Now",
+    heat: "Heating",
+    cool: "Cooling",
+    water: "Hot water",
+    defrost: "Defrost",
+    idle: "Standby",
+    off: "Off",
+  },
+  de: {
+    heatpump: "Wärmepumpe",
+    power: "Leistung",
+    cop: "COP",
+    outside: "Außen",
+    flow: "Vorlauf",
+    ret: "Rücklauf",
+    buffer: "Pufferspeicher",
+    dhw: "Warmwasser",
+    pv: "Photovoltaik",
+    solar: "Solarthermie",
+    collector: "Kollektor",
+    room: "Raum",
+    target: "Soll",
+    pump: "Pumpe",
+    mixer: "Mischer",
+    circuit: "Heizkreis",
+    radiators: "Heizkörper",
+    underfloor: "Fußbodenheizung",
+    yield: "Ertrag",
+    charge: "Ladung",
+    top: "Oben",
+    middle: "Mitte",
+    bottom: "Unten",
+    battery: "Batterie",
+    grid: "Netz",
+    current: "Ist",
+    heat: "Heizen",
+    cool: "Kühlen",
+    water: "Warmwasser",
+    defrost: "Abtauen",
+    idle: "Bereitschaft",
+    off: "Aus",
+  },
+};
+
+function textsFor(hass) {
+  const language = hass && hass.locale && hass.locale.language ? hass.locale.language : "en";
+  return language.toLowerCase().startsWith("de") ? TEXTS.de : TEXTS.en;
+}
+
+/* =========================================================================
+ * Small graphical primitives
+ * ========================================================================= */
+
+/**
+ * Rotating group. The invisible circle pins the bounding box so that
+ * transform-box: fill-box rotates around the real centre.
+ */
+function spinner(cx, cy, radius, children, className) {
+  const inner = svgEl("g", { class: `hpfc-spin${className ? ` ${className}` : ""}` }, [
+    svgEl("circle", { cx: 0, cy: 0, r: radius, fill: "none", stroke: "none" }),
+    ...children,
+  ]);
+  const outer = svgEl("g", { transform: `translate(${cx} ${cy})` }, [inner]);
+  return { outer, inner };
+}
+
+function fanBlades(radius) {
+  const blades = [];
+  for (let i = 0; i < 3; i++) {
+    blades.push(
+      svgEl("path", {
+        class: "hpfc-blade",
+        transform: `rotate(${i * 120})`,
+        d: `M 0 -2 C ${radius * 0.35} -${radius * 0.7} ${radius * 0.9} -${radius * 0.65} ${radius} -${radius * 0.15} C ${radius * 0.6} 0 ${radius * 0.25} ${radius * 0.25} 0 2 Z`,
+      })
+    );
+  }
+  return blades;
+}
+
+/** Circulation pump: housing plus a spinning impeller. */
+function drawPump(scene, group, cx, cy, field, options) {
+  const opts = options || {};
+  const radius = opts.radius || 15;
+  const wrap = svgEl("g", { class: "hpfc-pump" });
+  wrap.appendChild(svgEl("circle", { cx, cy, r: radius, class: "hpfc-pump-body" }));
+  const vanes = [];
+  for (let i = 0; i < 3; i++) {
+    vanes.push(
+      svgEl("path", {
+        class: "hpfc-vane",
+        transform: `rotate(${i * 120})`,
+        d: `M 0 0 Q ${radius * 0.55} -${radius * 0.2} ${radius * 0.72} -${radius * 0.6} Q ${radius * 0.25} -${radius * 0.5} 0 0 Z`,
+      })
+    );
+  }
+  const spin = spinner(cx, cy, radius - 3, vanes, "hpfc-impeller");
+  wrap.appendChild(spin.outer);
+  group.appendChild(wrap);
+
+  if (field && field.entity) {
+    attachAction(scene, wrap, {
+      entity: field.entity,
+      tap_action: field.tap_action,
+      hold_action: field.hold_action,
+      label: opts.label,
+    });
+  }
+
+  scene.add(() => {
+    const hass = scene.hass();
+    const running =
+      field && field.entity
+        ? isActive(hass, field)
+        : opts.running
+          ? opts.running(hass)
+          : Boolean(opts.fallbackRunning);
+    wrap.classList.toggle("hpfc-running", running);
+    spin.inner.style.animationDuration = `${opts.duration || 1.4}s`;
+  });
+  return wrap;
+}
+
+/** Status LED in the top right corner of a panel. */
+function drawStatusDot(scene, group, cx, cy, resolver) {
+  const dot = svgEl("circle", { cx, cy, r: 5, class: "hpfc-status" });
+  group.appendChild(dot);
+  scene.add(() => {
+    const state = resolver(scene.hass());
+    dot.setAttribute("class", `hpfc-status hpfc-status-${state}`);
+  });
+  return dot;
+}
+
+/** One or two readouts along the bottom edge of a panel. */
+function drawBottomReadouts(scene, group, box, items) {
+  const usable = items.filter(Boolean);
+  if (!usable.length) return;
+  const columns = Math.min(usable.length, 2);
+  const width = (box.w - 28) / columns;
+  usable.slice(0, 2).forEach((item, index) => {
+    drawReadout(
+      scene,
+      group,
+      box.x + 14 + width * index,
+      box.y + box.h - 30,
+      item.label,
+      item.field,
+      { colorize: item.colorize, strong: index === 0 }
+    );
+  });
+}
+
+/* =========================================================================
+ * Components
+ * ========================================================================= */
+
+const MODE_PATTERNS = [
+  ["defrost", ["defrost", "abtau", "enteis"]],
+  ["water", ["water", "wasser", "dhw", "brauch", "ww"]],
+  ["cool", ["cool", "kühl", "kuehl", "klima"]],
+  ["heat", ["heat", "heiz", "warm"]],
+  ["idle", ["idle", "standby", "bereit", "pause", "ready"]],
+  ["off", ["off", "aus", "unavailable"]],
+];
+
+function heatPumpMode(hass, cfg) {
+  if (cfg.mode && cfg.mode.entity) {
+    const st = stateOf(hass, cfg.mode);
+    if (!isMissing(st)) {
+      const raw = String(
+        cfg.mode.attribute
+          ? rawValue(hass, cfg.mode)
+          : st.attributes && st.attributes.hvac_action
+            ? st.attributes.hvac_action
+            : st.state
+      ).toLowerCase();
+      for (const [mode, needles] of MODE_PATTERNS) {
+        if (needles.some((needle) => raw.includes(needle))) return mode;
+      }
+      return "heat";
+    }
+  }
+  return heatPumpRunning(hass, cfg) ? "heat" : "idle";
+}
+
+function heatPumpRunning(hass, cfg) {
+  if (cfg.state_entity && cfg.state_entity.entity) return isActive(hass, cfg.state_entity);
+  if (cfg.power && cfg.power.entity) {
+    const value = numberValue(hass, cfg.power);
+    if (value !== null) return value > (cfg.power_threshold === undefined ? 20 : cfg.power_threshold);
+  }
+  if (cfg.compressor && cfg.compressor.entity) {
+    const value = numberValue(hass, cfg.compressor);
+    if (value !== null) return value > 0;
+  }
+  if (cfg.entity) return isActive(hass, { entity: cfg.entity });
+  if (cfg.mode && cfg.mode.entity) {
+    const mode = String(rawValue(hass, cfg.mode) || "").toLowerCase();
+    return !["off", "aus", "idle", "standby", "unavailable", "unknown"].some((needle) =>
+      mode.includes(needle)
+    );
+  }
+  return false;
+}
+
+function drawHeatPump(scene, box, cfg) {
+  const texts = textsFor(scene.hass());
+  const group = drawPanel(scene, box, cfg.name || texts.heatpump, {
+    entity: cfg.entity,
+    tap_action: cfg.tap_action,
+    hold_action: cfg.hold_action,
+  });
+  group.classList.add("hpfc-heatpump");
+
+  drawStatusDot(scene, group, box.x + box.w - 16, box.y + 16, (hass) => {
+    if (cfg.entity && isMissing(hass && hass.states ? hass.states[cfg.entity] : undefined)) {
+      return "unknown";
+    }
+    return heatPumpRunning(hass, cfg) ? "on" : "off";
+  });
+
+  // Outdoor unit with fan
+  const unit = { x: box.x + 14, y: box.y + 36, w: 80, h: 96 };
+  group.appendChild(
+    svgEl("rect", { ...{ x: unit.x, y: unit.y, width: unit.w, height: unit.h }, rx: 12, class: "hpfc-hp-body" })
+  );
+  for (let i = 0; i < 4; i++) {
+    group.appendChild(
+      svgEl("line", {
+        x1: unit.x + 10,
+        x2: unit.x + unit.w - 10,
+        y1: unit.y + unit.h - 26 + i * 6,
+        y2: unit.y + unit.h - 26 + i * 6,
+        class: "hpfc-grille",
+      })
+    );
+  }
+  const fanCenter = { x: unit.x + unit.w / 2, y: unit.y + 38 };
+  group.appendChild(
+    svgEl("circle", { cx: fanCenter.x, cy: fanCenter.y, r: 27, class: "hpfc-fan-ring" })
+  );
+  const fan = spinner(fanCenter.x, fanCenter.y, 26, fanBlades(24), "hpfc-fan");
+  group.appendChild(fan.outer);
+  group.appendChild(svgEl("circle", { cx: fanCenter.x, cy: fanCenter.y, r: 5, class: "hpfc-hub" }));
+
+  // Readouts on the right
+  const rows = [
+    cfg.power ? { label: texts.power, field: cfg.power } : null,
+    cfg.cop ? { label: texts.cop, field: cfg.cop } : null,
+    cfg.outside_temp ? { label: texts.outside, field: cfg.outside_temp, colorize: true } : null,
+    cfg.compressor ? { label: cfg.compressor.name || "Kompressor", field: cfg.compressor } : null,
+  ].filter(Boolean);
+  const startY = box.y + 52;
+  rows.slice(0, 3).forEach((row, index) => {
+    drawReadout(scene, group, box.x + 108, startY + index * 38, row.label, row.field, {
+      colorize: row.colorize,
+      strong: index === 0,
+    });
+  });
+
+  // Mode chip
+  const chip = svgEl("g", { class: "hpfc-chip" });
+  const chipRect = svgEl("rect", {
+    x: box.x + 14,
+    y: box.y + box.h - 36,
+    width: box.w - 28,
+    height: 24,
+    rx: 12,
+  });
+  const chipText = svgText(box.x + box.w / 2, box.y + box.h - 19, "", { "text-anchor": "middle" });
+  chip.appendChild(chipRect);
+  chip.appendChild(chipText);
+  group.appendChild(chip);
+
+  scene.add(() => {
+    const hass = scene.hass();
+    const localized = textsFor(hass);
+    const mode = heatPumpMode(hass, cfg);
+    const running = heatPumpRunning(hass, cfg);
+    chipText.textContent = localized[mode] || localized.idle;
+    chip.setAttribute("class", `hpfc-chip hpfc-mode-${mode}`);
+    group.classList.toggle("hpfc-running", running);
+    const load = numberValue(hass, cfg.compressor);
+    const duration = load !== null ? clamp(3.2 - (load / 100) * 2.4, 0.6, 3.2) : 1.5;
+    fan.inner.style.animationDuration = `${duration}s`;
+  });
+
+  return { group, running: (hass) => heatPumpRunning(hass, cfg) };
+}
+
+/** Vertical tank with a temperature gradient - used for buffer and DHW. */
+function drawTank(scene, box, cfg, options) {
+  const opts = options || {};
+  const group = svgEl("g", { class: "hpfc-node hpfc-tank" });
+  scene.root.appendChild(group);
+
+  const titleHeight = opts.title ? (opts.subtitle ? 44 : 26) : 0;
+  const tank = { x: box.x, y: box.y + titleHeight, w: box.w, h: box.h - titleHeight };
+  const gradientId = `hpfc-tank-${++gradientCounter}`;
+  const stops = [
+    svgEl("stop", { offset: "0%" }),
+    svgEl("stop", { offset: "50%" }),
+    svgEl("stop", { offset: "100%" }),
+  ];
+  scene.defs.appendChild(
+    svgEl("linearGradient", { id: gradientId, x1: "0", y1: "0", x2: "0", y2: "1" }, stops)
+  );
+
+  if (opts.title) {
+    group.appendChild(
+      svgText(box.x + box.w / 2, box.y + 16, opts.title, {
+        class: "hpfc-title",
+        "text-anchor": "middle",
+      })
+    );
+  }
+  if (opts.subtitle) {
+    const subtitle = svgText(box.x + box.w / 2, box.y + 34, "", {
+      class: "hpfc-subtitle",
+      "text-anchor": "middle",
+    });
+    group.appendChild(subtitle);
+    if (opts.subtitle.field && opts.subtitle.field.entity) {
+      attachAction(scene, subtitle, {
+        entity: opts.subtitle.field.entity,
+        tap_action: opts.subtitle.field.tap_action,
+        label: opts.subtitle.label,
+      });
+    }
+    scene.add(() => {
+      const value = displayValue(scene.hass(), opts.subtitle.field, "");
+      subtitle.textContent = value ? `${opts.subtitle.label} ${value}` : "";
+    });
+  }
+  group.appendChild(
+    svgEl("rect", {
+      x: tank.x,
+      y: tank.y,
+      width: tank.w,
+      height: tank.h,
+      rx: opts.radius === undefined ? 26 : opts.radius,
+      class: "hpfc-tank-fill",
+      fill: `url(#${gradientId})`,
+    })
+  );
+  group.appendChild(
+    svgEl("rect", {
+      x: tank.x,
+      y: tank.y,
+      width: tank.w,
+      height: tank.h,
+      rx: opts.radius === undefined ? 26 : opts.radius,
+      class: "hpfc-tank-outline",
+    })
+  );
+
+  // Heat exchanger coil (drawn when a solar circuit feeds the tank)
+  if (opts.coil) {
+    const coilTop = tank.y + tank.h - 52;
+    const points = [];
+    for (let i = 0; i <= 5; i++) {
+      points.push(`${tank.x + 16 + (i % 2) * (tank.w - 32)},${coilTop + i * 9}`);
+    }
+    group.appendChild(svgEl("polyline", { points: points.join(" "), class: "hpfc-coil" }));
+  }
+
+  const layers = opts.layers || [];
+  const positions =
+    layers.length === 1 ? [0.5] : layers.length === 2 ? [0.26, 0.7] : [0.18, 0.47, 0.75];
+  layers.forEach((layer, index) => {
+    if (layer.pill === false) return;
+    const y = tank.y + tank.h * positions[index];
+    const pill = svgEl("g", { class: "hpfc-tank-pill" });
+    const rect = svgEl("rect", { x: tank.x + 8, y: y - 12, width: tank.w - 16, height: 24, rx: 12 });
+    const text = svgText(tank.x + tank.w / 2, y + 5, "–", { "text-anchor": "middle" });
+    pill.appendChild(rect);
+    pill.appendChild(text);
+    group.appendChild(pill);
+    if (layer.field && layer.field.entity) {
+      attachAction(scene, pill, {
+        entity: layer.field.entity,
+        tap_action: layer.field.tap_action,
+        hold_action: layer.field.hold_action,
+        label: layer.label,
+      });
+    }
+    scene.add(() => {
+      const hass = scene.hass();
+      text.textContent = displayValue(hass, layer.field);
+      pill.classList.toggle("hpfc-unset", !layer.field || isMissing(stateOf(hass, layer.field)));
+    });
+  });
+
+  if (opts.entity || opts.tap_action) {
+    attachAction(scene, group, {
+      entity: opts.entity,
+      tap_action: opts.tap_action,
+      hold_action: opts.hold_action,
+      label: opts.title,
+    });
+  }
+
+  scene.add(() => {
+    const hass = scene.hass();
+    const colored = scene.config.temperature_colors !== false;
+    const values = layers.map((layer) => numberValue(hass, layer.field));
+    const known = values.filter((value) => value !== null);
+    const top = values[0] !== null && values[0] !== undefined ? values[0] : known[0];
+    const bottom =
+      values[values.length - 1] !== null && values[values.length - 1] !== undefined
+        ? values[values.length - 1]
+        : known[known.length - 1];
+    const middle = values.length === 3 && values[1] !== null ? values[1] : null;
+    const fallbackTop = colored ? tempColor(top) : null;
+    const fallbackBottom = colored ? tempColor(bottom) : null;
+    stops[0].setAttribute("stop-color", fallbackTop || "var(--hpfc-tank-warm)");
+    stops[1].setAttribute(
+      "stop-color",
+      (colored ? tempColor(middle) : null) ||
+        mixFallback(fallbackTop, fallbackBottom) ||
+        "var(--hpfc-tank-mid)"
+    );
+    stops[2].setAttribute("stop-color", fallbackBottom || "var(--hpfc-tank-cold)");
+  });
+
+  return { group, tank };
+}
+
+function mixFallback(a, b) {
+  if (!a || !b) return a || b;
+  const pa = a.match(/\d+/g);
+  const pb = b.match(/\d+/g);
+  if (!pa || !pb) return a;
+  return `rgb(${Math.round((+pa[0] + +pb[0]) / 2)}, ${Math.round((+pa[1] + +pb[1]) / 2)}, ${Math.round((+pa[2] + +pb[2]) / 2)})`;
+}
+
+function drawPv(scene, box, cfg) {
+  const texts = textsFor(scene.hass());
+  const group = drawPanel(scene, box, cfg.name || texts.pv, {
+    entity: cfg.entity || (cfg.power ? cfg.power.entity : undefined),
+    tap_action: cfg.tap_action,
+    hold_action: cfg.hold_action,
+  });
+  group.classList.add("hpfc-pv");
+
+  const panelArea = { x: box.x + 12, y: box.y + 34, w: 78, h: 46 };
+  group.appendChild(
+    svgEl("path", {
+      class: "hpfc-pv-panel",
+      d: `M ${panelArea.x + 10} ${panelArea.y} L ${panelArea.x + panelArea.w} ${panelArea.y} L ${panelArea.x + panelArea.w - 10} ${panelArea.y + panelArea.h} L ${panelArea.x} ${panelArea.y + panelArea.h} Z`,
+    })
+  );
+  for (let i = 1; i < 4; i++) {
+    const fx = panelArea.x + (panelArea.w / 4) * i;
+    group.appendChild(
+      svgEl("line", {
+        class: "hpfc-pv-cell",
+        x1: fx + 8,
+        y1: panelArea.y,
+        x2: fx - 2,
+        y2: panelArea.y + panelArea.h,
+      })
+    );
+  }
+  group.appendChild(
+    svgEl("line", {
+      class: "hpfc-pv-cell",
+      x1: panelArea.x + 5,
+      y1: panelArea.y + panelArea.h / 2,
+      x2: panelArea.x + panelArea.w - 5,
+      y2: panelArea.y + panelArea.h / 2,
+    })
+  );
+
+  const sun = svgEl("g", { class: "hpfc-sun" });
+  const sunCenter = { x: box.x + box.w - 32, y: box.y + 52 };
+  sun.appendChild(svgEl("circle", { cx: sunCenter.x, cy: sunCenter.y, r: 11, class: "hpfc-sun-core" }));
+  const rays = svgEl("g", { class: "hpfc-rays" });
+  for (let i = 0; i < 8; i++) {
+    const angle = (Math.PI / 4) * i;
+    rays.appendChild(
+      svgEl("line", {
+        x1: sunCenter.x + Math.cos(angle) * 15,
+        y1: sunCenter.y + Math.sin(angle) * 15,
+        x2: sunCenter.x + Math.cos(angle) * 20,
+        y2: sunCenter.y + Math.sin(angle) * 20,
+      })
+    );
+  }
+  sun.appendChild(rays);
+  group.appendChild(sun);
+
+  drawBottomReadouts(scene, group, box, [
+    { label: texts.power, field: cfg.power },
+    cfg.battery
+      ? { label: cfg.battery.name || texts.battery, field: cfg.battery }
+      : cfg.grid
+        ? { label: cfg.grid.name || texts.grid, field: cfg.grid }
+        : null,
+  ]);
+
+  const producing = (hass) => {
+    if (cfg.power && cfg.power.entity) {
+      const value = numberValue(hass, cfg.power);
+      if (value !== null) return value > (cfg.threshold === undefined ? 5 : cfg.threshold);
+    }
+    return cfg.entity ? isActive(hass, { entity: cfg.entity }) : false;
+  };
+
+  scene.add(() => {
+    group.classList.toggle("hpfc-running", producing(scene.hass()));
+  });
+
+  return { group, producing };
+}
+
+function drawSolar(scene, box, cfg) {
+  const texts = textsFor(scene.hass());
+  const group = drawPanel(scene, box, cfg.name || texts.solar, {
+    entity: cfg.entity || (cfg.collector_temp ? cfg.collector_temp.entity : undefined),
+    tap_action: cfg.tap_action,
+    hold_action: cfg.hold_action,
+  });
+  group.classList.add("hpfc-solar");
+
+  const area = { x: box.x + 12, y: box.y + 34, w: box.w - 46, h: 42 };
+  const body = svgEl("rect", {
+    x: area.x,
+    y: area.y,
+    width: area.w,
+    height: area.h,
+    rx: 6,
+    class: "hpfc-collector",
+  });
+  group.appendChild(body);
+  for (let i = 1; i < 5; i++) {
+    group.appendChild(
+      svgEl("line", {
+        class: "hpfc-absorber",
+        x1: area.x + (area.w / 5) * i,
+        y1: area.y + 5,
+        x2: area.x + (area.w / 5) * i,
+        y2: area.y + area.h - 5,
+      })
+    );
+  }
+  const sun = svgEl("g", { class: "hpfc-sun" });
+  sun.appendChild(
+    svgEl("circle", { cx: box.x + box.w - 26, cy: box.y + 46, r: 10, class: "hpfc-sun-core" })
+  );
+  group.appendChild(sun);
+
+  drawBottomReadouts(scene, group, box, [
+    { label: cfg.collector_temp ? cfg.collector_temp.name || texts.collector : texts.collector, field: cfg.collector_temp, colorize: true },
+    cfg.yield ? { label: cfg.yield.name || texts.yield, field: cfg.yield } : null,
+  ]);
+
+  const running = (hass) => {
+    if (cfg.pump && cfg.pump.entity) return isActive(hass, cfg.pump);
+    if (cfg.yield && cfg.yield.entity) {
+      const value = numberValue(hass, cfg.yield);
+      if (value !== null) return value > 0;
+    }
+    const collector = numberValue(hass, cfg.collector_temp);
+    return collector !== null ? collector > 35 : false;
+  };
+
+  scene.add(() => {
+    const hass = scene.hass();
+    group.classList.toggle("hpfc-running", running(hass));
+    const colored = scene.config.temperature_colors !== false;
+    const color = colored ? tempColor(numberValue(hass, cfg.collector_temp)) : null;
+    body.style.fill = color || "";
+  });
+
+  return { group, running };
+}
+
+/* --------------------------- heat emitters ------------------------------ */
+
+function drawEmitter(scene, group, area, type, options) {
+  const opts = options || {};
+  const wrap = svgEl("g", { class: `hpfc-emitter hpfc-emitter-${type}` });
+  group.appendChild(wrap);
+  const parts = [];
+
+  if (type === "underfloor") {
+    wrap.appendChild(
+      svgEl("rect", {
+        x: area.x,
+        y: area.y + area.h - 10,
+        width: area.w,
+        height: 10,
+        rx: 3,
+        class: "hpfc-floor",
+      })
+    );
+    const inset = 8;
+    const points = [
+      [area.x + inset, area.y + 8],
+      [area.x + area.w - inset, area.y + 8],
+      [area.x + area.w - inset, area.y + 20],
+      [area.x + inset, area.y + 20],
+      [area.x + inset, area.y + 32],
+      [area.x + area.w - inset, area.y + 32],
+    ];
+    const d = roundedPath(points, 6);
+    const base = svgEl("path", { d, class: "hpfc-emitter-line", fill: "none" });
+    const dots = svgEl("path", { d, class: "hpfc-dots hpfc-dots-slim", fill: "none" });
+    wrap.appendChild(base);
+    wrap.appendChild(dots);
+    parts.push({ node: base, kind: "stroke" }, { node: dots, kind: "dots" });
+  } else if (type === "fancoil") {
+    wrap.appendChild(
+      svgEl("rect", { x: area.x, y: area.y, width: area.w, height: area.h, rx: 8, class: "hpfc-emitter-box" })
+    );
+    const fanX = area.x + 28;
+    const spin = spinner(fanX, area.y + area.h / 2, 15, fanBlades(14), "hpfc-fancoil-fan");
+    wrap.appendChild(spin.outer);
+    parts.push({ node: spin.inner, kind: "spin" });
+    const gridStart = fanX + 26;
+    const columns = Math.max(3, Math.floor((area.x + area.w - 10 - gridStart) / 14));
+    for (let i = 0; i < columns; i++) {
+      const line = svgEl("rect", {
+        x: gridStart + i * 14,
+        y: area.y + 10,
+        width: 6,
+        height: area.h - 20,
+        rx: 3,
+        class: "hpfc-fin",
+      });
+      wrap.appendChild(line);
+      parts.push({ node: line, kind: "fill" });
+    }
+  } else if (type === "pool") {
+    wrap.appendChild(
+      svgEl("path", {
+        class: "hpfc-emitter-box",
+        d: `M ${area.x} ${area.y} L ${area.x + 10} ${area.y + area.h} L ${area.x + area.w - 10} ${area.y + area.h} L ${area.x + area.w} ${area.y} Z`,
+      })
+    );
+    for (let i = 0; i < 2; i++) {
+      const y = area.y + 16 + i * 12;
+      wrap.appendChild(
+        svgEl("path", {
+          class: "hpfc-wave",
+          fill: "none",
+          d: `M ${area.x + 14} ${y} q 12 -7 24 0 t 24 0 t 24 0 t 24 0`,
+        })
+      );
+    }
+  } else {
+    // radiator (default) - vertical fins between two rails
+    const top = area.y + 14;
+    const finHeight = area.h - 16;
+    const count = clamp(Math.floor(area.w / 18), 4, 9);
+    const gap = (area.w - 8) / count;
+    for (let i = 0; i < count; i++) {
+      const fin = svgEl("rect", {
+        x: area.x + 4 + i * gap,
+        y: top,
+        width: Math.max(6, gap - 7),
+        height: finHeight,
+        rx: 3,
+        class: "hpfc-fin",
+      });
+      wrap.appendChild(fin);
+      parts.push({ node: fin, kind: "fill" });
+    }
+    [top + 5, top + finHeight - 5].forEach((y) => {
+      wrap.appendChild(
+        svgEl("line", { x1: area.x, y1: y, x2: area.x + area.w, y2: y, class: "hpfc-rail" })
+      );
+    });
+    for (let i = 0; i < 3; i++) {
+      wrap.appendChild(
+        svgEl("path", {
+          class: "hpfc-heatwave",
+          style: `animation-delay:${i * 0.7}s`,
+          fill: "none",
+          d: `M ${area.x + 24 + i * (area.w / 3)} ${top - 2} q 5 -4 0 -8 q -5 -4 0 -8`,
+        })
+      );
+    }
+  }
+
+  scene.add(() => {
+    const hass = scene.hass();
+    const running = opts.running ? opts.running(hass) : false;
+    wrap.classList.toggle("hpfc-running", running);
+    const colored = scene.config.temperature_colors !== false;
+    const color = (colored ? tempColor(numberValue(hass, opts.temp)) : null) || COLOR_FLOW;
+    for (const part of parts) {
+      if (part.kind === "fill") part.node.style.fill = color;
+      if (part.kind === "stroke" || part.kind === "dots") part.node.style.stroke = color;
+      if (part.kind === "dots") part.node.style.display = running && scene.config.animation !== false ? "" : "none";
+    }
+    wrap.style.setProperty("--hpfc-emitter-color", color);
+  });
+
+  return wrap;
+}
+
+function circuitRunning(scene, cfg) {
+  return (hass) => {
+    if (cfg.pump && cfg.pump.entity) return isActive(hass, cfg.pump);
+    if (cfg.valve && cfg.valve.entity) {
+      const value = numberValue(hass, cfg.valve);
+      if (value !== null) return value > 0;
+    }
+    if (cfg.entity) return isActive(hass, { entity: cfg.entity });
+    return scene.flags.heatpumpRunning ? scene.flags.heatpumpRunning(hass) : false;
+  };
+}
+
+function drawCircuit(scene, box, cfg) {
+  const texts = textsFor(scene.hass());
+  const fallbackName =
+    cfg.type === "underfloor" ? texts.underfloor : cfg.type === "radiator" ? texts.radiators : texts.circuit;
+  const group = drawPanel(scene, box, cfg.name || fallbackName, {
+    entity: cfg.entity,
+    tap_action: cfg.tap_action,
+    hold_action: cfg.hold_action,
+  });
+  group.classList.add("hpfc-circuit");
+
+  const running = circuitRunning(scene, cfg);
+  drawStatusDot(scene, group, box.x + box.w - 16, box.y + 16, (hass) => (running(hass) ? "on" : "off"));
+
+  const columns = [
+    cfg.flow_temp ? { label: texts.flow, field: cfg.flow_temp, colorize: true } : null,
+    cfg.return_temp ? { label: texts.ret, field: cfg.return_temp, colorize: true } : null,
+    cfg.room_temp ? { label: cfg.room_temp.name || texts.room, field: cfg.room_temp } : null,
+    cfg.target_temp ? { label: texts.target, field: cfg.target_temp } : null,
+    cfg.humidity ? { label: cfg.humidity.name || "rH", field: cfg.humidity } : null,
+  ].filter(Boolean);
+  const columnWidth = (box.w - 28) / Math.max(columns.length, 1);
+  columns.slice(0, 4).forEach((column, index) => {
+    drawReadout(scene, group, box.x + 14 + columnWidth * index, box.y + 46, column.label, column.field, {
+      colorize: column.colorize,
+      strong: index === 0,
+    });
+  });
+
+  // Pump, mixer and emitter along the bottom
+  const baseY = box.y + box.h - 34;
+  let cursor = box.x + 30;
+  drawPump(scene, group, cursor, baseY, cfg.pump, {
+    label: `${cfg.name || fallbackName} – ${texts.pump}`,
+    running,
+  });
+  cursor += 34;
+
+  if (cfg.valve) {
+    const valve = svgEl("g", { class: "hpfc-valve" });
+    valve.appendChild(
+      svgEl("path", {
+        class: "hpfc-valve-body",
+        d: `M ${cursor - 12} ${baseY - 11} L ${cursor} ${baseY} L ${cursor - 12} ${baseY + 11} Z M ${cursor + 12} ${baseY - 11} L ${cursor} ${baseY} L ${cursor + 12} ${baseY + 11} Z`,
+      })
+    );
+    const valveText = svgText(cursor, baseY + 26, "", { "text-anchor": "middle", class: "hpfc-label" });
+    valve.appendChild(valveText);
+    group.appendChild(valve);
+    attachAction(scene, valve, {
+      entity: cfg.valve.entity,
+      tap_action: cfg.valve.tap_action,
+      label: texts.mixer,
+    });
+    scene.add(() => {
+      const hass = scene.hass();
+      valveText.textContent = displayValue(hass, cfg.valve, "");
+      valve.classList.toggle("hpfc-running", isActive(hass, cfg.valve));
+    });
+    cursor += 30;
+  }
+
+  const emitterArea = {
+    x: cursor + 8,
+    y: box.y + box.h - 58,
+    w: box.x + box.w - 14 - (cursor + 8),
+    h: 46,
+  };
+  drawEmitter(scene, group, emitterArea, cfg.type || "radiator", {
+    running,
+    temp: cfg.flow_temp || cfg.room_temp,
+  });
+
+  scene.add(() => {
+    group.classList.toggle("hpfc-running", running(scene.hass()));
+  });
+
+  return { group, running };
+}
+
+function drawDhw(scene, box, cfg) {
+  const texts = textsFor(scene.hass());
+  const group = drawPanel(scene, box, cfg.name || texts.dhw, {
+    entity: cfg.entity,
+    tap_action: cfg.tap_action,
+    hold_action: cfg.hold_action,
+  });
+  group.classList.add("hpfc-dhw");
+
+  const running = (hass) => {
+    if (cfg.pump && cfg.pump.entity) return isActive(hass, cfg.pump);
+    if (cfg.entity) return isActive(hass, { entity: cfg.entity });
+    const current = numberValue(hass, cfg.temp);
+    const target = numberValue(hass, cfg.target_temp);
+    if (current !== null && target !== null) return current < target - 1;
+    return false;
+  };
+  drawStatusDot(scene, group, box.x + box.w - 16, box.y + 16, (hass) => (running(hass) ? "on" : "off"));
+
+  drawTank(
+    scene,
+    { x: box.x + 14, y: box.y + 32, w: 46, h: box.h - 46 },
+    cfg,
+    {
+      radius: 16,
+      layers: [{ label: texts.dhw, field: cfg.temp, pill: false }],
+      entity: cfg.entity,
+      tap_action: cfg.tap_action,
+    }
+  );
+
+  const columns = [
+    { label: cfg.temp && cfg.temp.name ? cfg.temp.name : texts.current, field: cfg.temp, colorize: true },
+    cfg.target_temp ? { label: texts.target, field: cfg.target_temp } : null,
+    cfg.charge ? { label: cfg.charge.name || texts.charge, field: cfg.charge } : null,
+    cfg.pump ? { label: texts.pump, field: cfg.pump } : null,
+  ].filter(Boolean);
+  const width = (box.w - 90) / Math.max(columns.length, 1);
+  columns.slice(0, 3).forEach((column, index) => {
+    drawReadout(scene, group, box.x + 76 + width * index, box.y + 50, column.label, column.field, {
+      colorize: column.colorize,
+      strong: index === 0,
+    });
+  });
+
+  scene.add(() => {
+    group.classList.toggle("hpfc-running", running(scene.hass()));
+  });
+
+  return { group, running };
+}
+
+/* =========================================================================
+ * Configuration
+ * ========================================================================= */
+
+const LAYOUT_PRESETS = {
+  compact: { sections: ["buffer"], circuits: 1, dense: true },
+  single: { sections: ["buffer"], circuits: 1 },
+  dual: { sections: ["buffer"], circuits: 2 },
+  full: { sections: ["buffer", "pv", "solar", "dhw"], circuits: 2 },
+};
+
+const SECTION_FIELDS = {
+  heatpump: [
+    "power",
+    "cop",
+    "outside_temp",
+    "flow_temp",
+    "return_temp",
+    "compressor",
+    "mode",
+    "state_entity",
+  ],
+  pv: ["power", "battery", "grid"],
+  solar: ["collector_temp", "pump", "yield", "return_temp"],
+  buffer: ["top", "middle", "bottom", "charge"],
+  dhw: ["temp", "target_temp", "charge", "pump"],
+  circuit: ["flow_temp", "return_temp", "room_temp", "target_temp", "pump", "valve", "humidity"],
+};
+
+const FIELD_ALIASES = {
+  outdoor_temp: "outside_temp",
+  outside_temperature: "outside_temp",
+  ambient_temp: "outside_temp",
+  flow_temperature: "flow_temp",
+  return_temperature: "return_temp",
+  temp_top: "top",
+  temp_middle: "middle",
+  temp_bottom: "bottom",
+  temperature: "temp",
+  target: "target_temp",
+  setpoint: "target_temp",
+  room_temperature: "room_temp",
+  collector: "collector_temp",
+  mixer: "valve",
+};
+
+const PASSTHROUGH_KEYS = ["name", "entity", "type", "tap_action", "hold_action", "power_threshold", "threshold"];
+
+function normalizeSection(raw, fields) {
+  if (!raw || typeof raw !== "object") return {};
+  const result = {};
+  for (const key of PASSTHROUGH_KEYS) {
+    if (raw[key] !== undefined) result[key] = raw[key];
+  }
+  for (const key of Object.keys(raw)) {
+    const target = FIELD_ALIASES[key] || key;
+    if (!fields.includes(target)) continue;
+    const field = asField(raw[key]);
+    if (field) result[target] = field;
+  }
+  return result;
+}
+
+function sectionEnabled(raw, key, preset) {
+  const value = raw[key];
+  if (value === false || value === null) return false;
+  if (value === undefined) return preset.sections.includes(key);
+  return true;
+}
+
+function normalizeConfig(raw) {
+  if (!raw || typeof raw !== "object") throw new Error("Invalid configuration");
+  const layout = LAYOUT_PRESETS[raw.layout] ? raw.layout : "dual";
+  const preset = LAYOUT_PRESETS[layout];
+
+  const config = {
+    type: raw.type,
+    title: raw.title,
+    layout,
+    dense: Boolean(preset.dense),
+    animation: raw.animation !== false,
+    flow_speed: Number.isFinite(Number(raw.flow_speed)) ? clamp(Number(raw.flow_speed), 0.1, 5) : 1,
+    temperature_colors: raw.temperature_colors !== false,
+    dim_inactive: raw.dim_inactive !== false,
+    heatpump: normalizeSection(raw.heatpump || {}, SECTION_FIELDS.heatpump),
+    pv: null,
+    solar: null,
+    buffer: null,
+    dhw: null,
+    circuits: [],
+  };
+
+  if (raw.heatpump && raw.heatpump.power_threshold !== undefined) {
+    config.heatpump.power_threshold = raw.heatpump.power_threshold;
+  }
+
+  for (const key of ["pv", "solar", "buffer", "dhw"]) {
+    if (!sectionEnabled(raw, key, preset)) continue;
+    const source = typeof raw[key] === "object" && raw[key] !== null ? raw[key] : {};
+    config[key] = normalizeSection(source, SECTION_FIELDS[key]);
+  }
+
+  let circuits = raw.circuits;
+  if (circuits && !Array.isArray(circuits)) circuits = [circuits];
+  if (!circuits || !circuits.length) {
+    circuits = [];
+    const defaults = ["radiator", "underfloor", "radiator", "underfloor"];
+    for (let i = 0; i < preset.circuits; i++) circuits.push({ type: defaults[i] });
+  }
+  config.circuits = circuits
+    .filter((circuit) => circuit && circuit !== true)
+    .slice(0, 4)
+    .map((circuit) => {
+      const normalized = normalizeSection(circuit, SECTION_FIELDS.circuit);
+      if (!normalized.type) normalized.type = "radiator";
+      return normalized;
+    });
+
+  return config;
+}
+
+/* =========================================================================
+ * Scene / layout
+ * ========================================================================= */
+
+const GEOMETRY = {
+  pad: 14,
+  hp: { w: 200, h: 190 },
+  pv: { w: 152, h: 118 },
+  solar: { w: 152, h: 122 },
+  buffer: { w: 126, min: 250, max: 330 },
+  sourceGap: 74,
+  hpGap: 110,
+  railGap: 92,
+  gapY: 16,
+};
+
+function buildScene(card) {
+  const config = card._config;
+  const G = GEOMETRY;
+  const consumerWidth = config.dense ? 268 : 304;
+  const circuitHeight = config.dense ? 118 : 134;
+  const dhwHeight = 118;
+  const showSources = Boolean(config.pv || config.solar);
+
+  // ---- horizontal placement -------------------------------------------
+  let x = G.pad;
+  const srcX = x;
+  if (showSources) x += G.pv.w + G.sourceGap;
+  const hpX = x;
+  x += G.hp.w + G.hpGap;
+  let bufX = null;
+  if (config.buffer) {
+    bufX = x;
+    x += G.buffer.w + G.railGap;
+  }
+  const rightX = x;
+  const width = rightX + consumerWidth + G.pad;
+
+  // ---- vertical placement ---------------------------------------------
+  const consumers = [];
+  if (config.dhw) consumers.push({ kind: "dhw", cfg: config.dhw, h: dhwHeight });
+  for (const circuit of config.circuits) {
+    consumers.push({ kind: "circuit", cfg: circuit, h: circuitHeight });
+  }
+  if (!consumers.length) consumers.push({ kind: "circuit", cfg: { type: "radiator" }, h: circuitHeight });
+
+  const rightH =
+    consumers.reduce((sum, item) => sum + item.h, 0) + G.gapY * (consumers.length - 1);
+  const sourcesH =
+    (config.pv ? G.pv.h : 0) +
+    (config.solar ? G.solar.h : 0) +
+    (config.pv && config.solar ? G.gapY : 0);
+  const bufferMin = config.dense ? 200 : G.buffer.min;
+  const contentH = Math.max(rightH, G.hp.h + 30, sourcesH, config.buffer ? bufferMin : 0);
+
+  const hpY = G.pad + (contentH - G.hp.h) / 2;
+  const srcY = G.pad + (contentH - sourcesH) / 2;
+  const bufH = Math.min(contentH, G.buffer.max);
+  const bufY = G.pad + (contentH - bufH) / 2;
+  let cursorY = G.pad + (contentH - rightH) / 2;
+  for (const item of consumers) {
+    item.y = cursorY;
+    cursorY += item.h + G.gapY;
+  }
+
+  const solarLanes = config.solar && config.buffer;
+  const height = G.pad + contentH + (solarLanes ? 48 : G.pad);
+  const laneA = G.pad + contentH + 16;
+  const laneB = G.pad + contentH + 32;
+
+  // ---- scene scaffolding ----------------------------------------------
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${Math.round(width)} ${Math.round(height)}`,
+    preserveAspectRatio: "xMidYMid meet",
+    class: "hpfc-svg",
+    role: "img",
+  });
+  const defs = svgEl("defs");
+  const pipeLayer = svgEl("g", { class: "hpfc-pipes" });
+  const nodeLayer = svgEl("g", { class: "hpfc-nodes" });
+  svg.appendChild(defs);
+  svg.appendChild(pipeLayer);
+  svg.appendChild(nodeLayer);
+
+  const scene = {
+    config,
+    svg,
+    defs,
+    pipeLayer,
+    root: nodeLayer,
+    updaters: [],
+    flags: {},
+    hass: () => card._hass,
+    add(fn) {
+      this.updaters.push(fn);
+    },
+  };
+
+  // ---- nodes ------------------------------------------------------------
+  const heatpump = drawHeatPump(scene, { x: hpX, y: hpY, w: G.hp.w, h: G.hp.h }, config.heatpump);
+  scene.flags.heatpumpRunning = heatpump.running;
+
+  let pv = null;
+  let solar = null;
+  if (config.pv) {
+    pv = drawPv(scene, { x: srcX, y: srcY, w: G.pv.w, h: G.pv.h }, config.pv);
+  }
+  if (config.solar) {
+    const solarY = srcY + (config.pv ? G.pv.h + G.gapY : 0);
+    solar = drawSolar(scene, { x: srcX, y: solarY, w: G.solar.w, h: G.solar.h }, config.solar);
+    solar.box = { x: srcX, y: solarY, w: G.solar.w, h: G.solar.h };
+  }
+
+  if (config.buffer) {
+    const texts = textsFor(scene.hass());
+    const keys = ["top", "middle", "bottom"];
+    const configured = keys.filter((key) => config.buffer[key]);
+    const used = configured.length ? configured : keys;
+    drawTank(scene, { x: bufX, y: bufY, w: G.buffer.w, h: bufH }, config.buffer, {
+      title: config.buffer.name || texts.buffer,
+      subtitle: config.buffer.charge ? { label: texts.charge, field: config.buffer.charge } : null,
+      coil: Boolean(config.solar),
+      entity: config.buffer.entity,
+      tap_action: config.buffer.tap_action,
+      layers: used.map((key) => ({ label: texts[key], field: config.buffer[key] })),
+    });
+  }
+
+  for (const item of consumers) {
+    const box = { x: rightX, y: item.y, w: consumerWidth, h: item.h };
+    const drawn =
+      item.kind === "dhw" ? drawDhw(scene, box, item.cfg) : drawCircuit(scene, box, item.cfg);
+    item.running = drawn.running;
+    item.inletY = item.y + 40;
+    item.outletY = item.y + item.h - 30;
+  }
+
+  // ---- pipes ------------------------------------------------------------
+  const hpRight = hpX + G.hp.w;
+  const hpFlowY = hpY + 62;
+  const hpReturnY = hpY + 142;
+  const anyConsumer = (hass) => consumers.some((item) => item.running && item.running(hass));
+
+  const sourceRight = config.buffer ? bufX + G.buffer.w : hpRight;
+  const flowRailX = sourceRight + 34;
+  const returnRailX = sourceRight + 64;
+  const bufferFlowY = config.buffer ? bufY + 56 : hpFlowY;
+  const bufferReturnY = config.buffer ? bufY + bufH - 56 : hpReturnY;
+
+  if (config.buffer) {
+    const mid = hpRight + 55;
+    drawPipe(scene, {
+      points: [
+        [hpRight, hpFlowY],
+        [mid, hpFlowY],
+        [mid, bufferFlowY],
+        [bufX, bufferFlowY],
+      ],
+      role: "flow",
+      from: config.heatpump.flow_temp,
+      to: config.buffer.top,
+      active: heatpump.running,
+    });
+    drawPipe(scene, {
+      points: [
+        [bufX, bufferReturnY],
+        [mid + 26, bufferReturnY],
+        [mid + 26, hpReturnY],
+        [hpRight, hpReturnY],
+      ],
+      role: "return",
+      from: config.buffer.bottom,
+      to: config.heatpump.return_temp,
+      active: heatpump.running,
+    });
+  } else {
+    drawPipe(scene, {
+      points: [
+        [hpRight, hpFlowY],
+        [flowRailX, hpFlowY],
+      ],
+      role: "flow",
+      from: config.heatpump.flow_temp,
+      to: null,
+      active: heatpump.running,
+    });
+    drawPipe(scene, {
+      points: [
+        [returnRailX, hpReturnY],
+        [hpRight, hpReturnY],
+      ],
+      role: "return",
+      from: null,
+      to: config.heatpump.return_temp,
+      active: heatpump.running,
+    });
+  }
+
+  if (config.heatpump.flow_temp) {
+    drawBadge(scene, hpRight + 28, hpFlowY - 16, config.heatpump.flow_temp, {
+      label: textsFor(scene.hass()).flow,
+    });
+  }
+  if (config.heatpump.return_temp) {
+    drawBadge(scene, hpRight + 28, hpReturnY + 17, config.heatpump.return_temp, {
+      label: textsFor(scene.hass()).ret,
+    });
+  }
+
+  // distribution spines and branches
+  const inlets = consumers.map((item) => item.inletY);
+  const outlets = consumers.map((item) => item.outletY);
+  const flowSpan = [Math.min(bufferFlowY, ...inlets), Math.max(bufferFlowY, ...inlets)];
+  const returnSpan = [Math.min(bufferReturnY, ...outlets), Math.max(bufferReturnY, ...outlets)];
+
+  if (config.buffer) {
+    drawPipe(scene, {
+      points: [
+        [bufX + G.buffer.w, bufferFlowY],
+        [flowRailX, bufferFlowY],
+      ],
+      role: "flow",
+      from: config.buffer.top,
+      active: anyConsumer,
+    });
+    drawPipe(scene, {
+      points: [
+        [returnRailX, bufferReturnY],
+        [bufX + G.buffer.w, bufferReturnY],
+      ],
+      role: "return",
+      from: consumers[0] ? consumers[0].cfg.return_temp : null,
+      to: config.buffer.bottom,
+      active: anyConsumer,
+    });
+  }
+
+  if (flowSpan[1] - flowSpan[0] > 2) {
+    drawPipe(scene, {
+      points: [
+        [flowRailX, flowSpan[0]],
+        [flowRailX, flowSpan[1]],
+      ],
+      role: "flow",
+      from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
+      active: anyConsumer,
+    });
+  }
+  if (returnSpan[1] - returnSpan[0] > 2) {
+    drawPipe(scene, {
+      points: [
+        [returnRailX, returnSpan[1]],
+        [returnRailX, returnSpan[0]],
+      ],
+      role: "return",
+      from: consumers[0] ? consumers[0].cfg.return_temp : null,
+      to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
+      active: anyConsumer,
+      reverse: bufferReturnY < returnSpan[1],
+    });
+  }
+
+  for (const item of consumers) {
+    drawPipe(scene, {
+      points: [
+        [flowRailX, item.inletY],
+        [rightX, item.inletY],
+      ],
+      role: "flow",
+      from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
+      to: item.cfg.flow_temp || item.cfg.temp,
+      active: item.running,
+    });
+    drawPipe(scene, {
+      points: [
+        [rightX, item.outletY],
+        [returnRailX, item.outletY],
+      ],
+      role: "return",
+      from: item.cfg.return_temp || item.cfg.flow_temp,
+      to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
+      active: item.running,
+    });
+  }
+
+  // solar thermal circuit
+  if (solar && config.buffer) {
+    const collectorBottom = solar.box.y + solar.box.h;
+    const tankCenter = bufX + G.buffer.w / 2;
+    drawPipe(scene, {
+      points: [
+        [srcX + G.solar.w - 42, collectorBottom],
+        [srcX + G.solar.w - 42, laneA],
+        [tankCenter - 18, laneA],
+        [tankCenter - 18, bufY + bufH - 12],
+      ],
+      role: "solar",
+      from: config.solar.collector_temp,
+      to: config.buffer.bottom,
+      active: solar.running,
+    });
+    drawPipe(scene, {
+      points: [
+        [tankCenter + 18, bufY + bufH - 12],
+        [tankCenter + 18, laneB],
+        [srcX + G.solar.w - 76, laneB],
+        [srcX + G.solar.w - 76, collectorBottom],
+      ],
+      role: "return",
+      from: config.solar.return_temp || config.buffer.bottom,
+      to: config.solar.return_temp || config.buffer.bottom,
+      active: solar.running,
+    });
+  }
+
+  // photovoltaic energy line
+  if (pv) {
+    drawPipe(scene, {
+      points: [
+        [srcX + G.pv.w, srcY + 62],
+        [srcX + G.pv.w + 26, srcY + 62],
+        [srcX + G.pv.w + 26, hpY + 96],
+        [hpX, hpY + 96],
+      ],
+      role: "pv",
+      className: "hpfc-energy",
+      radius: 10,
+      active: pv.producing,
+    });
+  }
+
+  return scene;
+}
+
+/* =========================================================================
+ * Styles
+ * ========================================================================= */
+
+const CARD_STYLES = `
+:host { display: block; }
+ha-card { overflow: hidden; padding: 10px 8px 6px; }
+ha-card.hpfc-has-title { padding-top: 4px; }
+.hpfc-header {
+  font-size: var(--ha-card-header-font-size, 22px);
+  font-weight: 400;
+  color: var(--ha-card-header-color, var(--primary-text-color));
+  padding: 10px 12px 2px;
+  line-height: 1.2;
+}
+.hpfc-error { padding: 16px; color: var(--error-color, #db4437); font-size: 14px; }
+.hpfc-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--paper-font-body1_-_font-family, var(--ha-font-family-body, Roboto, sans-serif));
+  --hpfc-stroke: var(--divider-color, #d5d5d5);
+  --hpfc-text: var(--primary-text-color, #212121);
+  --hpfc-muted: var(--secondary-text-color, #757575);
+  --hpfc-surface: var(--card-background-color, #fff);
+  --hpfc-panel-bg: var(--hpfc-panel-color, rgba(127, 127, 127, 0.10));
+  --hpfc-tank-warm: #f97316;
+  --hpfc-tank-mid: #eab308;
+  --hpfc-tank-cold: #3b82f6;
+}
+
+/* panels ---------------------------------------------------------------- */
+.hpfc-panel { fill: var(--hpfc-panel-bg); stroke: var(--hpfc-stroke); stroke-width: 1; }
+.hpfc-title { font-size: 13px; font-weight: 600; fill: var(--hpfc-text); }
+.hpfc-label {
+  font-size: 9.5px;
+  fill: var(--hpfc-muted);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.hpfc-value { font-size: 13px; font-weight: 600; fill: var(--hpfc-text); }
+.hpfc-subtitle { font-size: 11px; fill: var(--hpfc-muted); }
+.hpfc-value-strong { font-size: 14px; }
+.hpfc-unset { opacity: 0.42; }
+
+.hpfc-clickable { cursor: pointer; outline: none; }
+.hpfc-clickable:hover { filter: brightness(1.12); }
+.hpfc-clickable:focus-visible { outline: 2px solid var(--primary-color, #03a9f4); outline-offset: 2px; }
+
+/* pipes ----------------------------------------------------------------- */
+.hpfc-pipe {
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 0.8s ease, opacity 0.4s ease;
+}
+.hpfc-dots {
+  stroke: #ffffff;
+  stroke-opacity: 0.9;
+  stroke-width: 3.6;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 17.9;
+  animation: hpfc-dash var(--hpfc-dash, 4s) linear infinite;
+}
+.hpfc-dots-reverse { animation-direction: reverse; }
+.hpfc-pipe-group.hpfc-idle .hpfc-pipe { opacity: 0.32; }
+.hpfc-pipe-group.hpfc-idle .hpfc-dots { display: none; }
+.hpfc-energy .hpfc-pipe { stroke-width: 5; stroke-dasharray: 8 5; }
+.hpfc-energy .hpfc-dots { stroke: #fff8dc; stroke-width: 3; }
+@keyframes hpfc-dash { to { stroke-dashoffset: -180; } }
+
+/* rotating parts -------------------------------------------------------- */
+.hpfc-spin {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: hpfc-spin 2s linear infinite;
+  animation-play-state: paused;
+}
+.hpfc-running .hpfc-spin { animation-play-state: running; }
+@keyframes hpfc-spin { to { transform: rotate(360deg); } }
+
+/* heat pump ------------------------------------------------------------- */
+.hpfc-hp-body { fill: rgba(127, 127, 127, 0.14); stroke: var(--hpfc-stroke); }
+.hpfc-grille { stroke: var(--hpfc-stroke); stroke-width: 2; opacity: 0.7; stroke-linecap: round; }
+.hpfc-fan-ring { fill: var(--hpfc-surface); stroke: var(--hpfc-stroke); }
+.hpfc-blade { fill: var(--hpfc-muted); transition: fill 0.5s ease; }
+.hpfc-running .hpfc-blade { fill: var(--info-color, #39b0e5); }
+.hpfc-hub { fill: var(--hpfc-muted); }
+
+.hpfc-status { fill: var(--hpfc-muted); opacity: 0.4; }
+.hpfc-status-on { fill: var(--success-color, #43a047); opacity: 1; }
+.hpfc-status-unknown { fill: var(--warning-color, #ffa726); opacity: 0.9; }
+
+.hpfc-chip rect { fill: rgba(127, 127, 127, 0.18); }
+.hpfc-chip text { font-size: 11px; font-weight: 600; fill: var(--hpfc-muted); }
+.hpfc-mode-heat rect { fill: rgba(249, 115, 22, 0.2); } .hpfc-mode-heat text { fill: #f97316; }
+.hpfc-mode-cool rect { fill: rgba(14, 165, 233, 0.2); } .hpfc-mode-cool text { fill: #0ea5e9; }
+.hpfc-mode-water rect { fill: rgba(245, 158, 11, 0.2); } .hpfc-mode-water text { fill: #d97706; }
+.hpfc-mode-defrost rect { fill: rgba(56, 189, 248, 0.2); } .hpfc-mode-defrost text { fill: #38bdf8; }
+
+/* badges ---------------------------------------------------------------- */
+.hpfc-badge rect {
+  fill: var(--hpfc-muted);
+  stroke: var(--hpfc-surface);
+  stroke-width: 2;
+  transition: fill 0.8s ease;
+}
+.hpfc-badge text { font-size: 11px; font-weight: 700; fill: #ffffff; }
+.hpfc-badge-plain rect { fill: rgba(127, 127, 127, 0.22); }
+.hpfc-badge-plain text { fill: var(--hpfc-text); }
+
+/* tanks ----------------------------------------------------------------- */
+.hpfc-tank-fill { transition: fill 1s ease; }
+.hpfc-tank-outline { fill: none; stroke: var(--hpfc-stroke); stroke-width: 1.5; }
+.hpfc-tank-pill rect { fill: rgba(0, 0, 0, 0.34); }
+.hpfc-tank-pill text { font-size: 11px; font-weight: 700; fill: #ffffff; }
+.hpfc-coil { fill: none; stroke: rgba(255, 255, 255, 0.7); stroke-width: 3; stroke-linecap: round; }
+
+/* sources --------------------------------------------------------------- */
+.hpfc-pv-panel { fill: #1e3a8a; stroke: var(--hpfc-stroke); }
+.hpfc-pv-cell { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
+.hpfc-sun-core { fill: #fbbf24; }
+.hpfc-rays line { stroke: #fbbf24; stroke-width: 2; stroke-linecap: round; }
+.hpfc-sun { opacity: 0.35; transition: opacity 0.6s ease; transform-origin: center; transform-box: fill-box; }
+.hpfc-running .hpfc-sun { opacity: 1; animation: hpfc-pulse 2.8s ease-in-out infinite; }
+@keyframes hpfc-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+.hpfc-collector { fill: #334155; stroke: var(--hpfc-stroke); transition: fill 1s ease; }
+.hpfc-absorber { stroke: rgba(255, 255, 255, 0.3); stroke-width: 1.5; }
+
+/* emitters -------------------------------------------------------------- */
+.hpfc-fin { fill: #94a3b8; transition: fill 1s ease, opacity 0.5s ease; }
+.hpfc-emitter:not(.hpfc-running) .hpfc-fin { opacity: 0.45; }
+.hpfc-rail { stroke: var(--hpfc-stroke); stroke-width: 3; stroke-linecap: round; }
+.hpfc-heatwave { stroke: var(--hpfc-emitter-color, #ef4444); stroke-width: 2; opacity: 0; }
+.hpfc-emitter.hpfc-running .hpfc-heatwave { animation: hpfc-rise 2.8s ease-out infinite; }
+@keyframes hpfc-rise {
+  0% { opacity: 0; transform: translateY(6px); }
+  25% { opacity: 0.85; }
+  100% { opacity: 0; transform: translateY(-12px); }
+}
+.hpfc-floor { fill: rgba(127, 127, 127, 0.35); }
+.hpfc-emitter-line { stroke-width: 6; stroke-linecap: round; opacity: 0.9; }
+.hpfc-emitter:not(.hpfc-running) .hpfc-emitter-line { opacity: 0.4; }
+.hpfc-dots-slim { stroke-width: 2.8; stroke-dasharray: 0.1 13.9; }
+.hpfc-emitter-box { fill: rgba(127, 127, 127, 0.16); stroke: var(--hpfc-stroke); }
+.hpfc-wave { stroke: var(--hpfc-emitter-color, #38bdf8); stroke-width: 2.5; stroke-linecap: round; }
+
+/* pump & valve ---------------------------------------------------------- */
+.hpfc-pump-body { fill: var(--hpfc-surface); stroke: var(--hpfc-stroke); stroke-width: 1.5; transition: stroke 0.5s ease; }
+.hpfc-vane { fill: var(--hpfc-muted); transition: fill 0.5s ease; }
+.hpfc-pump.hpfc-running .hpfc-vane { fill: var(--info-color, #39b0e5); }
+.hpfc-pump.hpfc-running .hpfc-pump-body { stroke: var(--info-color, #39b0e5); }
+.hpfc-valve-body { fill: var(--hpfc-muted); transition: fill 0.5s ease; }
+.hpfc-valve.hpfc-running .hpfc-valve-body { fill: var(--info-color, #39b0e5); }
+
+@media (prefers-reduced-motion: reduce) {
+  .hpfc-spin, .hpfc-dots, .hpfc-heatwave, .hpfc-sun { animation: none !important; }
+}
+`;
+
+/* =========================================================================
+ * The card
+ * ========================================================================= */
+
+class HeatpumpFlowCard extends HTMLElement {
+  static getConfigElement() {
+    return document.createElement("heatpump-flow-card-editor");
+  }
+
+  static getStubConfig() {
+    return {
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {},
+      buffer: {},
+      circuits: [{ type: "radiator" }, { type: "underfloor" }],
+    };
+  }
+
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._scene = null;
+    this._hass = undefined;
+    this._language = undefined;
+  }
+
+  setConfig(config) {
+    this._rawConfig = config;
+    this._config = normalizeConfig(config);
+    this._scene = null;
+    if (this._hass) this._render();
+  }
+
+  set hass(hass) {
+    const language = hass && hass.locale ? hass.locale.language : undefined;
+    this._hass = hass;
+    if (!this._config) return;
+    if (!this._scene || language !== this._language) {
+      this._language = language;
+      this._render();
+      return;
+    }
+    this._update();
+  }
+
+  get hass() {
+    return this._hass;
+  }
+
+  connectedCallback() {
+    if (this._config && this._hass && !this._scene) this._render();
+  }
+
+  _render() {
+    const root = this.shadowRoot;
+    root.innerHTML = "";
+    const style = document.createElement("style");
+    style.textContent = CARD_STYLES;
+    root.appendChild(style);
+
+    const card = document.createElement("ha-card");
+    root.appendChild(card);
+
+    if (this._config.title) {
+      card.classList.add("hpfc-has-title");
+      const header = document.createElement("div");
+      header.className = "hpfc-header";
+      header.textContent = this._config.title;
+      card.appendChild(header);
+    }
+
+    try {
+      this._scene = buildScene(this);
+    } catch (err) {
+      this._scene = null;
+      const error = document.createElement("div");
+      error.className = "hpfc-error";
+      error.textContent = `heatpump-flow-card: ${err && err.message ? err.message : err}`;
+      card.appendChild(error);
+      // eslint-disable-next-line no-console
+      console.error("heatpump-flow-card", err);
+      return;
+    }
+
+    this._scene.svg.style.setProperty("--hpfc-dash", `${(4 / this._config.flow_speed).toFixed(2)}s`);
+    card.appendChild(this._scene.svg);
+    this._update();
+  }
+
+  _update() {
+    if (!this._scene || !this._hass) return;
+    for (const updater of this._scene.updaters) {
+      try {
+        updater();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("heatpump-flow-card update failed", err);
+      }
+    }
+  }
+
+  getCardSize() {
+    if (!this._config) return 6;
+    const consumers = this._config.circuits.length + (this._config.dhw ? 1 : 0);
+    return Math.max(5, 3 + consumers * 2);
+  }
+
+  getGridOptions() {
+    const consumers = this._config ? this._config.circuits.length + (this._config.dhw ? 1 : 0) : 2;
+    return {
+      columns: "full",
+      min_columns: 6,
+      rows: Math.max(5, 3 + consumers * 2),
+    };
+  }
+}
+
+customElements.define("heatpump-flow-card", HeatpumpFlowCard);
+
+/* =========================================================================
+ * Visual editor
+ * ========================================================================= */
+
+const EDITOR_TEXTS = {
+  en: {
+    title: "Card title",
+    layout: "Layout",
+    animation: "Animate the flow",
+    temperature_colors: "Colour pipes by temperature",
+    flow_speed: "Flow speed",
+    show_buffer: "Show buffer tank",
+    show_dhw: "Show domestic hot water",
+    show_pv: "Show photovoltaics",
+    show_solar: "Show solar thermal",
+    circuit_count: "Heating circuits",
+    heatpump: "Heat pump",
+    buffer: "Buffer tank",
+    dhw: "Domestic hot water",
+    pv: "Photovoltaics",
+    solar: "Solar thermal",
+    circuit: "Heating circuit",
+    name: "Name",
+    entity: "Entity (tap to switch)",
+    state_entity: "Running (binary sensor)",
+    mode: "Operating mode",
+    power: "Power",
+    cop: "COP / efficiency",
+    flow_temp: "Flow temperature",
+    return_temp: "Return temperature",
+    outside_temp: "Outside temperature",
+    compressor: "Compressor load",
+    top: "Top temperature",
+    middle: "Middle temperature",
+    bottom: "Bottom temperature",
+    charge: "Charge level",
+    temp: "Temperature",
+    target_temp: "Target temperature",
+    pump: "Circulation pump",
+    valve: "Mixing valve",
+    room_temp: "Room temperature",
+    battery: "Battery",
+    grid: "Grid",
+    current: "Now",
+    collector_temp: "Collector temperature",
+    yield: "Yield",
+    type: "Emitter type",
+    humidity: "Humidity",
+    yaml_only: "Configured in YAML",
+    layouts: {
+      compact: "Compact – heat pump, tank, one circuit",
+      single: "Single circuit",
+      dual: "Two circuits (radiators + underfloor)",
+      full: "Full – PV, solar thermal, hot water, two circuits",
+    },
+    types: {
+      radiator: "Radiators",
+      underfloor: "Underfloor heating",
+      fancoil: "Fan coil",
+      pool: "Pool / swimming pool",
+      generic: "Generic",
+    },
+  },
+  de: {
+    title: "Kartentitel",
+    layout: "Layout",
+    animation: "Fluss animieren",
+    temperature_colors: "Rohre nach Temperatur einfärben",
+    flow_speed: "Fließgeschwindigkeit",
+    show_buffer: "Pufferspeicher anzeigen",
+    show_dhw: "Warmwasser anzeigen",
+    show_pv: "Photovoltaik anzeigen",
+    show_solar: "Solarthermie anzeigen",
+    circuit_count: "Heizkreise",
+    heatpump: "Wärmepumpe",
+    buffer: "Pufferspeicher",
+    dhw: "Warmwasser",
+    pv: "Photovoltaik",
+    solar: "Solarthermie",
+    circuit: "Heizkreis",
+    name: "Name",
+    entity: "Entität (Klick schaltet)",
+    state_entity: "Läuft (Binärsensor)",
+    mode: "Betriebsart",
+    power: "Leistung",
+    cop: "COP / Arbeitszahl",
+    flow_temp: "Vorlauftemperatur",
+    return_temp: "Rücklauftemperatur",
+    outside_temp: "Außentemperatur",
+    compressor: "Verdichterlast",
+    top: "Temperatur oben",
+    middle: "Temperatur Mitte",
+    bottom: "Temperatur unten",
+    charge: "Ladezustand",
+    temp: "Temperatur",
+    target_temp: "Solltemperatur",
+    pump: "Umwälzpumpe",
+    valve: "Mischer",
+    room_temp: "Raumtemperatur",
+    battery: "Batterie",
+    grid: "Netz",
+    current: "Ist",
+    collector_temp: "Kollektortemperatur",
+    yield: "Ertrag",
+    type: "Heizflächen-Typ",
+    humidity: "Luftfeuchte",
+    yaml_only: "In YAML konfiguriert",
+    layouts: {
+      compact: "Kompakt – Wärmepumpe, Speicher, ein Kreis",
+      single: "Ein Heizkreis",
+      dual: "Zwei Heizkreise (Heizkörper + Fußboden)",
+      full: "Komplett – PV, Solarthermie, Warmwasser, zwei Kreise",
+    },
+    types: {
+      radiator: "Heizkörper",
+      underfloor: "Fußbodenheizung",
+      fancoil: "Gebläsekonvektor",
+      pool: "Pool / Schwimmbad",
+      generic: "Allgemein",
+    },
+  },
+};
+
+const EDITOR_SECTIONS = {
+  heatpump: ["state_entity", "mode", "power", "cop", "flow_temp", "return_temp", "outside_temp", "compressor"],
+  buffer: ["top", "middle", "bottom", "charge"],
+  dhw: ["temp", "target_temp", "pump", "charge"],
+  pv: ["power", "battery", "grid"],
+  solar: ["collector_temp", "pump", "yield", "return_temp"],
+};
+const EDITOR_CIRCUIT_FIELDS = ["flow_temp", "return_temp", "room_temp", "target_temp", "pump", "valve"];
+const SECTION_ICONS = {
+  heatpump: "mdi:heat-pump",
+  buffer: "mdi:storage-tank",
+  dhw: "mdi:water-boiler",
+  pv: "mdi:solar-power-variant",
+  solar: "mdi:solar-panel",
+  circuit: "mdi:radiator",
+};
+
+class HeatpumpFlowCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = {};
+    this._preserved = {};
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    const language = hass && hass.locale ? hass.locale.language : undefined;
+    const relabel = language !== this._editorLanguage;
+    this._hass = hass;
+    this._editorLanguage = language;
+    if (this._form && !relabel) {
+      this._form.hass = hass;
+      return;
+    }
+    this._render();
+  }
+
+  get _texts() {
+    const language = this._hass && this._hass.locale ? this._hass.locale.language : "en";
+    return String(language).toLowerCase().startsWith("de") ? EDITOR_TEXTS.de : EDITOR_TEXTS.en;
+  }
+
+  _render() {
+    if (!this.shadowRoot) return;
+    if (!this._form) {
+      const style = document.createElement("style");
+      style.textContent = ".hpfc-editor { display: block; }";
+      this.shadowRoot.appendChild(style);
+      this._form = document.createElement("ha-form");
+      this._form.className = "hpfc-editor";
+      this._form.addEventListener("value-changed", (event) => this._valueChanged(event));
+      this.shadowRoot.appendChild(this._form);
+    }
+    const texts = this._texts;
+    this._form.hass = this._hass;
+    this._form.data = this._toData(this._config);
+    this._form.schema = this._schema(this._form.data, texts);
+    this._form.computeLabel = (schema) => texts[schema.name] || schema.label || schema.name;
+  }
+
+  _schema(data, texts) {
+    const entitySelector = { entity: {} };
+    const sectionSchema = (key, fields) => {
+      const rows = [
+        { name: "name", selector: { text: {} } },
+        { name: "entity", selector: entitySelector },
+        { name: "", type: "grid", schema: fields.map((field) => ({ name: field, selector: entitySelector })) },
+      ];
+      const preserved = Object.keys(this._preserved)
+        .filter((path) => path.startsWith(`${key}.`))
+        .map((path) => path.split(".")[1]);
+      if (preserved.length) {
+        rows.unshift({
+          name: `${key}_yaml`,
+          type: "constant",
+          label: texts.yaml_only,
+          value: preserved.join(", "),
+        });
+      }
+      return rows;
+    };
+
+    const schema = [
+      { name: "title", selector: { text: {} } },
+      {
+        name: "layout",
+        selector: {
+          select: {
+            mode: "dropdown",
+            options: Object.keys(LAYOUT_PRESETS).map((value) => ({
+              value,
+              label: texts.layouts[value] || value,
+            })),
+          },
+        },
+      },
+      {
+        name: "",
+        type: "grid",
+        schema: [
+          { name: "animation", selector: { boolean: {} } },
+          { name: "temperature_colors", selector: { boolean: {} } },
+        ],
+      },
+      { name: "flow_speed", selector: { number: { min: 0.2, max: 3, step: 0.1, mode: "slider" } } },
+      {
+        name: "heatpump",
+        type: "expandable",
+        title: texts.heatpump,
+        icon: SECTION_ICONS.heatpump,
+        schema: sectionSchema("heatpump", EDITOR_SECTIONS.heatpump),
+      },
+    ];
+
+    for (const key of ["buffer", "dhw", "pv", "solar"]) {
+      schema.push({ name: `show_${key}`, selector: { boolean: {} } });
+      if (data[`show_${key}`]) {
+        schema.push({
+          name: key,
+          type: "expandable",
+          title: texts[key],
+          icon: SECTION_ICONS[key],
+          schema: sectionSchema(key, EDITOR_SECTIONS[key]),
+        });
+      }
+    }
+
+    schema.push({
+      name: "circuit_count",
+      selector: { number: { min: 0, max: 4, step: 1, mode: "box" } },
+    });
+    for (let index = 1; index <= (data.circuit_count || 0); index++) {
+      schema.push({
+        name: `circuit_${index}`,
+        type: "expandable",
+        title: `${texts.circuit} ${index}`,
+        icon: SECTION_ICONS.circuit,
+        schema: [
+          { name: "name", selector: { text: {} } },
+          {
+            name: "type",
+            selector: {
+              select: {
+                mode: "dropdown",
+                options: Object.keys(texts.types).map((value) => ({ value, label: texts.types[value] })),
+              },
+            },
+          },
+          { name: "entity", selector: { entity: {} } },
+          {
+            name: "",
+            type: "grid",
+            schema: EDITOR_CIRCUIT_FIELDS.map((field) => ({ name: field, selector: { entity: {} } })),
+          },
+        ],
+      });
+    }
+    return schema;
+  }
+
+  /** Config -> form data. Object style fields are parked in this._preserved. */
+  _toData(config) {
+    this._preserved = {};
+    const layout = LAYOUT_PRESETS[config.layout] ? config.layout : "dual";
+    const preset = LAYOUT_PRESETS[layout];
+    const data = {
+      title: config.title || "",
+      layout,
+      animation: config.animation !== false,
+      temperature_colors: config.temperature_colors !== false,
+      flow_speed: config.flow_speed === undefined ? 1 : config.flow_speed,
+    };
+
+    const simplify = (raw, path) => {
+      const result = {};
+      if (!raw || typeof raw !== "object") return result;
+      for (const key of Object.keys(raw)) {
+        const value = raw[key];
+        if (typeof value === "string" || typeof value === "number") {
+          result[key] = value;
+        } else if (value && typeof value === "object") {
+          this._preserved[`${path}.${key}`] = value;
+        }
+      }
+      return result;
+    };
+
+    data.heatpump = simplify(config.heatpump, "heatpump");
+    for (const key of ["buffer", "dhw", "pv", "solar"]) {
+      const raw = config[key];
+      data[`show_${key}`] =
+        raw === false || raw === null ? false : raw !== undefined ? true : preset.sections.includes(key);
+      data[key] = simplify(typeof raw === "object" ? raw : {}, key);
+    }
+
+    let circuits = config.circuits;
+    if (circuits && !Array.isArray(circuits)) circuits = [circuits];
+    if (!circuits) {
+      circuits = [];
+      const defaults = ["radiator", "underfloor", "radiator", "underfloor"];
+      for (let i = 0; i < preset.circuits; i++) circuits.push({ type: defaults[i] });
+    }
+    data.circuit_count = Math.min(circuits.length, 4);
+    circuits.slice(0, 4).forEach((circuit, index) => {
+      data[`circuit_${index + 1}`] = simplify(circuit, `circuit_${index + 1}`);
+      if (!data[`circuit_${index + 1}`].type) data[`circuit_${index + 1}`].type = "radiator";
+    });
+    return data;
+  }
+
+  /** Form data -> config. */
+  _toConfig(data) {
+    const config = { type: this._config.type || "custom:heatpump-flow-card" };
+    if (data.title) config.title = data.title;
+    config.layout = data.layout || "dual";
+    if (data.animation === false) config.animation = false;
+    if (data.temperature_colors === false) config.temperature_colors = false;
+    if (data.flow_speed !== undefined && Number(data.flow_speed) !== 1) {
+      config.flow_speed = Number(data.flow_speed);
+    }
+
+    const preset = LAYOUT_PRESETS[config.layout];
+    const clean = (raw, path) => {
+      const result = {};
+      for (const key of Object.keys(raw || {})) {
+        const value = raw[key];
+        if (value === "" || value === undefined || value === null) continue;
+        result[key] = value;
+      }
+      for (const preservedPath of Object.keys(this._preserved)) {
+        if (!preservedPath.startsWith(`${path}.`)) continue;
+        const key = preservedPath.slice(path.length + 1);
+        if (result[key] === undefined) result[key] = this._preserved[preservedPath];
+      }
+      return result;
+    };
+
+    config.heatpump = clean(data.heatpump, "heatpump");
+    for (const key of ["buffer", "dhw", "pv", "solar"]) {
+      if (!data[`show_${key}`]) {
+        if (preset.sections.includes(key)) config[key] = false;
+        continue;
+      }
+      config[key] = clean(data[key], key);
+    }
+
+    const circuits = [];
+    for (let index = 1; index <= (data.circuit_count || 0); index++) {
+      const circuit = clean(data[`circuit_${index}`], `circuit_${index}`);
+      if (!circuit.type) circuit.type = "radiator";
+      circuits.push(circuit);
+    }
+    if (circuits.length) config.circuits = circuits;
+    return config;
+  }
+
+  _valueChanged(event) {
+    event.stopPropagation();
+    const data = event.detail.value;
+    if (!data) return;
+    const config = this._toConfig(data);
+    this._config = config;
+    fireEvent(this, "config-changed", { config });
+    this._render();
+  }
+}
+
+customElements.define("heatpump-flow-card-editor", HeatpumpFlowCardEditor);
+
+/* =========================================================================
+ * Card picker registration
+ * ========================================================================= */
+
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: "heatpump-flow-card",
+  name: "Heat Pump Flow Card",
+  description:
+    "Animated hydraulic scheme for a heat pump with buffer tank, hot water, PV, solar thermal and heating circuits.",
+  preview: true,
+  documentationURL: "https://github.com/Xerolux/heatpump-flow-card",
+});
