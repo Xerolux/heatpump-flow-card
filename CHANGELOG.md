@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.1
+
+* The wiki job now says what actually has to happen when it cannot push:
+  GitHub creates the wiki repository only once a first page has been saved by
+  hand, so enabling wikis in the settings is not enough on a fresh repository.
+
 ## 1.6.0
 
 * The live demo gained the two new views: four circuits each with their own

@@ -7,7 +7,7 @@
  * MIT License - Copyright (c) 2026 Xerolux
  */
 
-const CARD_VERSION = "1.6.0";
+const CARD_VERSION = "1.6.1";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
