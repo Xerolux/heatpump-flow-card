@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.1
+
+* The demo page stamps the card version onto every asset it loads, so a browser
+  that still holds yesterday's bundle no longer shows yesterday's card. If a
+  demo ever looks out of date again, it is now enough to reload it.
+* Four heating circuits in the English wiki pages were still named in German.
+* `check:docs` fails when German wording turns up in an English-facing file —
+  README, the English wiki pages, the examples, the demo page or the tooling.
+  German belongs in `README.de.md`, the `-de` wiki pages and the card's own
+  translation table.
+
 ## 1.3.0
 
 * The release workflow can be started by hand from the Actions tab; it creates
