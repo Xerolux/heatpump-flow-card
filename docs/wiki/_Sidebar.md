@@ -10,6 +10,7 @@
 * [Troubleshooting](Troubleshooting)
 * [Development](Development)
 * [Publishing to HACS](Publishing-to-HACS)
+* [Changelog](Changelog)
 
 ### Deutsch
 
