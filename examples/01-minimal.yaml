@@ -3,12 +3,12 @@
 type: custom:heatpump-flow-card
 layout: single
 heatpump:
-  entity: switch.waermepumpe
-  flow_temp: sensor.wp_vorlauf
-  return_temp: sensor.wp_ruecklauf
+  entity: switch.heat_pump
+  flow_temp: sensor.hp_flow_temperature
+  return_temp: sensor.hp_return_temperature
 buffer:
-  top: sensor.puffer_oben
-  bottom: sensor.puffer_unten
+  top: sensor.buffer_top
+  bottom: sensor.buffer_bottom
 circuits:
   - type: radiator
-    pump: binary_sensor.hk1_pumpe
+    pump: binary_sensor.circuit_a_pump

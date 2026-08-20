@@ -155,7 +155,10 @@ circuits:
 ```
 
 Weitere Beispiele – auch eine Anlage ohne Puffer und eine mit vier Kreisen –
-liegen in [`examples/`](examples).
+liegen in [`examples/`](examples). Beispiele, Entitäts-IDs und Screenshots sind
+englisch gehalten; die Karte selbst spricht Deutsch, sobald Home Assistant es
+tut – die Beschriftungen in der Zeichnung kommen aus der Sprache deiner
+Home-Assistant-Instanz, jeder `name:` überschreibt sie.
 
 ## Bedienen direkt in der Karte
 
