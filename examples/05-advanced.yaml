@@ -6,63 +6,63 @@
 #   * a climate entity as the heat pump: tapping it opens more-info
 type: custom:heatpump-flow-card
 layout: direct-dhw
-title: Heizung Detail
+title: Heating, in detail
 animation: true
 flow_speed: 1.4
 temperature_colors: true
 heatpump:
-  name: Luft/Wasser WP
-  entity: climate.waermepumpe
-  mode: climate.waermepumpe          # hvac_action is used automatically
+  name: Air/water heat pump
+  entity: climate.heat_pump
+  mode: climate.heat_pump          # hvac_action is used automatically
   power:
-    entity: sensor.wp_leistung
-    name: Aufnahme
+    entity: sensor.hp_power
+    name: Input
     decimals: 0
   cop:
-    entity: sensor.wp_cop
+    entity: sensor.hp_cop
     decimals: 2
-  flow_temp: sensor.wp_vorlauf
-  return_temp: sensor.wp_ruecklauf
-  outside_temp: sensor.aussentemperatur
-  compressor: sensor.wp_verdichterlast
+  flow_temp: sensor.hp_flow_temperature
+  return_temp: sensor.hp_return_temperature
+  outside_temp: sensor.outside_temperature
+  compressor: sensor.compressor_load
   power_threshold: 50                # below this the heat pump counts as idle
 dhw:
-  name: Warmwasser
-  entity: switch.warmwasser
-  temp: sensor.ww_temperatur
+  name: Hot water
+  entity: switch.hot_water
+  temp: sensor.dhw_temperature
   target_temp:
-    entity: water_heater.warmwasser
+    entity: water_heater.hot_water
     attribute: temperature
     unit: "°C"
   tap_action:
     action: more-info
 circuits:
-  - name: Heizkörper EG
+  - name: Radiators, ground floor
     type: radiator
-    flow_temp: sensor.hk1_vorlauf
-    return_temp: sensor.hk1_ruecklauf
+    flow_temp: sensor.circuit_a_flow
+    return_temp: sensor.circuit_a_return
     room_temp:
-      entity: climate.wohnzimmer
+      entity: climate.living_room
       attribute: current_temperature
       unit: "°C"
-    pump: binary_sensor.hk1_pumpe
-  - name: Fußboden OG
+    pump: binary_sensor.circuit_a_pump
+  - name: Underfloor heating, first floor
     type: underfloor
-    flow_temp: sensor.hk2_vorlauf
-    return_temp: sensor.hk2_ruecklauf
-    pump: binary_sensor.hk2_pumpe
-    valve: sensor.hk2_mischer
-  - name: Konvektor Büro
+    flow_temp: sensor.circuit_b_flow
+    return_temp: sensor.circuit_b_return
+    pump: binary_sensor.circuit_b_pump
+    valve: sensor.circuit_b_mixer
+  - name: Fan coil, office
     type: fancoil
-    flow_temp: sensor.hk3_vorlauf
-    pump: binary_sensor.hk3_pumpe
-    entity: switch.hk3
+    flow_temp: sensor.circuit_c_flow
+    pump: binary_sensor.circuit_c_pump
+    entity: switch.circuit_c
     hold_action:
       action: navigate
-      navigation_path: /lovelace/buero
-  - name: Poolheizung
+      navigation_path: /lovelace/office
+  - name: Pool heating
     type: pool
-    flow_temp: sensor.pool_vorlauf
-    return_temp: sensor.pool_ruecklauf
-    room_temp: sensor.pool_temperatur
-    pump: switch.poolpumpe
+    flow_temp: sensor.pool_flow
+    return_temp: sensor.pool_return
+    room_temp: sensor.pool_temperature
+    pump: switch.pool_pump

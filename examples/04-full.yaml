@@ -2,58 +2,58 @@
 # two heating circuits.
 type: custom:heatpump-flow-card
 layout: full
-title: Heizungsanlage
+title: Heating plant
 heatpump:
-  name: Wärmepumpe
-  entity: switch.waermepumpe
-  state_entity: binary_sensor.wp_verdichter
-  mode: select.wp_systemmodus        # a select becomes a mode picker
-  power: sensor.wp_leistung
-  cop: sensor.wp_cop
-  flow_temp: sensor.wp_vorlauf
-  return_temp: sensor.wp_ruecklauf
-  outside_temp: sensor.aussentemperatur
-  compressor: sensor.wp_verdichterlast
+  name: Heat pump
+  entity: switch.heat_pump
+  state_entity: binary_sensor.compressor
+  mode: select.system_mode        # a select becomes a mode picker
+  power: sensor.hp_power
+  cop: sensor.hp_cop
+  flow_temp: sensor.hp_flow_temperature
+  return_temp: sensor.hp_return_temperature
+  outside_temp: sensor.outside_temperature
+  compressor: sensor.compressor_load
 pv:
-  name: Photovoltaik
-  power: sensor.pv_leistung
-  battery: sensor.batterie_soc
+  name: Photovoltaics
+  power: sensor.pv_power
+  battery: sensor.battery_soc
 solar:
-  name: Solarthermie
-  collector_temp: sensor.kollektor_temperatur
-  pump: binary_sensor.solarpumpe
-  yield: sensor.solar_ertrag
-  return_temp: sensor.solar_ruecklauf
+  name: Solar thermal
+  collector_temp: sensor.collector_temperature
+  pump: binary_sensor.solar_pump
+  yield: sensor.solar_yield
+  return_temp: sensor.solar_return_temperature
 buffer:
-  name: Pufferspeicher
-  top: sensor.puffer_oben
-  middle: sensor.puffer_mitte
-  bottom: sensor.puffer_unten
-  charge: sensor.puffer_ladung
+  name: Buffer tank
+  top: sensor.buffer_top
+  middle: sensor.buffer_middle
+  bottom: sensor.buffer_bottom
+  charge: sensor.buffer_charge
 dhw:
-  name: Warmwasser
-  entity: switch.warmwasser
-  temp: sensor.ww_temperatur
-  target_temp: number.ww_soll        # tap it for a plus/minus stepper
-  pump: binary_sensor.ww_ladepumpe
-  mode: select.ww_betriebsart        # tap it to pick an operating mode
-  boost: button.ww_einmalladung      # tap it to press the button
+  name: Hot water
+  entity: switch.hot_water
+  temp: sensor.dhw_temperature
+  target_temp: number.dhw_setpoint        # tap it for a plus/minus stepper
+  pump: binary_sensor.dhw_pump
+  mode: select.dhw_mode        # tap it to pick an operating mode
+  boost: button.dhw_boost      # tap it to press the button
 circuits:
-  - name: Heizkörper EG
+  - name: Radiators, ground floor
     type: radiator
-    entity: switch.hk1
-    flow_temp: sensor.hk1_vorlauf
-    return_temp: sensor.hk1_ruecklauf
-    room_temp: sensor.wohnzimmer_temperatur
-    pump: binary_sensor.hk1_pumpe
-    valve: sensor.hk1_mischer
-  - name: Fußbodenheizung OG
+    entity: switch.circuit_a
+    flow_temp: sensor.circuit_a_flow
+    return_temp: sensor.circuit_a_return
+    room_temp: sensor.living_room_temperature
+    pump: binary_sensor.circuit_a_pump
+    valve: sensor.circuit_a_mixer
+  - name: Underfloor heating, first floor
     type: underfloor
-    mode: climate.hk2                # hvac modes + setpoint in one panel
-    target_temp: climate.hk2
-    entity: switch.hk2
-    flow_temp: sensor.hk2_vorlauf
-    return_temp: sensor.hk2_ruecklauf
-    room_temp: sensor.bad_temperatur
-    pump: binary_sensor.hk2_pumpe
-    valve: sensor.hk2_mischer
+    mode: climate.circuit_b                # hvac modes + setpoint in one panel
+    target_temp: climate.circuit_b
+    entity: switch.circuit_b
+    flow_temp: sensor.circuit_b_flow
+    return_temp: sensor.circuit_b_return
+    room_temp: sensor.bathroom_temperature
+    pump: binary_sensor.circuit_b_pump
+    valve: sensor.circuit_b_mixer

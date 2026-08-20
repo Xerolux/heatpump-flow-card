@@ -50,7 +50,7 @@
       const params = new URLSearchParams(location.search);
       if (params.get("theme") === "dark") document.body.classList.add("dark");
       const only = params.get("layout");
-      const hass = window.makeHass(params.get("lang") || "de");
+      const hass = window.makeHass(params.get("lang") || "en");
       const wrap = document.getElementById("wrap");
       const configs = window.previewConfigs;
       for (const name of Object.keys(configs)) {

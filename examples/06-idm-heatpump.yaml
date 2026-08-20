@@ -12,7 +12,7 @@
 #   * the one-time DHW charge is a `switch` -> toggled with one tap
 type: custom:heatpump-flow-card
 layout: full
-title: IDM Wärmepumpe
+title: IDM heat pump
 
 heatpump:
   name: IDM Navigator
@@ -26,12 +26,12 @@ heatpump:
   compressor: sensor.idm_heatpump_compressor_status_1
 
 buffer:
-  name: Pufferspeicher
+  name: Buffer tank
   top: sensor.idm_heatpump_storage_tank_temperature
   bottom: sensor.idm_heatpump_cold_storage_temperature
 
 dhw:
-  name: Warmwasser
+  name: Hot water
   entity: water_heater.idm_heatpump
   mode: water_heater.idm_heatpump
   temp: sensor.idm_heatpump_dhw_temp_top
@@ -39,18 +39,18 @@ dhw:
   boost: switch.idm_heatpump_demand_onetime_dhw
 
 pv:
-  name: PV-Überschuss
+  name: PV surplus
   power: sensor.idm_heatpump_pv_surplus
 
 circuits:
-  - name: Heizkreis A
+  - name: Heating circuit A
     type: underfloor
     entity: climate.idm_heatpump_circuit_a
     mode: select.idm_heatpump_circuit_a_mode
     flow_temp: sensor.idm_heatpump_circuit_a_flow_temp
     room_temp: sensor.idm_heatpump_circuit_a_room_temp
     target_temp: number.idm_heatpump_circuit_a_room_setpoint_heat_normal
-  - name: Heizkreis B
+  - name: Heating circuit B
     type: radiator
     # Bound to the climate entity instead: one tap offers the hvac modes and
     # the room setpoint in the same little panel.

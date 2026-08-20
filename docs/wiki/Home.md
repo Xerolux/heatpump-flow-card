@@ -50,6 +50,9 @@ circuits:
 Nothing is mandatory. Leave a sensor out and that spot stays empty instead of
 breaking the card.
 
+Labels follow the language of your Home Assistant — English by default, German
+when Home Assistant speaks German. Any `name:` you set wins over both.
+
 ## What makes it different
 
 * **Pipes carry temperatures.** Each pipe is coloured by what it transports, and
