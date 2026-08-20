@@ -1,0 +1,76 @@
+# A real plant: an IDM heat pump, SolarEdge photovoltaics and a Paradigma
+# (SystaSolar Aqua) solar thermal system, with two heating circuits, hot water
+# and the second heat generator.
+#
+# Entity ids follow the device names of that installation - `alm6_15` for the
+# IDM heat pump, `systasolar_aqua_s3` for the solar controller. Replace those
+# prefixes with your own; the structure stays the same.
+#
+# Tap targets: the system mode and both circuit modes are `select` entities,
+# hot water is a `water_heater`, the setpoints are `number` entities and the
+# hot water boost is a `button`.
+type: custom:heatpump-flow-card
+layout: full
+title: Heating plant
+
+heatpump:
+  name: IDM heat pump
+  # tapping the panel offers the system modes
+  entity: select.alm6_15_systembetriebsart
+  mode: select.alm6_15_systembetriebsart
+  # what it is actually doing right now - heating, hot water, defrosting
+  status: sensor.alm6_15_warmepumpen_betriebsart
+  state_entity: binary_sensor.alm6_15_verdichter_1
+  power: sensor.alm6_15_elektrische_leistungsaufnahme_warmepumpe
+  cop: sensor.alm6_15_jahresarbeitszahl_cop_momentan
+  flow_temp: sensor.alm6_15_warmepumpen_vorlauftemperatur
+  return_temp: sensor.alm6_15_warmepumpen_rucklauftemperatur
+  outside_temp: sensor.alm6_15_aussentemperatur
+  # the bivalent stage: shown as its own row, glowing while it carries load
+  aux_heat: binary_sensor.alm6_15_zweiter_warmeerzeuger_web
+  aux_heat_power: sensor.alm6_15_e_heizstab_leistung
+
+buffer:
+  name: Buffer tank
+  top: sensor.alm6_15_warmespeichertemperatur
+  bottom: sensor.alm6_15_ladefuhler_temperatur
+
+dhw:
+  name: Hot water
+  entity: water_heater.alm6_15
+  mode: water_heater.alm6_15
+  temp: sensor.alm6_15_trinkwassererwarmer_oben
+  target_temp: number.alm6_15_warmwasser_sollwert
+  pump: binary_sensor.alm6_15_warmwasser_zirkulationspumpe_web
+  boost: button.alm6_15_warmwasser_boost_starten
+
+pv:
+  name: SolarEdge
+  # one inverter of four - sum them in a template sensor for the whole array
+  power: sensor.solaredge_i1_ac_power
+  battery: sensor.solaredge_i1_b1_state_of_energy
+  grid: sensor.solaredge_i1_m1_ac_power
+
+solar:
+  name: Paradigma solar thermal
+  collector_temp: sensor.systasolar_aqua_s3_kollektor_temp
+  return_temp: sensor.systasolar_aqua_s3_eintritt_temp
+  pump: binary_sensor.systasolar_aqua_s3_solar_aktiv
+  yield: sensor.systasolar_aqua_s3_tagesertrag
+
+circuits:
+  - name: Heating circuit A
+    type: underfloor
+    entity: climate.alm6_15
+    mode: select.alm6_15_betriebsart_hk_a
+    flow_temp: sensor.alm6_15_vorlauftemperatur_hk_a
+    room_temp: sensor.alm6_15_raumtemperatur_hk_a
+    target_temp: number.alm6_15_raumsoll_heizen_normal_hk_a
+    pump: binary_sensor.alm6_15_pumpe_heizkreis_a_web
+    valve: sensor.alm6_15_mischer_heizkreis_a_web
+  - name: Heating circuit D
+    type: radiator
+    mode: select.alm6_15_hc_d_mode
+    target_temp: number.alm6_15_hc_d_room_setpoint_heat_normal
+    # circuit D reports its active mode rather than a flow sensor
+    room_temp: sensor.alm6_15_hc_d_active_mode

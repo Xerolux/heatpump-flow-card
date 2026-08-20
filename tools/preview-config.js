@@ -46,6 +46,31 @@ const underfloor = {
 };
 
 window.previewConfigs = {
+  extras: {
+    type: "custom:heatpump-flow-card",
+    layout: "dhw-dual",
+    title: "Defrosting, with the element in the tank running",
+    heatpump: {
+      ...heatpump,
+      status: "sensor.hp_status",
+      aux_heat: "binary_sensor.aux_heat",
+      aux_heat_power: "sensor.aux_heat_power",
+    },
+    buffer: {
+      ...buffer,
+      heater: "switch.tank_heater",
+      heater_power: "sensor.tank_heater_power",
+    },
+    dhw: {
+      name: "Hot water",
+      entity: "switch.hot_water",
+      temp: "sensor.dhw_temperature",
+      target_temp: "number.dhw_setpoint",
+      pump: "binary_sensor.dhw_pump",
+      boost: "button.dhw_boost",
+    },
+    circuits: [radiators, underfloor],
+  },
   "dhw-dual": {
     type: "custom:heatpump-flow-card",
     layout: "dhw-dual",

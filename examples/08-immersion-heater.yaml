@@ -1,0 +1,59 @@
+# A buffer tank with an electric element in it - here a my-PV AC-Thor that
+# burns photovoltaic surplus into the tank - plus the heat pump's own second
+# heat generator.
+#
+# The element is drawn inside the tank and glows while it draws power; tapping
+# it operates the entity behind `heater`.
+type: custom:heatpump-flow-card
+layout: pv-dhw-dual
+title: Heating with an immersion heater
+
+heatpump:
+  name: Heat pump
+  entity: select.alm6_15_systembetriebsart
+  mode: select.alm6_15_systembetriebsart
+  status: sensor.alm6_15_warmepumpen_betriebsart
+  power: sensor.alm6_15_elektrische_leistungsaufnahme_warmepumpe
+  cop: sensor.alm6_15_jahresarbeitszahl_cop_momentan
+  flow_temp: sensor.alm6_15_warmepumpen_vorlauftemperatur
+  return_temp: sensor.alm6_15_warmepumpen_rucklauftemperatur
+  outside_temp: sensor.alm6_15_aussentemperatur
+  aux_heat: binary_sensor.alm6_15_zweiter_warmeerzeuger_web
+  aux_heat_power: sensor.alm6_15_e_heizstab_leistung
+
+buffer:
+  name: Buffer tank
+  top: sensor.alm6_15_warmespeichertemperatur
+  bottom: sensor.alm6_15_ladefuhler_temperatur
+  # the AC-Thor: `heater` decides whether the element glows, `heater_power`
+  # is printed underneath it
+  heater: switch.ac_thor_betriebsmodus
+  heater_power: sensor.ac_thor_power
+
+dhw:
+  name: Hot water
+  entity: water_heater.alm6_15
+  mode: water_heater.alm6_15
+  temp: sensor.alm6_15_trinkwassererwarmer_oben
+  target_temp: number.alm6_15_warmwasser_sollwert
+  boost: button.alm6_15_warmwasser_boost_starten
+  # an AC-Thor on the hot water tank instead would go here:
+  # heater: switch.ac_thor_boost_aktivieren
+  # heater_power: sensor.ac_thor_power
+
+pv:
+  name: SolarEdge
+  power: sensor.solaredge_i1_ac_power
+  battery: sensor.solaredge_i1_b1_state_of_energy
+
+circuits:
+  - name: Heating circuit A
+    type: underfloor
+    mode: select.alm6_15_betriebsart_hk_a
+    flow_temp: sensor.alm6_15_vorlauftemperatur_hk_a
+    room_temp: sensor.alm6_15_raumtemperatur_hk_a
+    pump: binary_sensor.alm6_15_pumpe_heizkreis_a_web
+  - name: Heating circuit D
+    type: radiator
+    mode: select.alm6_15_hc_d_mode
+    target_temp: number.alm6_15_hc_d_room_setpoint_heat_normal

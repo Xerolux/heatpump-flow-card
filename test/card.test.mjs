@@ -479,3 +479,82 @@ test("every layout preset renders", async () => {
   assert.equal(result["direct-dhw"].tank, 1); // the hot water tank, not a buffer
   assert.equal(result.dual.tank, 1);
 });
+
+test("the second heat generator shows up when it engages", async () => {
+  await page.goto(`${previewUrl}?layout=extras`);
+  const state = await page.evaluate(() => {
+    const root = document.getElementById("card-extras").shadowRoot;
+    const aux = root.querySelector(".hpfc-aux");
+    return {
+      present: Boolean(aux),
+      running: aux.classList.contains("hpfc-on"),
+      value: aux.querySelector(".hpfc-value").textContent,
+    };
+  });
+  assert.equal(state.present, true);
+  assert.equal(state.running, true);
+  assert.equal(state.value, "3,000 W");
+
+  // switch it off and the row goes quiet, without touching anything else
+  const after = await page.evaluate(() => {
+    const card = document.getElementById("card-extras");
+    window.demoStates["binary_sensor.aux_heat"] = {
+      entity_id: "binary_sensor.aux_heat",
+      state: "off",
+      attributes: {},
+    };
+    card.hass = window.makeHass("en");
+    return card.shadowRoot.querySelector(".hpfc-aux").classList.contains("hpfc-on");
+  });
+  assert.equal(after, false);
+});
+
+test("a defrost cycle is visible on the heat pump", async () => {
+  await page.goto(`${previewUrl}?layout=extras`);
+  const state = await page.evaluate(() => {
+    const root = document.getElementById("card-extras").shadowRoot;
+    const hp = root.querySelector(".hpfc-heatpump");
+    return {
+      defrosting: hp.classList.contains("hpfc-defrost"),
+      steam: hp.querySelectorAll(".hpfc-steam path").length,
+      chip: hp.querySelector(".hpfc-chip text").textContent,
+      chipClass: hp.querySelector(".hpfc-chip").getAttribute("class"),
+    };
+  });
+  assert.equal(state.defrosting, true);
+  assert.equal(state.steam, 3);
+  assert.equal(state.chip, "Defrost");
+  assert.match(state.chipClass, /hpfc-mode-defrost/);
+
+  // back to heating: no vapour, and the chip follows the reported state
+  const after = await page.evaluate(() => {
+    const card = document.getElementById("card-extras");
+    window.demoStates["sensor.hp_status"] = {
+      entity_id: "sensor.hp_status",
+      state: "heating",
+      attributes: {},
+    };
+    card.hass = window.makeHass("en");
+    const hp = card.shadowRoot.querySelector(".hpfc-heatpump");
+    return { defrosting: hp.classList.contains("hpfc-defrost"), chip: hp.querySelector(".hpfc-chip text").textContent };
+  });
+  assert.equal(after.defrosting, false);
+  assert.equal(after.chip, "Heating");
+});
+
+test("an electric element in the tank is drawn and operable", async () => {
+  await page.goto(`${previewUrl}?layout=extras`);
+  const state = await page.evaluate(() => {
+    window.serviceCalls = [];
+    const root = document.getElementById("card-extras").shadowRoot;
+    const heater = root.querySelector(".hpfc-heater");
+    const value = heater.querySelector(".hpfc-heater-value").textContent;
+    heater.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    return { running: heater.classList.contains("hpfc-on"), value, calls: window.serviceCalls };
+  });
+  assert.equal(state.running, true);
+  assert.equal(state.value, "2,450 W");
+  assert.deepEqual(state.calls, [
+    { domain: "homeassistant", service: "toggle", data: { entity_id: "switch.tank_heater" } },
+  ]);
+});

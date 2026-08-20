@@ -193,6 +193,35 @@ A `climate` or `water_heater` entity used as `target_temp`, `temp` or
 Set `controls: false` to go back to plain more-info dialogs, or override a
 single element with its own `tap_action`.
 
+### The bits that switch in and out
+
+![Defrosting, with the element in the tank running](docs/images/extras.png)
+
+Three things a heat pump does that are easy to miss, and hard to explain
+afterwards:
+
+* **The second heat generator.** `aux_heat` and `aux_heat_power` add a row to
+  the heat pump panel that lights up while the bivalent stage carries load, so
+  you can see it engage instead of finding it in the electricity bill.
+* **Defrosting.** When the heat pump reports a defrost cycle, vapour rises off
+  the unit and the fan ring turns icy. Detected from `status` (or `mode`), or
+  from an explicit `defrost` binary sensor.
+* **An electric element in the tank.** `heater` and `heater_power` on `buffer`
+  or `dhw` draw a heating element inside the tank — a my-PV AC-Thor, a booster,
+  a backup heater — glowing while it draws power. Tapping it operates the
+  entity behind `heater`.
+
+```yaml
+heatpump:
+  mode: select.system_mode        # what it was told to do, and how you change it
+  status: sensor.operating_state  # what it is doing right now
+  aux_heat: binary_sensor.second_heat_generator
+  aux_heat_power: sensor.heating_element_power
+buffer:
+  heater: switch.ac_thor
+  heater_power: sensor.ac_thor_power
+```
+
 ## Options
 
 ### Card
@@ -230,7 +259,7 @@ Without `state_entity` the card falls back to `power` > threshold, then
 
 ### `buffer`
 
-`name`, `entity`, `top`, `middle`, `bottom`, `charge`
+`name`, `entity`, `top`, `middle`, `bottom`, `charge`, `heater`, `heater_power`
 
 The tank is filled with a gradient between the layer temperatures. `charge` is
 printed under the name. `buffer: false` connects the heat pump straight to the
@@ -238,7 +267,8 @@ circuits.
 
 ### `dhw`
 
-`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`, `mode`, `boost`
+`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`, `mode`, `boost`, `heater`,
+`heater_power`
 
 ### `pv` / `solar`
 

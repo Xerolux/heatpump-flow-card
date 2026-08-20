@@ -119,9 +119,10 @@ const englishFiles = [
 for (const file of englishFiles) {
   const lines = read(file).split("\n");
   lines.forEach((line, index) => {
-    // entity ids from the rename are quoted history, not user facing text
-    if (line.includes("sensor.wp_") || line.includes("switch.hk")) return;
-    const hit = GERMAN_MARKERS.find((word) => line.toLowerCase().includes(word));
+    // Entity ids are data, not prose: a German integration names them in
+    // German and an example has to quote them exactly.
+    const prose = line.toLowerCase().replace(/\b[a-z_]+\.[a-z0-9_]+\b/g, " ");
+    const hit = GERMAN_MARKERS.find((word) => prose.includes(word));
     if (hit) problems.push(`${file}:${index + 1} still says "${hit}" - English is the default`);
   });
 }

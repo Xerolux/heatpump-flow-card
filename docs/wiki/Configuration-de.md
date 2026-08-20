@@ -30,6 +30,10 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `entity` | Klick auf das Panel bedient diese Entität |
 | `state_entity` | Entscheidet, ob die Wärmepumpe als laufend gilt |
 | `mode` | Betriebsart-Chip; `select` oder `climate` macht daraus eine Auswahl |
+| `status` | Was die Wärmepumpe gerade meldet. Sticht `mode` für Chip und Animation – der Chip kann also „Abtauen“ zeigen, während die Anlage auf „Automatik“ steht |
+| `aux_heat` | Zweiter Wärmeerzeuger – eigene Zeile im Panel, leuchtet unter Last |
+| `aux_heat_power` | Dessen Leistung, in derselben Zeile |
+| `defrost` | Binärsensor, der die Abtau-Darstellung erzwingt, wenn der Statustext sie nicht hergibt |
 | `power` | Leistung, neben dem Außengerät |
 | `cop` | Arbeitszahl / COP |
 | `outside_temp` | Außentemperatur |
@@ -54,6 +58,8 @@ fließen.
 | `entity` | Klick auf den Speicher bedient diese Entität |
 | `top`, `middle`, `bottom` | Schichttemperaturen – füllen den Speicher mit Verlauf und erscheinen als Pillen |
 | `charge` | Ladezustand, unter dem Namen |
+| `heater` | Heizstab im Speicher – glüht, solange er Leistung zieht, Klick bedient ihn |
+| `heater_power` | Dessen Leistung, unter dem Heizstab |
 
 Nur `top` und `bottom` konfiguriert → zwei Pillen. Gar nichts → drei leere.
 `buffer: false` verrohrt die Wärmepumpe direkt auf die Heizkreise.
@@ -61,7 +67,8 @@ Nur `top` und `bottom` konfiguriert → zwei Pillen. Gar nichts → drei leere.
 ## dhw
 
 `name`, `entity`, `temp`, `target_temp` (Klick öffnet das Stellfeld), `mode`
-(Betriebsart-Chip), `boost` (Chip für die Einmalladung), `pump`, `charge`.
+(Betriebsart-Chip), `boost` (Chip für die Einmalladung), `pump`, `charge`,
+`heater`, `heater_power`.
 
 ## pv und solar
 
@@ -126,3 +133,30 @@ power:
 Eine `climate`- oder `water_heater`-Entität als `target_temp`, `temp` oder
 `room_temp` liest automatisch das passende Attribut – `target_temp:
 climate.hk_a` zeigt also den Sollwert und nicht das Wort „heat“.
+
+## Was sich zwischendurch zuschaltet
+
+![Abtauen, mit laufendem Heizstab im Speicher](https://raw.githubusercontent.com/Xerolux/heatpump-flow-card/main/docs/images/extras.png)
+
+```yaml
+heatpump:
+  mode: select.system_mode        # was sie tun soll, und worüber du es änderst
+  status: sensor.operating_state  # was sie gerade tatsächlich tut
+  aux_heat: binary_sensor.second_heat_generator
+  aux_heat_power: sensor.heating_element_power
+buffer:
+  heater: switch.ac_thor          # Heizstab im Speicher
+  heater_power: sensor.ac_thor_power
+```
+
+* **Zweiter Wärmeerzeuger** – die Zeile leuchtet und die Wendel glüht, solange
+  die bivalente Stufe Last übernimmt. Als laufend gilt sie, wenn `aux_heat` an
+  ist oder – ohne diese Entität – `aux_heat_power` über null liegt.
+* **Abtauen** – vom Außengerät steigt Dampf auf und der Ventilatorring wird
+  eisblau, sobald die Betriebsart auf Abtauen hinausläuft. Erkannt werden
+  *defrost*, *abtau* und *enteis* im Zustandstext von `status` oder `mode`;
+  `defrost` erzwingt es.
+* **Heizstab im Speicher** – auf etwa zwei Dritteln Höhe in den Speicher
+  gezeichnet, glüht im Betrieb, darunter die Leistung. Funktioniert bei
+  `buffer` und bei `dhw` – ein AC-Thor im Puffer und ein Booster im
+  Warmwasserspeicher lassen sich also beide zeigen.

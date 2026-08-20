@@ -30,6 +30,10 @@ empty, a section you set to `false` is not drawn at all.
 | `entity` | Tapping the panel operates this entity |
 | `state_entity` | Decides whether the heat pump counts as running |
 | `mode` | Operating mode chip; a `select` or `climate` entity makes it a mode picker |
+| `status` | What the heat pump reports it is doing. Beats `mode` for the chip and for the animation, so the chip can read “Defrosting” while the plant stays set to “Automatic” |
+| `aux_heat` | Second heat generator — an extra row on the panel, lit while it carries load |
+| `aux_heat_power` | Its power, printed in that row |
+| `defrost` | Binary sensor that forces the defrost look, if the status text does not say it |
 | `power` | Electrical or thermal power, shown next to the unit |
 | `cop` | Efficiency / COP |
 | `outside_temp` | Outdoor temperature |
@@ -54,6 +58,8 @@ tank flow.
 | `entity` | Tapping the tank operates this entity |
 | `top`, `middle`, `bottom` | Layer temperatures — they fill the tank with a gradient and print as pills |
 | `charge` | Charge level, printed under the name |
+| `heater` | Electric element inside the tank — glows while it draws power, tap to operate |
+| `heater_power` | Its power, printed under the element |
 
 Configure only `top` and `bottom` and the tank shows two pills; configure none
 and it shows three empty ones. `buffer: false` wires the heat pump straight to
@@ -137,3 +143,29 @@ A `climate` or `water_heater` entity used as `target_temp`, `temp` or
 `room_temp` reads the matching attribute by itself, so
 `target_temp: climate.circuit_a` shows the setpoint rather than the word
 “heat”.
+
+## What switches in and out
+
+![Defrosting, with the element in the tank running](https://raw.githubusercontent.com/Xerolux/heatpump-flow-card/main/docs/images/extras.png)
+
+```yaml
+heatpump:
+  mode: select.system_mode        # what it was told to do, and how you change it
+  status: sensor.operating_state  # what it is doing right now
+  aux_heat: binary_sensor.second_heat_generator
+  aux_heat_power: sensor.heating_element_power
+buffer:
+  heater: switch.ac_thor          # element in the tank
+  heater_power: sensor.ac_thor_power
+```
+
+* **Second heat generator** — the row lights up and the coil glows while the
+  bivalent stage carries load. Counted as running when `aux_heat` is on, or,
+  without it, when `aux_heat_power` is above zero.
+* **Defrost** — vapour rises off the unit and the fan ring turns icy whenever
+  the mode resolves to defrosting. The card recognises *defrost*, *abtau* and
+  *enteis* in the state text of `status` or `mode`; `defrost` forces it.
+* **Element in the tank** — drawn inside the tank at about two thirds height,
+  glowing while it runs, with its power underneath. Works on `buffer` and on
+  `dhw`, so a my-PV AC-Thor on the buffer and a booster in the hot water tank
+  can both be shown.

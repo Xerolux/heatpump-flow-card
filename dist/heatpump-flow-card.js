@@ -7,7 +7,7 @@
  * MIT License - Copyright (c) 2026 Xerolux
  */
 
-const CARD_VERSION = "1.3.1";
+const CARD_VERSION = "1.4.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -872,6 +872,9 @@ const TEXTS = {
     mode: "Mode",
     boost: "Boost",
     details: "Details",
+    aux_heat: "Aux heat",
+    heater: "Element",
+    defrosting: "Defrosting",
     heat: "Heating",
     cool: "Cooling",
     water: "Hot water",
@@ -909,6 +912,9 @@ const TEXTS = {
     mode: "Betriebsart",
     boost: "Boost",
     details: "Details",
+    aux_heat: "Zusatzheizung",
+    heater: "Heizstab",
+    defrosting: "Abtauen",
     heat: "Heizen",
     cool: "Kühlen",
     water: "Warmwasser",
@@ -1105,12 +1111,16 @@ function modeLabel(hass, field, fallback) {
 }
 
 function heatPumpMode(hass, cfg) {
-  if (cfg.mode && cfg.mode.entity) {
-    const st = stateOf(hass, cfg.mode);
+  // An explicit defrost signal beats everything else.
+  if (cfg.defrost && cfg.defrost.entity && isActive(hass, cfg.defrost)) return "defrost";
+  // `status` is what the heat pump is doing, `mode` is what it was told to do.
+  const source = cfg.status && cfg.status.entity ? cfg.status : cfg.mode;
+  if (source && source.entity) {
+    const st = stateOf(hass, source);
     if (!isMissing(st)) {
       const raw = String(
-        cfg.mode.attribute
-          ? rawValue(hass, cfg.mode)
+        source.attribute
+          ? rawValue(hass, source)
           : st.attributes && st.attributes.hvac_action
             ? st.attributes.hvac_action
             : st.state
@@ -1161,7 +1171,7 @@ function drawHeatPump(scene, box, cfg) {
   });
 
   // Outdoor unit with fan
-  const unit = { x: box.x + 14, y: box.y + 36, w: 80, h: 96 };
+  const unit = { x: box.x + 14, y: box.y + 52, w: 80, h: 80 };
   group.appendChild(
     svgEl("rect", { ...{ x: unit.x, y: unit.y, width: unit.w, height: unit.h }, rx: 12, class: "hpfc-hp-body" })
   );
@@ -1176,13 +1186,26 @@ function drawHeatPump(scene, box, cfg) {
       })
     );
   }
-  const fanCenter = { x: unit.x + unit.w / 2, y: unit.y + 38 };
+  const fanCenter = { x: unit.x + unit.w / 2, y: unit.y + 32 };
   group.appendChild(
     svgEl("circle", { cx: fanCenter.x, cy: fanCenter.y, r: 27, class: "hpfc-fan-ring" })
   );
   const fan = spinner(fanCenter.x, fanCenter.y, 26, fanBlades(24), "hpfc-fan");
   group.appendChild(fan.outer);
   group.appendChild(svgEl("circle", { cx: fanCenter.x, cy: fanCenter.y, r: 5, class: "hpfc-hub" }));
+
+  // Vapour off the coil while the heat pump defrosts
+  const steam = svgEl("g", { class: "hpfc-steam" });
+  for (let i = 0; i < 3; i++) {
+    steam.appendChild(
+      svgEl("path", {
+        style: `animation-delay:${i * 0.8}s`,
+        fill: "none",
+        d: `M ${unit.x + 16 + i * 24} ${unit.y - 3} c -6 -6 6 -10 0 -16`,
+      })
+    );
+  }
+  group.appendChild(steam);
 
   // Readouts on the right
   const rows = [
@@ -1199,6 +1222,47 @@ function drawHeatPump(scene, box, cfg) {
     });
   });
 
+  // Second heat generator: the bit that quietly switches in on cold days
+  if (cfg.aux_heat || cfg.aux_heat_power) {
+    const auxY = box.y + box.h - 62;
+    const aux = svgEl("g", { class: "hpfc-aux" });
+    aux.appendChild(
+      svgEl("rect", { x: box.x + 14, y: auxY - 13, width: box.w - 28, height: 26, rx: 9, class: "hpfc-aux-plate" })
+    );
+    aux.appendChild(
+      svgEl("path", {
+        class: "hpfc-coil",
+        fill: "none",
+        d: `M ${box.x + 26} ${auxY} l 5 -7 l 5 14 l 5 -14 l 5 14 l 5 -7`,
+      })
+    );
+    aux.appendChild(svgText(box.x + 70, auxY + 4, texts.aux_heat, { class: "hpfc-label" }));
+    const auxValue = svgText(box.x + box.w - 24, auxY + 4, "", {
+      class: "hpfc-value",
+      "text-anchor": "end",
+    });
+    aux.appendChild(auxValue);
+    group.appendChild(aux);
+
+    const auxField = cfg.aux_heat || cfg.aux_heat_power;
+    attachAction(scene, aux, {
+      entity: auxField.entity,
+      tap_action: auxField.tap_action,
+      hold_action: auxField.hold_action,
+      label: texts.aux_heat,
+    });
+
+    scene.add(() => {
+      const hass = scene.hass();
+      const power = numberValue(hass, cfg.aux_heat_power);
+      const running = cfg.aux_heat ? isActive(hass, cfg.aux_heat) : power !== null && power > 0;
+      aux.classList.toggle("hpfc-on", running);
+      auxValue.textContent = cfg.aux_heat_power
+        ? displayValue(hass, cfg.aux_heat_power, "")
+        : displayValue(hass, cfg.aux_heat, "");
+    });
+  }
+
   // Mode chip - tapping it offers the operating modes when the entity has any
   drawChip(
     scene,
@@ -1210,7 +1274,11 @@ function drawHeatPump(scene, box, cfg) {
       resolve: (hass) => {
         const localized = textsFor(hass);
         const mode = heatPumpMode(hass, cfg);
-        return { text: modeLabel(hass, cfg.mode, localized[mode] || localized.idle), mode };
+        const fallback = localized[mode] || localized.idle;
+        // While the heat pump reports something of its own - defrosting, hot
+        // water - that beats the mode it was set to.
+        const source = cfg.status && cfg.status.entity ? cfg.status : cfg.mode;
+        return { text: modeLabel(hass, source, fallback), mode };
       },
     }
   );
@@ -1218,6 +1286,7 @@ function drawHeatPump(scene, box, cfg) {
   scene.add(() => {
     const hass = scene.hass();
     group.classList.toggle("hpfc-running", heatPumpRunning(hass, cfg));
+    group.classList.toggle("hpfc-defrost", heatPumpMode(hass, cfg) === "defrost");
     const load = numberValue(hass, cfg.compressor);
     const duration = load !== null ? clamp(3.2 - (load / 100) * 2.4, 0.6, 3.2) : 1.5;
     fan.inner.style.animationDuration = `${duration}s`;
@@ -1300,6 +1369,43 @@ function drawTank(scene, box, cfg, options) {
       points.push(`${tank.x + 16 + (i % 2) * (tank.w - 32)},${coilTop + i * 9}`);
     }
     group.appendChild(svgEl("polyline", { points: points.join(" "), class: "hpfc-coil" }));
+  }
+
+  // Electric element in the tank - an AC-Thor, a booster, a backup heater
+  if (opts.heater) {
+    const heaterY = tank.y + tank.h * 0.62;
+    const heater = svgEl("g", { class: "hpfc-heater" });
+    const coilStart = tank.x + tank.w * 0.42;
+    const step = (tank.w * 0.58 - 12) / 5;
+    let coil = `M ${coilStart} ${heaterY}`;
+    for (let i = 0; i < 5; i++) {
+      coil += ` l ${step / 2} ${i % 2 ? 8 : -8} l ${step / 2} ${i % 2 ? -8 : 8}`;
+    }
+    heater.appendChild(
+      svgEl("line", { x1: tank.x + 8, y1: heaterY, x2: coilStart, y2: heaterY, class: "hpfc-heater-rod" })
+    );
+    heater.appendChild(svgEl("path", { d: coil, fill: "none", class: "hpfc-heater-rod" }));
+    const heaterValue = svgText(tank.x + tank.w / 2, heaterY + 24, "", {
+      class: "hpfc-heater-value",
+      "text-anchor": "middle",
+    });
+    heater.appendChild(heaterValue);
+    group.appendChild(heater);
+
+    attachAction(scene, heater, {
+      entity: opts.heater.entity,
+      tap_action: opts.heater.tap_action,
+      hold_action: opts.heater.hold_action,
+      label: opts.heaterLabel,
+    });
+
+    scene.add(() => {
+      const hass = scene.hass();
+      const power = numberValue(hass, opts.heaterPower);
+      const running = isActive(hass, opts.heater) || (power !== null && power > 0);
+      heater.classList.toggle("hpfc-on", running);
+      heaterValue.textContent = opts.heaterPower ? displayValue(hass, opts.heaterPower, "") : "";
+    });
   }
 
   const layers = opts.layers || [];
@@ -1809,6 +1915,9 @@ function drawDhw(scene, box, cfg) {
     {
       radius: 16,
       layers: [{ label: texts.dhw, field: cfg.temp, pill: false }],
+      heater: cfg.heater,
+      heaterPower: cfg.heater_power,
+      heaterLabel: texts.heater,
       entity: cfg.entity,
       tap_action: cfg.tap_action,
     }
@@ -1881,12 +1990,16 @@ const SECTION_FIELDS = {
     "return_temp",
     "compressor",
     "mode",
+    "status",
     "state_entity",
+    "aux_heat",
+    "aux_heat_power",
+    "defrost",
   ],
   pv: ["power", "battery", "grid"],
   solar: ["collector_temp", "pump", "yield", "return_temp"],
-  buffer: ["top", "middle", "bottom", "charge"],
-  dhw: ["temp", "target_temp", "charge", "pump", "mode", "boost"],
+  buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power"],
+  dhw: ["temp", "target_temp", "charge", "pump", "mode", "boost", "heater", "heater_power"],
   circuit: [
     "flow_temp",
     "return_temp",
@@ -2032,6 +2145,8 @@ function buildScene(card) {
   const circuitHeight = config.dense ? 118 : 134;
   const dhwHeight = 118;
   const showSources = Boolean(config.pv || config.solar);
+  const hpHeight =
+    config.heatpump.aux_heat || config.heatpump.aux_heat_power ? G.hp.h + 26 : G.hp.h;
 
   // ---- horizontal placement -------------------------------------------
   let x = G.pad;
@@ -2062,9 +2177,9 @@ function buildScene(card) {
     (config.solar ? G.solar.h : 0) +
     (config.pv && config.solar ? G.gapY : 0);
   const bufferMin = config.dense ? 200 : G.buffer.min;
-  const contentH = Math.max(rightH, G.hp.h + 30, sourcesH, config.buffer ? bufferMin : 0);
+  const contentH = Math.max(rightH, hpHeight + 30, sourcesH, config.buffer ? bufferMin : 0);
 
-  const hpY = G.pad + (contentH - G.hp.h) / 2;
+  const hpY = G.pad + (contentH - hpHeight) / 2;
   const srcY = G.pad + (contentH - sourcesH) / 2;
   const bufH = Math.min(contentH, G.buffer.max);
   const bufY = G.pad + (contentH - bufH) / 2;
@@ -2109,7 +2224,7 @@ function buildScene(card) {
   };
 
   // ---- nodes ------------------------------------------------------------
-  const heatpump = drawHeatPump(scene, { x: hpX, y: hpY, w: G.hp.w, h: G.hp.h }, config.heatpump);
+  const heatpump = drawHeatPump(scene, { x: hpX, y: hpY, w: G.hp.w, h: hpHeight }, config.heatpump);
   scene.flags.heatpumpRunning = heatpump.running;
 
   let pv = null;
@@ -2129,6 +2244,9 @@ function buildScene(card) {
     const configured = keys.filter((key) => config.buffer[key]);
     const used = configured.length ? configured : keys;
     drawTank(scene, { x: bufX, y: bufY, w: G.buffer.w, h: bufH }, config.buffer, {
+      heater: config.buffer.heater,
+      heaterPower: config.buffer.heater_power,
+      heaterLabel: texts.heater,
       title: config.buffer.name || texts.buffer,
       subtitle: config.buffer.charge ? { label: texts.charge, field: config.buffer.charge } : null,
       coil: Boolean(config.solar),
@@ -2153,8 +2271,8 @@ function buildScene(card) {
 
   // ---- pipes ------------------------------------------------------------
   const hpRight = hpX + G.hp.w;
-  const hpFlowY = hpY + 62;
-  const hpReturnY = hpY + 142;
+  const hpFlowY = hpY + 66;
+  const hpReturnY = hpY + 130;
   const anyConsumer = (hass) => consumers.some((item) => item.running && item.running(hass));
 
   const sourceRight = config.buffer ? bufX + G.buffer.w : hpRight;
@@ -2498,6 +2616,42 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-blade { fill: var(--hpfc-muted); transition: fill 0.5s ease; }
 .hpfc-running .hpfc-blade { fill: var(--info-color, #39b0e5); }
 .hpfc-hub { fill: var(--hpfc-muted); }
+
+/* defrost vapour */
+.hpfc-steam path {
+  stroke: #bae6fd;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  opacity: 0;
+}
+.hpfc-defrost .hpfc-steam path { animation: hpfc-steam 2.6s ease-out infinite; }
+.hpfc-defrost .hpfc-fan-ring { stroke: #7dd3fc; }
+@keyframes hpfc-steam {
+  0% { opacity: 0; transform: translateY(6px) scale(0.9); }
+  25% { opacity: 0.85; }
+  100% { opacity: 0; transform: translateY(-14px) scale(1.15); }
+}
+
+/* second heat generator */
+.hpfc-aux-plate { fill: rgba(127, 127, 127, 0.14); stroke: none; transition: fill 0.5s ease; }
+.hpfc-aux .hpfc-coil { stroke: var(--hpfc-muted); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.hpfc-aux .hpfc-value { font-size: 12px; }
+.hpfc-aux.hpfc-on .hpfc-aux-plate { fill: rgba(249, 115, 22, 0.18); }
+.hpfc-aux.hpfc-on .hpfc-coil { stroke: #f97316; animation: hpfc-glow 1.6s ease-in-out infinite; }
+.hpfc-aux.hpfc-on .hpfc-value { fill: #f97316; }
+@keyframes hpfc-glow { 0%, 100% { opacity: 0.65; } 50% { opacity: 1; } }
+
+/* electric element in a tank */
+.hpfc-heater-rod {
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  transition: stroke 0.5s ease;
+}
+.hpfc-heater-value { font-size: 11px; font-weight: 700; fill: #ffffff; opacity: 0.85; }
+.hpfc-heater.hpfc-on .hpfc-heater-rod { stroke: #fff3c4; animation: hpfc-glow 1.4s ease-in-out infinite; }
 
 .hpfc-status { fill: var(--hpfc-muted); opacity: 0.4; }
 .hpfc-status-on { fill: var(--success-color, #43a047); opacity: 1; }
@@ -2886,7 +3040,13 @@ const EDITOR_TEXTS = {
     entity: "Entity (tap to switch)",
     state_entity: "Running (binary sensor)",
     mode: "Operating mode (select / climate)",
+    status: "Reported state (defrost, hot water …)",
     boost: "Boost (button / switch)",
+    aux_heat: "Second heat generator",
+    aux_heat_power: "Second heat generator, power",
+    defrost: "Defrosting (binary sensor)",
+    heater: "Element in the tank",
+    heater_power: "Element power",
     power: "Power",
     cop: "COP / efficiency",
     flow_temp: "Flow temperature",
@@ -2908,6 +3068,9 @@ const EDITOR_TEXTS = {
     mode: "Mode",
     boost: "Boost",
     details: "Details",
+    aux_heat: "Aux heat",
+    heater: "Element",
+    defrosting: "Defrosting",
     collector_temp: "Collector temperature",
     yield: "Yield",
     type: "Emitter type",
@@ -2963,7 +3126,13 @@ const EDITOR_TEXTS = {
     entity: "Entität (Klick schaltet)",
     state_entity: "Läuft (Binärsensor)",
     mode: "Betriebsart (select / climate)",
+    status: "Gemeldeter Zustand (Abtauen, Warmwasser …)",
     boost: "Boost (button / switch)",
+    aux_heat: "Zweiter Wärmeerzeuger",
+    aux_heat_power: "Zweiter Wärmeerzeuger, Leistung",
+    defrost: "Abtauen (Binärsensor)",
+    heater: "Heizstab im Speicher",
+    heater_power: "Leistung des Heizstabs",
     power: "Leistung",
     cop: "COP / Arbeitszahl",
     flow_temp: "Vorlauftemperatur",
@@ -2985,6 +3154,9 @@ const EDITOR_TEXTS = {
     mode: "Betriebsart",
     boost: "Boost",
     details: "Details",
+    aux_heat: "Zusatzheizung",
+    heater: "Heizstab",
+    defrosting: "Abtauen",
     collector_temp: "Kollektortemperatur",
     yield: "Ertrag",
     type: "Heizflächen-Typ",
@@ -3021,8 +3193,21 @@ const EDITOR_TEXTS = {
 };
 
 const EDITOR_SECTIONS = {
-  heatpump: ["state_entity", "mode", "power", "cop", "flow_temp", "return_temp", "outside_temp", "compressor"],
-  buffer: ["top", "middle", "bottom", "charge"],
+  heatpump: [
+    "state_entity",
+    "mode",
+    "status",
+    "power",
+    "cop",
+    "flow_temp",
+    "return_temp",
+    "outside_temp",
+    "compressor",
+    "aux_heat",
+    "aux_heat_power",
+    "defrost",
+  ],
+  buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power"],
   dhw: ["temp", "target_temp", "mode", "boost", "pump", "charge"],
   pv: ["power", "battery", "grid"],
   solar: ["collector_temp", "pump", "yield", "return_temp"],

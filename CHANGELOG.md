@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.4.0
+
+* **The second heat generator is visible.** `aux_heat` and `aux_heat_power` add
+  a row to the heat pump panel that lights up while the bivalent stage carries
+  load.
+* **Defrost cycles look like defrost cycles.** Vapour rises off the unit and
+  the fan ring turns icy whenever the heat pump reports one. New `defrost`
+  option for plants that signal it separately.
+* **An electric element in the tank.** `heater` and `heater_power` on `buffer`
+  or `dhw` draw a heating element inside the tank — a my-PV AC-Thor, a booster,
+  a backup heater — glowing while it draws power and operable by tapping it.
+* **New `status` option**: what the heat pump reports it is doing, as opposed
+  to `mode`, which is what it was told to do and what a tap changes. The chip
+  and the animation follow `status` when it is set.
+* Two new examples: a complete plant with an IDM heat pump, SolarEdge
+  photovoltaics and a Paradigma solar thermal system, and one with an AC-Thor
+  element in the buffer tank.
+* The documentation check no longer trips over German entity ids — those are
+  data, and an example has to quote them exactly.
+
 ## 1.3.1
 
 * The demo page stamps the card version onto every asset it loads, so a browser

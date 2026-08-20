@@ -198,6 +198,36 @@ climate.circuit_a` zeigt also den Sollwert und nicht das Wort „heat“.
 Mit `controls: false` gibt es wieder nur die Info-Dialoge; einzelne Elemente
 lassen sich weiterhin per `tap_action` überschreiben.
 
+### Was sich zwischendurch zuschaltet
+
+![Abtauen, mit laufendem Heizstab im Speicher](docs/images/extras.png)
+
+Drei Dinge, die eine Wärmepumpe tut, die man leicht übersieht und hinterher
+schlecht erklären kann:
+
+* **Der zweite Wärmeerzeuger.** `aux_heat` und `aux_heat_power` ergänzen im
+  Wärmepumpen-Panel eine Zeile, die aufleuchtet, solange die bivalente Stufe
+  Last übernimmt – man sieht das Zuschalten, statt es später auf der
+  Stromrechnung zu finden.
+* **Abtauen.** Meldet die Wärmepumpe einen Abtauvorgang, steigt Dampf vom
+  Außengerät auf und der Ventilatorring wird eisblau. Erkannt aus `status`
+  (oder `mode`), oder aus einem eigenen `defrost`-Binärsensor.
+* **Ein Heizstab im Speicher.** `heater` und `heater_power` bei `buffer` oder
+  `dhw` zeichnen einen Heizstab in den Speicher – ein my-PV AC-Thor, ein
+  Booster, eine Notheizung –, der glüht, solange er Leistung zieht. Ein Klick
+  bedient die Entität hinter `heater`.
+
+```yaml
+heatpump:
+  mode: select.system_mode        # was sie tun soll, und worüber du es änderst
+  status: sensor.operating_state  # was sie gerade tatsächlich tut
+  aux_heat: binary_sensor.second_heat_generator
+  aux_heat_power: sensor.heating_element_power
+buffer:
+  heater: switch.ac_thor
+  heater_power: sensor.ac_thor_power
+```
+
 ## Optionen
 
 ### Karte
@@ -235,7 +265,7 @@ zuletzt der Zustand von `entity` ausgewertet.
 
 ### `buffer`
 
-`name`, `entity`, `top`, `middle`, `bottom`, `charge`
+`name`, `entity`, `top`, `middle`, `bottom`, `charge`, `heater`, `heater_power`
 
 Der Speicher wird mit einem Verlauf zwischen den Schichttemperaturen gefüllt.
 `charge` erscheint unter dem Namen. Mit `buffer: false` speist die Wärmepumpe

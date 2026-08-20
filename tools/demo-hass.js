@@ -108,6 +108,33 @@ window.demoStates["sensor.circuit_d_flow"] = {
   attributes: { unit_of_measurement: "°C" },
 };
 
+// Second heat generator, an element in the tank, and a defrost cycle
+window.demoStates["sensor.hp_status"] = {
+  entity_id: "sensor.hp_status",
+  state: "defrost",
+  attributes: { friendly_name: "Operating state" },
+};
+window.demoStates["binary_sensor.aux_heat"] = {
+  entity_id: "binary_sensor.aux_heat",
+  state: "on",
+  attributes: { friendly_name: "Second heat generator" },
+};
+window.demoStates["sensor.aux_heat_power"] = {
+  entity_id: "sensor.aux_heat_power",
+  state: "3000",
+  attributes: { friendly_name: "Element power", unit_of_measurement: "W", device_class: "power" },
+};
+window.demoStates["switch.tank_heater"] = {
+  entity_id: "switch.tank_heater",
+  state: "on",
+  attributes: { friendly_name: "Immersion heater" },
+};
+window.demoStates["sensor.tank_heater_power"] = {
+  entity_id: "sensor.tank_heater_power",
+  state: "2450",
+  attributes: { friendly_name: "Immersion heater power", unit_of_measurement: "W", device_class: "power" },
+};
+
 window.serviceCalls = [];
 
 window.makeHass = (language) => ({
