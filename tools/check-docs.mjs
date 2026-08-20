@@ -20,8 +20,10 @@ const packageVersion = JSON.parse(read("package.json")).version;
 if (cardVersion !== packageVersion) {
   problems.push(`CARD_VERSION is ${cardVersion} but package.json says ${packageVersion}`);
 }
-const changelogHeading = new RegExp(`^## \\[?${cardVersion.replace(/\./g, "\\.")}\\]?`, "m");
-if (!changelogHeading.test(read("CHANGELOG.md"))) {
+const changelog = read("CHANGELOG.md");
+// Keep a Changelog brackets the version when it links to a tag, and leaves it
+// bare when there is none. Both count as the section for this version.
+if (!changelog.includes(`## ${cardVersion}`) && !changelog.includes(`## [${cardVersion}]`)) {
   problems.push(`CHANGELOG.md has no section for ${cardVersion}`);
 }
 
