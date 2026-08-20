@@ -84,8 +84,9 @@ jobs:
           if git clone "$url" /tmp/wiki 2>/dev/null; then
             echo 'Wiki cloned.'
           else
-            # A wiki that has never been written to has no repository yet.
-            echo 'No wiki repository yet - starting an empty one.'
+            # A wiki nobody has ever written to has no repository behind it,
+            # and enabling the feature alone does not create one.
+            echo 'No wiki repository yet - trying to start one.'
             mkdir -p /tmp/wiki
             git -C /tmp/wiki init -q -b master
             git -C /tmp/wiki remote add origin "$url"
@@ -110,5 +111,5 @@ jobs:
           fi
           git commit -q -m 'docs: sync wiki from docs/wiki [skip ci]'
           if ! git push origin HEAD; then
-            echo "::warning title=Wiki not published::Could not push to the wiki. Enable Settings -> Features -> Wikis for this repository, then re-run this workflow."
+            echo "::warning title=Wiki not published::Could not push to the wiki. GitHub creates the wiki repository only once a first page has been saved by hand: open the Wiki tab, create any page, save it, then re-run this workflow - it overwrites that page."
           fi

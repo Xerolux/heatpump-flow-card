@@ -80,6 +80,17 @@ drift away from the actual rendering.
 Drawing happens once; afterwards only the registered update functions run on
 every state change, so animations never restart.
 
+## The wiki
+
+`docs/wiki/*.md` is the source; the documentation workflow copies it into the
+GitHub wiki on every push to `main` that touches those files.
+
+GitHub only creates the wiki repository once a first page has been saved by
+hand, so on a fresh repository: open the **Wiki** tab, create any page, save
+it, and re-run **Actions → Documentation → Run workflow**. From then on the
+sync overwrites everything and nobody edits the wiki directly - changes made
+there are lost on the next push.
+
 ## Releasing
 
 1. Bump `CARD_VERSION` in `dist/heatpump-flow-card.js` and `version` in
