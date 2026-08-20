@@ -199,7 +199,17 @@ window.previewConfigs = {
       pump: "binary_sensor.dhw_pump",
       boost: "button.dhw_boost",
     },
-    pv: { name: "Photovoltaics", power: "sensor.pv_power", battery: "sensor.battery_soc" },
+    pv: {
+      name: "Photovoltaics",
+      // four inverters and two batteries, folded into one value each
+      power: [
+        "sensor.pv_inverter_1",
+        "sensor.pv_inverter_2",
+        "sensor.pv_inverter_3",
+        "sensor.pv_inverter_4",
+      ],
+      battery: ["sensor.battery_1_soc", "sensor.battery_2_soc"],
+    },
     solar: {
       name: "Solar thermal",
       collector_temp: "sensor.collector_temperature",

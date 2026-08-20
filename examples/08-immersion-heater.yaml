@@ -43,8 +43,13 @@ dhw:
 
 pv:
   name: SolarEdge
-  power: sensor.solaredge_i1_ac_power
-  battery: sensor.solaredge_i1_b1_state_of_energy
+  power:
+    - sensor.solaredge_i1_ac_power
+    - sensor.solaredge_i2_ac_power
+    - sensor.solaredge_i3_ac_power
+    - sensor.solaredge_i4_ac_power
+  battery:
+    - sensor.solaredge_i1_b1_state_of_energy
 
 circuits:
   - name: Heating circuit A

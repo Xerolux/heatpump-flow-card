@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0
+
+* **Any value can read several entities at once.** Four inverters become one PV
+  power, several batteries become one state of charge: powers and energies are
+  added up, percentages and temperatures averaged, and `combine` (`sum`, `avg`,
+  `min`, `max`, `first`) overrides the choice. Entities that are missing or
+  unavailable are skipped instead of dragging the result down.
+
 ## 1.4.0
 
 * **The second heat generator is visible.** `aux_heat` and `aux_heat_power` add

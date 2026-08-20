@@ -222,6 +222,37 @@ buffer:
   heater_power: sensor.ac_thor_power
 ```
 
+### One value out of several entities
+
+Four inverters, two batteries, three room sensors — any value takes a list and
+folds it into one number:
+
+```yaml
+pv:
+  power:                       # added up
+    - sensor.inverter_1_ac_power
+    - sensor.inverter_2_ac_power
+    - sensor.inverter_3_ac_power
+    - sensor.inverter_4_ac_power
+  battery:                     # averaged, because it is a percentage
+    - sensor.battery_1_soc
+    - sensor.battery_2_soc
+```
+
+Powers, energies and flow rates are **added up**; percentages and temperatures
+are **averaged**. Override it, and set the usual extras, with the long form:
+
+```yaml
+power:
+  entities: [sensor.inverter_1_ac_power, sensor.inverter_2_ac_power]
+  combine: max               # sum (default), avg, min, max, first
+  name: Roof
+  decimals: 1
+```
+
+Entities that are missing or unavailable are skipped rather than dragging the
+total down, and a tap opens the first one in the list.
+
 ## Options
 
 ### Card

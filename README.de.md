@@ -228,6 +228,38 @@ buffer:
   heater_power: sensor.ac_thor_power
 ```
 
+### Ein Wert aus mehreren Entitäten
+
+Vier Wechselrichter, zwei Batterien, drei Raumfühler – jeder Wert nimmt auch
+eine Liste und macht daraus eine Zahl:
+
+```yaml
+pv:
+  power:                       # wird summiert
+    - sensor.inverter_1_ac_power
+    - sensor.inverter_2_ac_power
+    - sensor.inverter_3_ac_power
+    - sensor.inverter_4_ac_power
+  battery:                     # wird gemittelt, weil es ein Prozentwert ist
+    - sensor.battery_1_soc
+    - sensor.battery_2_soc
+```
+
+Leistungen, Energien und Durchflüsse werden **summiert**, Prozentwerte und
+Temperaturen **gemittelt**. Über die Langform lässt sich das überschreiben –
+zusammen mit den üblichen Zusätzen:
+
+```yaml
+power:
+  entities: [sensor.inverter_1_ac_power, sensor.inverter_2_ac_power]
+  combine: max               # sum (Standard), avg, min, max, first
+  name: Dach
+  decimals: 1
+```
+
+Fehlende oder nicht verfügbare Entitäten werden übersprungen, statt die Summe
+zu verfälschen; ein Klick öffnet die erste Entität der Liste.
+
 ## Optionen
 
 ### Karte

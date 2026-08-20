@@ -135,6 +135,28 @@ window.demoStates["sensor.tank_heater_power"] = {
   attributes: { friendly_name: "Immersion heater power", unit_of_measurement: "W", device_class: "power" },
 };
 
+// A string of inverters and two batteries: the card adds the powers up and
+// averages the states of charge.
+const inverters = { pv_inverter_1: 1180, pv_inverter_2: 980, pv_inverter_3: 760, pv_inverter_4: 560 };
+for (const [key, watts] of Object.entries(inverters)) {
+  window.demoStates[`sensor.${key}`] = {
+    entity_id: `sensor.${key}`,
+    state: String(watts),
+    attributes: {
+      friendly_name: `Inverter ${key.slice(-1)}`,
+      unit_of_measurement: "W",
+      device_class: "power",
+    },
+  };
+}
+for (const [key, soc] of Object.entries({ battery_1_soc: 84, battery_2_soc: 78 })) {
+  window.demoStates[`sensor.${key}`] = {
+    entity_id: `sensor.${key}`,
+    state: String(soc),
+    attributes: { friendly_name: `Battery ${key.slice(8, 9)}`, unit_of_measurement: "%" },
+  };
+}
+
 window.serviceCalls = [];
 
 window.makeHass = (language) => ({

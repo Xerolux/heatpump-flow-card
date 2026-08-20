@@ -144,6 +144,35 @@ A `climate` or `water_heater` entity used as `target_temp`, `temp` or
 `target_temp: climate.circuit_a` shows the setpoint rather than the word
 “heat”.
 
+## One value out of several entities
+
+Any value also takes a list, and folds it into one number:
+
+```yaml
+pv:
+  power:                       # added up
+    - sensor.inverter_1_ac_power
+    - sensor.inverter_2_ac_power
+  battery:                     # averaged - it is a percentage
+    - sensor.battery_1_soc
+    - sensor.battery_2_soc
+```
+
+| Unit | Default |
+| --- | --- |
+| `%`, `°C`, `°F`, `K` | average |
+| everything else (W, kWh, l/min …) | sum |
+
+```yaml
+power:
+  entities: [sensor.inverter_1_ac_power, sensor.inverter_2_ac_power]
+  combine: max               # sum, avg, min, max, first
+```
+
+Missing or unavailable entities are skipped rather than dragging the result
+down; if none of them has a value the card shows a dash. A tap opens the first
+entity in the list.
+
 ## What switches in and out
 
 ![Defrosting, with the element in the tank running](https://raw.githubusercontent.com/Xerolux/heatpump-flow-card/main/docs/images/extras.png)

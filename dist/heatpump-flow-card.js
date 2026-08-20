@@ -7,7 +7,7 @@
  * MIT License - Copyright (c) 2026 Xerolux
  */
 
-const CARD_VERSION = "1.4.0";
+const CARD_VERSION = "1.5.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -73,13 +73,61 @@ function fireEvent(node, type, detail) {
 function asField(value) {
   if (!value) return null;
   if (typeof value === "string") return { entity: value };
-  if (typeof value === "object" && (value.entity || value.attribute)) return { ...value };
+  if (Array.isArray(value)) {
+    const entities = value.filter((entry) => typeof entry === "string" && entry.includes("."));
+    return entities.length ? { entity: entities[0], entities } : null;
+  }
+  if (typeof value === "object") {
+    if (Array.isArray(value.entities)) {
+      const entities = value.entities.filter((entry) => typeof entry === "string");
+      if (!entities.length) return null;
+      return { ...value, entity: value.entity || entities[0], entities };
+    }
+    if (value.entity || value.attribute) return { ...value };
+  }
   return null;
 }
 
+/** Every entity a field reads - one, or a whole string of inverters. */
+function fieldEntities(field) {
+  if (!field) return [];
+  if (field.entities && field.entities.length) return field.entities;
+  return field.entity ? [field.entity] : [];
+}
+
+function isShareLike(unit) {
+  return unit === "%" || unit === "°C" || unit === "°F" || unit === "K";
+}
+
+/**
+ * How several entities become one number. Powers and energies add up, shares
+ * and temperatures average - and `combine` overrides both.
+ */
+function combineValues(values, mode) {
+  if (!values.length) return null;
+  switch (mode) {
+    case "avg":
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    case "min":
+      return Math.min(...values);
+    case "max":
+      return Math.max(...values);
+    case "first":
+      return values[0];
+    default:
+      return values.reduce((sum, value) => sum + value, 0);
+  }
+}
+
 function stateOf(hass, field) {
-  if (!hass || !field || !field.entity) return undefined;
-  return hass.states[field.entity];
+  if (!hass || !field) return undefined;
+  const entities = fieldEntities(field);
+  if (!entities.length) return undefined;
+  for (const entity of entities) {
+    const st = hass.states[entity];
+    if (st && !isMissing(st)) return st;
+  }
+  return hass.states[entities[0]];
 }
 
 function isMissing(st) {
@@ -101,17 +149,34 @@ function rawValue(hass, field) {
   return st.state;
 }
 
-/** Numeric value of a field, or null when it is not a number. */
-function numberValue(hass, field) {
+function singleNumber(hass, field) {
   const raw = rawValue(hass, field);
   if (raw === undefined || raw === null || raw === "") return null;
   const parsed = typeof raw === "number" ? raw : parseFloat(String(raw).replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** Numeric value of a field, several entities folded into one. */
+function numberValue(hass, field) {
+  if (!field) return null;
+  const entities = fieldEntities(field);
+  if (entities.length < 2) return singleNumber(hass, field);
+  const values = entities
+    .map((entity) => singleNumber(hass, { ...field, entity, entities: undefined }))
+    .filter((value) => value !== null);
+  if (!values.length) return null;
+  return combineValues(values, field.combine || (isShareLike(unitOf(hass, field)) ? "avg" : "sum"));
+}
+
 /** Truthiness of a field: on-ish states, or a number above the threshold. */
 function isActive(hass, field) {
   if (!field) return false;
+  const entities = fieldEntities(field);
+  if (entities.length > 1) {
+    return entities.some((entity) =>
+      isActive(hass, { ...field, entity, entities: undefined })
+    );
+  }
   const raw = rawValue(hass, field);
   if (raw === undefined || raw === null) return false;
   if (typeof raw === "boolean") return raw;
@@ -136,6 +201,14 @@ function unitOf(hass, field) {
 function displayValue(hass, field, fallback) {
   const dash = fallback === undefined ? "–" : fallback;
   if (!hass || !field || !field.entity) return dash;
+
+  // Several entities: show what they add up to (or average to).
+  if (fieldEntities(field).length > 1) {
+    const total = numberValue(hass, field);
+    if (total === null) return dash;
+    return formatNumber(hass, total, field) + suffix(unitOf(hass, field));
+  }
+
   const st = hass.states[field.entity];
   if (isMissing(st)) return dash;
 
@@ -2129,8 +2202,8 @@ function normalizeConfig(raw) {
 const GEOMETRY = {
   pad: 14,
   hp: { w: 200, h: 190 },
-  pv: { w: 152, h: 118 },
-  solar: { w: 152, h: 122 },
+  pv: { w: 170, h: 118 },
+  solar: { w: 170, h: 122 },
   buffer: { w: 126, min: 250, max: 330 },
   sourceGap: 74,
   hpGap: 110,

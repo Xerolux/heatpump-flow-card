@@ -46,9 +46,15 @@ dhw:
 
 pv:
   name: SolarEdge
-  # one inverter of four - sum them in a template sensor for the whole array
-  power: sensor.solaredge_i1_ac_power
-  battery: sensor.solaredge_i1_b1_state_of_energy
+  # all four inverters in one value - the card adds them up
+  power:
+    - sensor.solaredge_i1_ac_power
+    - sensor.solaredge_i2_ac_power
+    - sensor.solaredge_i3_ac_power
+    - sensor.solaredge_i4_ac_power
+  # several batteries average instead of adding, because it is a percentage
+  battery:
+    - sensor.solaredge_i1_b1_state_of_energy
   grid: sensor.solaredge_i1_m1_ac_power
 
 solar:

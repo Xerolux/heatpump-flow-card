@@ -558,3 +558,52 @@ test("an electric element in the tank is drawn and operable", async () => {
     { domain: "homeassistant", service: "toggle", data: { entity_id: "switch.tank_heater" } },
   ]);
 });
+
+test("several entities in one value: powers add up, shares average", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  const shown = await page.evaluate(() => {
+    const root = document.getElementById("card-full").shadowRoot;
+    const readouts = [...root.querySelectorAll(".hpfc-pv .hpfc-readout")];
+    return readouts.map((r) => [...r.querySelectorAll("text")].map((t) => t.textContent));
+  });
+  // 1180 + 980 + 760 + 560 W, and (84 + 78) / 2 %
+  assert.deepEqual(shown[0], ["Power", "3,480 W"]);
+  assert.deepEqual(shown[1], ["Battery", "81%"]);
+});
+
+test("a list of entities can be combined explicitly", async () => {
+  const values = await page.evaluate(() => {
+    const build = (power) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "pv-single",
+        pv: { power },
+        heatpump: {},
+      });
+      document.body.appendChild(card);
+      card.hass = window.makeHass("en");
+      const value = card.shadowRoot.querySelector(".hpfc-pv .hpfc-readout .hpfc-value").textContent;
+      card.remove();
+      return value;
+    };
+    return {
+      sum: build(["sensor.pv_inverter_1", "sensor.pv_inverter_2"]),
+      max: build({
+        entities: ["sensor.pv_inverter_1", "sensor.pv_inverter_2"],
+        combine: "max",
+      }),
+      named: build({
+        entities: ["sensor.pv_inverter_1", "sensor.pv_inverter_2"],
+        name: "Roof",
+        decimals: 2,
+      }),
+      missing: build(["sensor.does_not_exist", "sensor.pv_inverter_2"]),
+    };
+  });
+  assert.equal(values.sum, "2,160 W");
+  assert.equal(values.max, "1,180 W");
+  assert.equal(values.named, "2,160.00 W");
+  // an entity that is not there is skipped rather than poisoning the total
+  assert.equal(values.missing, "980 W");
+});
