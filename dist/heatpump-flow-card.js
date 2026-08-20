@@ -1,13 +1,13 @@
 /*!
  * heatpump-flow-card
  * An animated hydraulic scheme for Home Assistant: heat pump, buffer tank,
- * domestic hot water, PV, solar thermal and up to four heating circuits.
+ * domestic hot water, PV, solar thermal and up to seven heating circuits.
  *
  * https://github.com/Xerolux/heatpump-flow-card
  * MIT License - Copyright (c) 2026 Xerolux
  */
 
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.2.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -768,6 +768,7 @@ function drawPipe(scene, options) {
   const group = svgEl("g", {
     class: `hpfc-pipe-group${options.className ? ` ${options.className}` : ""}`,
   });
+  if (options.part) group.setAttribute("data-part", options.part);
 
   const gradientId = `hpfc-grad-${++gradientCounter}`;
   const first = points[0];
@@ -828,7 +829,8 @@ function drawPipe(scene, options) {
         : typeof options.active === "function"
           ? options.active(hass)
           : isActive(hass, options.active);
-    group.classList.toggle("hpfc-idle", !running);
+    group.classList.toggle("hpfc-idle", !running && scene.config.dim_inactive !== false);
+    group.classList.toggle("hpfc-stopped", !running);
     dots.style.display = running && scene.config.animation !== false ? "" : "none";
   });
 
@@ -1637,14 +1639,33 @@ function drawEmitter(scene, group, area, type, options) {
   return wrap;
 }
 
+const OFF_MODE_WORDS = ["off", "aus", "standby", "idle", "closed", "inaktiv", "geschlossen"];
+
+/**
+ * Whether a single circuit is being served right now. Every circuit answers
+ * this for itself - circuit A running says nothing about circuit D - and only
+ * a circuit without any state source of its own follows the heat pump.
+ */
 function circuitRunning(scene, cfg) {
   return (hass) => {
     if (cfg.pump && cfg.pump.entity) return isActive(hass, cfg.pump);
+
+    // A mode set to "off" wins over everything below: that circuit is parked.
+    let modeRaw = null;
+    if (cfg.mode && cfg.mode.entity) {
+      const raw = rawValue(hass, cfg.mode);
+      if (raw !== undefined && raw !== null && raw !== "") {
+        modeRaw = String(raw).toLowerCase();
+        if (OFF_MODE_WORDS.some((word) => modeRaw.includes(word))) return false;
+      }
+    }
+
     if (cfg.valve && cfg.valve.entity) {
       const value = numberValue(hass, cfg.valve);
       if (value !== null) return value > 0;
     }
     if (cfg.entity) return isActive(hass, { entity: cfg.entity });
+    if (modeRaw !== null) return true;
     return scene.flags.heatpumpRunning ? scene.flags.heatpumpRunning(hass) : false;
   };
 }
@@ -1818,11 +1839,37 @@ function drawDhw(scene, box, cfg) {
  * Configuration
  * ========================================================================= */
 
+/** IDM and friends address their circuits A-G, so seven is the practical ceiling. */
+const MAX_CIRCUITS = 7;
+
+/**
+ * Ready made plants. A layout only decides what is drawn *by default* - any
+ * section can still be added or removed per card.
+ */
 const LAYOUT_PRESETS = {
+  // heat pump, buffer tank, heating circuits
   compact: { sections: ["buffer"], circuits: 1, dense: true },
+  "compact-dual": { sections: ["buffer"], circuits: 2, dense: true },
   single: { sections: ["buffer"], circuits: 1 },
   dual: { sections: ["buffer"], circuits: 2 },
+  triple: { sections: ["buffer"], circuits: 3 },
+  quad: { sections: ["buffer"], circuits: 4 },
+  // ... plus domestic hot water
+  dhw: { sections: ["buffer", "dhw"], circuits: 1 },
+  "dhw-dual": { sections: ["buffer", "dhw"], circuits: 2 },
+  "dhw-quad": { sections: ["buffer", "dhw"], circuits: 4 },
+  // ... plus photovoltaics, without solar thermal
+  "pv-single": { sections: ["buffer", "pv"], circuits: 1 },
+  "pv-dual": { sections: ["buffer", "pv"], circuits: 2 },
+  "pv-dhw-dual": { sections: ["buffer", "pv", "dhw"], circuits: 2 },
+  // ... plus solar thermal
+  "solar-dual": { sections: ["buffer", "solar", "dhw"], circuits: 2 },
   full: { sections: ["buffer", "pv", "solar", "dhw"], circuits: 2 },
+  "full-quad": { sections: ["buffer", "pv", "solar", "dhw"], circuits: 4 },
+  // no buffer tank: the heat pump feeds the circuits directly
+  direct: { sections: [], circuits: 1 },
+  "direct-dual": { sections: [], circuits: 2 },
+  "direct-dhw": { sections: ["dhw"], circuits: 2 },
 };
 
 const SECTION_FIELDS = {
@@ -1946,12 +1993,13 @@ function normalizeConfig(raw) {
   if (circuits && !Array.isArray(circuits)) circuits = [circuits];
   if (!circuits || !circuits.length) {
     circuits = [];
-    const defaults = ["radiator", "underfloor", "radiator", "underfloor"];
-    for (let i = 0; i < preset.circuits; i++) circuits.push({ type: defaults[i] });
+    for (let i = 0; i < preset.circuits; i++) {
+      circuits.push({ type: i % 2 === 0 ? "radiator" : "underfloor" });
+    }
   }
   config.circuits = circuits
     .filter((circuit) => circuit && circuit !== true)
-    .slice(0, 4)
+    .slice(0, MAX_CIRCUITS)
     .map((circuit) => {
       const normalized = normalizeSection(circuit, SECTION_FIELDS.circuit);
       if (!normalized.type) normalized.type = "radiator";
@@ -2090,14 +2138,18 @@ function buildScene(card) {
     });
   }
 
-  for (const item of consumers) {
+  consumers.forEach((item, index) => {
     const box = { x: rightX, y: item.y, w: consumerWidth, h: item.h };
     const drawn =
       item.kind === "dhw" ? drawDhw(scene, box, item.cfg) : drawCircuit(scene, box, item.cfg);
+    drawn.group.setAttribute(
+      "data-part",
+      item.kind === "dhw" ? "dhw" : `circuit-${index + (config.dhw ? 0 : 1)}`
+    );
     item.running = drawn.running;
     item.inletY = item.y + 40;
     item.outletY = item.y + item.h - 30;
-  }
+  });
 
   // ---- pipes ------------------------------------------------------------
   const hpRight = hpX + G.hp.w;
@@ -2184,6 +2236,7 @@ function buildScene(card) {
         [flowRailX, bufferFlowY],
       ],
       role: "flow",
+      part: "flow-trunk",
       from: config.buffer.top,
       active: anyConsumer,
     });
@@ -2193,6 +2246,7 @@ function buildScene(card) {
         [bufX + G.buffer.w, bufferReturnY],
       ],
       role: "return",
+      part: "return-trunk",
       from: consumers[0] ? consumers[0].cfg.return_temp : null,
       to: config.buffer.bottom,
       active: anyConsumer,
@@ -2206,6 +2260,7 @@ function buildScene(card) {
         [flowRailX, flowSpan[1]],
       ],
       role: "flow",
+      part: "flow-spine",
       from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
       active: anyConsumer,
     });
@@ -2217,6 +2272,7 @@ function buildScene(card) {
         [returnRailX, returnSpan[0]],
       ],
       role: "return",
+      part: "return-spine",
       from: consumers[0] ? consumers[0].cfg.return_temp : null,
       to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
       active: anyConsumer,
@@ -2224,13 +2280,15 @@ function buildScene(card) {
     });
   }
 
-  for (const item of consumers) {
+  consumers.forEach((item, index) => {
+    const part = item.kind === "dhw" ? "dhw" : `circuit-${index + (config.dhw ? 0 : 1)}`;
     drawPipe(scene, {
       points: [
         [flowRailX, item.inletY],
         [rightX, item.inletY],
       ],
       role: "flow",
+      part: `flow-${part}`,
       from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
       to: item.cfg.flow_temp || item.cfg.temp,
       active: item.running,
@@ -2241,11 +2299,12 @@ function buildScene(card) {
         [returnRailX, item.outletY],
       ],
       role: "return",
+      part: `return-${part}`,
       from: item.cfg.return_temp || item.cfg.flow_temp,
       to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
       active: item.running,
     });
-  }
+  });
 
   // solar thermal circuit
   if (solar && config.buffer) {
@@ -2417,7 +2476,7 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 }
 .hpfc-dots-reverse { animation-direction: reverse; }
 .hpfc-pipe-group.hpfc-idle .hpfc-pipe { opacity: 0.32; }
-.hpfc-pipe-group.hpfc-idle .hpfc-dots { display: none; }
+.hpfc-pipe-group.hpfc-stopped .hpfc-dots { display: none; }
 .hpfc-energy .hpfc-pipe { stroke-width: 5; stroke-dasharray: 8 5; }
 .hpfc-energy .hpfc-dots { stroke: #fff8dc; stroke-width: 3; }
 @keyframes hpfc-dash { to { stroke-dashoffset: -180; } }
@@ -2855,10 +2914,24 @@ const EDITOR_TEXTS = {
     humidity: "Humidity",
     yaml_only: "Configured in YAML",
     layouts: {
-      compact: "Compact – heat pump, tank, one circuit",
-      single: "Single circuit",
-      dual: "Two circuits (radiators + underfloor)",
-      full: "Full – PV, solar thermal, hot water, two circuits",
+      compact: "Compact · tank · 1 circuit",
+      "compact-dual": "Compact · tank · 2 circuits",
+      single: "Tank · 1 circuit",
+      dual: "Tank · 2 circuits",
+      triple: "Tank · 3 circuits",
+      quad: "Tank · 4 circuits",
+      dhw: "Tank · hot water · 1 circuit",
+      "dhw-dual": "Tank · hot water · 2 circuits",
+      "dhw-quad": "Tank · hot water · 4 circuits",
+      "pv-single": "PV · tank · 1 circuit",
+      "pv-dual": "PV · tank · 2 circuits",
+      "pv-dhw-dual": "PV · tank · hot water · 2 circuits",
+      "solar-dual": "Solar thermal · tank · hot water · 2 circuits",
+      full: "Everything · PV · solar thermal · hot water · 2 circuits",
+      "full-quad": "Everything · 4 circuits",
+      direct: "Without a tank · 1 circuit",
+      "direct-dual": "Without a tank · 2 circuits",
+      "direct-dhw": "Without a tank · hot water · 2 circuits",
     },
     types: {
       radiator: "Radiators",
@@ -2918,10 +2991,24 @@ const EDITOR_TEXTS = {
     humidity: "Luftfeuchte",
     yaml_only: "In YAML konfiguriert",
     layouts: {
-      compact: "Kompakt – Wärmepumpe, Speicher, ein Kreis",
-      single: "Ein Heizkreis",
-      dual: "Zwei Heizkreise (Heizkörper + Fußboden)",
-      full: "Komplett – PV, Solarthermie, Warmwasser, zwei Kreise",
+      compact: "Kompakt · Speicher · 1 Heizkreis",
+      "compact-dual": "Kompakt · Speicher · 2 Heizkreise",
+      single: "Speicher · 1 Heizkreis",
+      dual: "Speicher · 2 Heizkreise",
+      triple: "Speicher · 3 Heizkreise",
+      quad: "Speicher · 4 Heizkreise",
+      dhw: "Speicher · Warmwasser · 1 Heizkreis",
+      "dhw-dual": "Speicher · Warmwasser · 2 Heizkreise",
+      "dhw-quad": "Speicher · Warmwasser · 4 Heizkreise",
+      "pv-single": "PV · Speicher · 1 Heizkreis",
+      "pv-dual": "PV · Speicher · 2 Heizkreise",
+      "pv-dhw-dual": "PV · Speicher · Warmwasser · 2 Heizkreise",
+      "solar-dual": "Solarthermie · Speicher · Warmwasser · 2 Heizkreise",
+      full: "Alles · PV · Solarthermie · Warmwasser · 2 Heizkreise",
+      "full-quad": "Alles · 4 Heizkreise",
+      direct: "Ohne Speicher · 1 Heizkreis",
+      "direct-dual": "Ohne Speicher · 2 Heizkreise",
+      "direct-dhw": "Ohne Speicher · Warmwasser · 2 Heizkreise",
     },
     types: {
       radiator: "Heizkörper",
@@ -3076,7 +3163,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
 
     schema.push({
       name: "circuit_count",
-      selector: { number: { min: 0, max: 4, step: 1, mode: "box" } },
+      selector: { number: { min: 0, max: MAX_CIRCUITS, step: 1, mode: "box" } },
     });
     for (let index = 1; index <= (data.circuit_count || 0); index++) {
       schema.push({
@@ -3147,11 +3234,12 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     if (circuits && !Array.isArray(circuits)) circuits = [circuits];
     if (!circuits) {
       circuits = [];
-      const defaults = ["radiator", "underfloor", "radiator", "underfloor"];
-      for (let i = 0; i < preset.circuits; i++) circuits.push({ type: defaults[i] });
+      for (let i = 0; i < preset.circuits; i++) {
+        circuits.push({ type: i % 2 === 0 ? "radiator" : "underfloor" });
+      }
     }
-    data.circuit_count = Math.min(circuits.length, 4);
-    circuits.slice(0, 4).forEach((circuit, index) => {
+    data.circuit_count = Math.min(circuits.length, MAX_CIRCUITS);
+    circuits.slice(0, MAX_CIRCUITS).forEach((circuit, index) => {
       data[`circuit_${index + 1}`] = simplify(circuit, `circuit_${index + 1}`);
       if (!data[`circuit_${index + 1}`].type) data[`circuit_${index + 1}`].type = "radiator";
     });
@@ -3227,7 +3315,7 @@ window.customCards.push({
   type: "heatpump-flow-card",
   name: "Heat Pump Flow Card",
   description:
-    "Animated hydraulic scheme for a heat pump with buffer tank, hot water, PV, solar thermal and heating circuits.",
+    "Animated hydraulic scheme for a heat pump with buffer tank, hot water, PV, solar thermal and up to seven heating circuits.",
   preview: true,
   documentationURL: "https://github.com/Xerolux/heatpump-flow-card",
 });

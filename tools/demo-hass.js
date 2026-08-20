@@ -70,6 +70,44 @@ window.demoStates = {
   "sensor.bad_temperatur": { entity_id: "sensor.bad_temperatur", state: "23.4", attributes: { unit_of_measurement: "°C" } },
 };
 
+// Four circuits in different states: A and C are being served, B and D are not.
+const circuitModes = {
+  "select.hk_a_mode": "Normal",
+  "select.hk_b_mode": "Zeitprogramm",
+  "select.hk_c_mode": "Normal",
+  "select.hk_d_mode": "Aus",
+};
+for (const [entity, state] of Object.entries(circuitModes)) {
+  window.demoStates[entity] = {
+    entity_id: entity,
+    state,
+    attributes: {
+      friendly_name: `Betriebsart ${entity.slice(-6, -5).toUpperCase()}`,
+      options: ["Aus", "Zeitprogramm", "Normal", "Eco", "Manuell Heizen", "Manuell Kühlen"],
+    },
+  };
+}
+window.demoStates["binary_sensor.hk_c_pumpe"] = {
+  entity_id: "binary_sensor.hk_c_pumpe",
+  state: "on",
+  attributes: {},
+};
+window.demoStates["binary_sensor.hk_d_pumpe"] = {
+  entity_id: "binary_sensor.hk_d_pumpe",
+  state: "off",
+  attributes: {},
+};
+window.demoStates["sensor.hk_c_vorlauf"] = {
+  entity_id: "sensor.hk_c_vorlauf",
+  state: "35.2",
+  attributes: { unit_of_measurement: "°C" },
+};
+window.demoStates["sensor.hk_d_vorlauf"] = {
+  entity_id: "sensor.hk_d_vorlauf",
+  state: "24.1",
+  attributes: { unit_of_measurement: "°C" },
+};
+
 window.serviceCalls = [];
 
 window.makeHass = (language) => ({

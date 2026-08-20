@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.0
+
+* **Eighteen layout presets** instead of four: with or without hot water, PV,
+  solar thermal or a buffer tank, and one to four circuits — pick one in the
+  editor instead of assembling it by hand.
+* **Up to seven heating circuits** (A–G) instead of four.
+* **Every circuit answers for itself.** A `mode` set to off, aus, standby, idle
+  or closed parks a circuit even while the heat pump runs; only a circuit
+  without any state source of its own follows the heat pump. Panels, pumps and
+  pipes are marked with `data-part`, so a circuit can also be styled or asserted
+  individually.
+* `dim_inactive: false` now really keeps idle branches at full opacity (the dots
+  still stop).
+* A live demo published to GitHub Pages, a wiki under `docs/wiki/`, and a
+  screenshot gallery in both READMEs.
+* New workflows: documentation (Pages + wiki sync), security (CodeQL,
+  dependency review), Dependabot, issue and pull request templates, and a
+  `check:docs` step that keeps versions, screenshots, examples and wiki links
+  honest.
+* Removed a wrong claim about where the card came from — it is vendor neutral
+  and always was.
+
 ## 1.1.0
 
 * Operate the plant straight from the card: a tap toggles switches, presses

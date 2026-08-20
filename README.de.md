@@ -5,10 +5,10 @@
 
 Ein animiertes Hydraulikschema für Home Assistant. Die Karte zeichnet deine
 Heizungsanlage so, wie sie verrohrt ist – Wärmepumpe, Pufferspeicher,
-Warmwasser, Photovoltaik, Solarthermie und bis zu vier Heizkreise – und stellt
+Warmwasser, Photovoltaik, Solarthermie und bis zu sieben Heizkreise – und stellt
 die Live-Werte genau dort dar, wo sie hingehören.
 
-*[English version](README.md)*
+*[English version](README.md)* · **[Live-Demo](https://xerolux.github.io/heatpump-flow-card/)** · **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)**
 
 ![Layout „full“](docs/images/full.png)
 
@@ -26,7 +26,10 @@ die Live-Werte genau dort dar, wo sie hingehören.
   Klick auf einen Betriebsart-Chip wählt Heizen, Kühlen oder Warmwasser, Klick
   auf einen Sollwert öffnet ein Plus/Minus-Stellfeld. Langes Drücken öffnet
   immer den Info-Dialog.
-* **Vier Layouts** – von der kompakten Karte bis zur kompletten Anlage.
+* **Jeder Heizkreis antwortet für sich.** Dass Kreis A läuft, sagt nichts über
+  Kreis D: jedes Panel, jede Pumpe und jedes Rohr zeigt den eigenen Zustand.
+* **Achtzehn fertige Layouts** – von der kompakten Karte mit einem Kreis bis zur
+  kompletten Anlage, mit oder ohne Warmwasser, PV, Solarthermie oder Puffer.
 * **Grafischer Editor** – YAML ist möglich, aber nicht nötig.
 * **Nichts ist Pflicht.** Fehlt ein Sensor, bleibt die Stelle einfach leer,
   statt dass die Karte kaputtgeht.
@@ -35,28 +38,75 @@ die Live-Werte genau dort dar, wo sie hingehören.
 
 ## Layouts
 
-| `layout` | Inhalt | Screenshot |
-| --- | --- | --- |
-| `compact` | Wärmepumpe, Speicher, ein Kreis – passt in eine schmale Spalte | [compact](docs/images/compact.png) |
-| `single` | Ein Heizkreis mit allen Details | [single](docs/images/single.png) |
-| `dual` | Zwei Heizkreise, z. B. Heizkörper + Fußbodenheizung | [dual](docs/images/dual.png) |
-| `full` | PV, Solarthermie, Warmwasser und zwei Heizkreise | [full](docs/images/full.png) |
+Im Editor eine fertige Anlage auswählen oder `layout:` im YAML setzen. Das
+Layout legt nur fest, was **standardmäßig** gezeichnet wird – jeder Abschnitt
+lässt sich mit einem eigenen Block ergänzen oder mit `false` entfernen.
 
-Das Layout legt nur fest, was **standardmäßig** gezeichnet wird. Jeder Abschnitt,
-den du konfigurierst, wird angezeigt; jeder Abschnitt, den du auf `false`
-setzt, verschwindet. `layout: dual` mit einem `pv:`-Block ist also völlig in
-Ordnung.
+| `layout` | Speicher | Warmwasser | PV | Solarthermie | Heizkreise |
+| --- | :-: | :-: | :-: | :-: | :-: |
+| `compact` | ● | | | | 1 |
+| `compact-dual` | ● | | | | 2 |
+| `single` | ● | | | | 1 |
+| `dual` | ● | | | | 2 |
+| `triple` | ● | | | | 3 |
+| `quad` | ● | | | | 4 |
+| `dhw` | ● | ● | | | 1 |
+| `dhw-dual` | ● | ● | | | 2 |
+| `dhw-quad` | ● | ● | | | 4 |
+| `pv-single` | ● | | ● | | 1 |
+| `pv-dual` | ● | | ● | | 2 |
+| `pv-dhw-dual` | ● | ● | ● | | 2 |
+| `solar-dual` | ● | ● | | ● | 2 |
+| `full` | ● | ● | ● | ● | 2 |
+| `full-quad` | ● | ● | ● | ● | 4 |
+| `direct` | | | | | 1 |
+| `direct-dual` | | | | | 2 |
+| `direct-dhw` | | ● | | | 2 |
 
-![Zwei Heizkreise](docs/images/dual.png)
+Bis zu **sieben** Heizkreise (A–G) sind möglich – `circuits:` sticht immer das,
+was das Layout mitbringt.
 
-Die Karte übernimmt das Theme des Dashboards:
+## Galerie
 
-![Dunkles Theme](docs/images/dual-dark.png)
+**`compact` – Wärmepumpe, Speicher, ein Kreis, passt in eine schmale Spalte**
 
-Anlagen ohne Pufferspeicher werden direkt von der Wärmepumpe auf die Heizkreise
-verrohrt – hier mit vier Kreisen, darunter ein Gebläsekonvektor und ein Pool:
+![compact](docs/images/compact.png)
 
-![Ohne Pufferspeicher](docs/images/advanced.png)
+**`single` – ein Heizkreis mit allen Details**
+
+![single](docs/images/single.png)
+
+**`dual` – Heizkörper und Fußbodenheizung**
+
+![dual](docs/images/dual.png)
+
+**`dhw-dual` – Warmwasser und zwei Kreise, ohne PV, ohne Solarthermie**
+
+![dhw-dual](docs/images/dhw-dual.png)
+
+**`pv-dual` – mit Photovoltaik, ohne Solarthermie**
+
+![pv-dual](docs/images/pv-dual.png)
+
+**`full` – die komplette Anlage**
+
+![full](docs/images/full.png)
+
+**`direct-dhw` – ohne Pufferspeicher: die Wärmepumpe speist den Verteiler
+direkt, hier mit vier Kreisen inklusive Gebläsekonvektor und Pool**
+
+![ohne Pufferspeicher](docs/images/advanced.png)
+
+**Jeder Heizkreis zeigt seinen eigenen Zustand.** A wird versorgt, C auch; B ist
+über sein Zeitprogramm geparkt und D ist aus. Panels, Pumpen und Rohre folgen
+jedem Kreis einzeln – nur der Verteiler führt Wasser, solange *irgendein* Kreis
+zieht.
+
+![vier Heizkreise mit unterschiedlichem Zustand](docs/images/circuits.png)
+
+**Dunkles Theme** – die Karte übernimmt das Theme des Dashboards:
+
+![dunkles Theme](docs/images/dual-dark.png)
 
 ## Installation
 
@@ -154,7 +204,7 @@ lassen sich weiterhin per `tap_action` überschreiben.
 | `dhw` | object \| `false` | nur `full` | Warmwasser |
 | `pv` | object \| `false` | nur `full` | Photovoltaik |
 | `solar` | object \| `false` | nur `full` | Solarthermie |
-| `circuits` | Liste | 1–2 Kreise | Heizkreise, max. 4 |
+| `circuits` | Liste | 1–2 Kreise | Heizkreise, bis zu 7 (A–G) |
 
 ### `heatpump`
 
@@ -206,8 +256,10 @@ braucht deshalb einen Puffer.
 | `pump` | Umwälzpumpe, bestimmt auch, ob der Kreis durchströmt wird |
 | `valve` | Mischer, wird als Prozentwert unter dem Symbol angezeigt |
 
-Ein Heizkreis gilt als aktiv, wenn seine `pump` an ist; ohne Pumpe zählt die
-Mischerstellung, dann `entity`, zuletzt der Zustand der Wärmepumpe.
+Ein Heizkreis gilt als aktiv, wenn seine `pump` an ist. Ohne Pumpe parkt ihn
+eine `mode` mit *aus*, *off*, *standby*, *idle* oder *geschlossen*, sonst zählt
+die Mischerstellung, dann `entity` – und erst wenn nichts davon konfiguriert
+ist, der Zustand der Wärmepumpe.
 
 ### Langform für jeden Wert
 
@@ -239,6 +291,14 @@ und Rot ab 50 °C. Werte nahe der Raumtemperatur behalten die normale Textfarbe,
 damit sie lesbar bleiben. Mit `temperature_colors: false` gibt es das klassische
 Schema Vorlauf rot / Rücklauf blau.
 
+## Mehr
+
+* **[Live-Demo](https://xerolux.github.io/heatpump-flow-card/)** – die echte
+  Karte im Browser, ganz ohne Home Assistant
+* **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** – Installation,
+  alle Optionen, Bedienung, Problemlösung, Entwicklung
+* **[Beispiele](examples)** – sechs fertige Konfigurationen
+
 ## Entwicklung
 
 ```bash
@@ -251,9 +311,20 @@ npm run screenshots  # docs/images neu erzeugen
 `tools/preview.html` öffnet die Karte im normalen Browser mit einem
 Home-Assistant-Mock – praktisch beim Feinschliff der Zeichnung.
 
-## Hintergrund
+## Kompatibilität
 
-Entstanden im Umfeld des
-[Violet Pool Controllers](https://github.com/Xerolux/violet-hass), aber
-herstellerneutral: Die Karte funktioniert mit jeder Wärmepumpe, jeder
-Steuerung und beliebigen Sensoren in Home Assistant.
+Die Karte ist herstellerneutral. Sie weiß nichts über konkrete Hardware – sie
+liest und schreibt ganz normale Home-Assistant-Entitäten und funktioniert
+deshalb mit **jeder** Wärmepumpe, Solarthermie, Photovoltaik, jedem
+Pufferspeicher und jeder Heizungssteuerung, solange die Werte in Home Assistant
+ankommen. Ob sie aus einer Hersteller-Integration, per Modbus, MQTT, ESPHome,
+von einem Shelly oder aus ein paar DS18B20-Fühlern kommen, spielt keine Rolle:
+das passende Feld auf die richtige Entität zeigen lassen, und die Zeichnung
+folgt.
+
+Für die Bedienung gilt dasselbe – alles Schreibbare funktioniert, egal ob
+`switch`, `number`, `select`, `climate` oder `water_heater`.
+
+Eine der Beispieldateien ist zufällig auf die IDM-Integration verdrahtet, weil
+die genau diese Entitätstypen bereitstellt. Das ist ein Beispiel, keine
+Voraussetzung.

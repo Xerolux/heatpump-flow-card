@@ -1,15 +1,15 @@
 # Advanced options:
-#   * no buffer tank - the heat pump feeds the circuits directly
+#   * the `direct-dhw` layout: no buffer tank, the heat pump feeds the
+#     distributor directly
 #   * four circuits, including a fan coil and a pool heat exchanger
 #   * long form fields with their own name, unit, decimals and tap action
 #   * a climate entity as the heat pump: tapping it opens more-info
 type: custom:heatpump-flow-card
-layout: dual
+layout: direct-dhw
 title: Heizung Detail
 animation: true
 flow_speed: 1.4
 temperature_colors: true
-buffer: false
 heatpump:
   name: Luft/Wasser WP
   entity: climate.waermepumpe

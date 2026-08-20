@@ -1,0 +1,23 @@
+name: Feature request
+description: A component, a layout or an option the card is missing
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like to see?
+    validations:
+      required: true
+  - type: textarea
+    id: plant
+    attributes:
+      label: How is your plant built?
+      description: |
+        Which generator, tanks, circuits and sources — and which entities do you
+        have for them? A sketch or a photo of the hydraulic scheme helps a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: alternative
+    attributes:
+      label: What do you do today instead?
