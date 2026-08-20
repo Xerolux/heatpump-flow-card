@@ -10,6 +10,7 @@ const heatpump = {
   return_temp: "sensor.wp_ruecklauf",
   outside_temp: "sensor.aussentemperatur",
   compressor: "sensor.wp_verdichterlast",
+  mode: "select.wp_systemmodus",
 };
 
 const buffer = {
@@ -29,6 +30,8 @@ const radiators = {
   room_temp: "sensor.wohnzimmer_temperatur",
   pump: "binary_sensor.hk1_pumpe",
   valve: "sensor.hk1_mischer",
+  mode: "climate.hk1",
+  target_temp: "climate.hk1",
 };
 
 const underfloor = {
@@ -56,6 +59,7 @@ window.previewConfigs = {
       temp: "sensor.ww_temperatur",
       target_temp: "number.ww_soll",
       pump: "binary_sensor.ww_ladepumpe",
+      boost: "button.ww_boost",
     },
     circuits: [
       radiators,
@@ -99,6 +103,7 @@ window.previewConfigs = {
       temp: "sensor.ww_temperatur",
       target_temp: "number.ww_soll",
       pump: "binary_sensor.ww_ladepumpe",
+      boost: "button.ww_boost",
     },
     pv: { name: "Photovoltaik", power: "sensor.pv_leistung", battery: "sensor.batterie_soc" },
     solar: {

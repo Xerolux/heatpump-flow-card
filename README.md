@@ -20,8 +20,9 @@ live values right where they belong on the drawing.
 * **Things move when they run.** The heat pump fan turns (faster at higher
   compressor load), circulation pumps spin, and dots travel through every pipe
   that is currently flowing. Idle branches dim and stop.
-* **Everything is tappable.** Tap the heat pump to switch it on or off, tap the
-  hot water tank, a circuit, a pump or any value to open its more-info dialog.
+* **Everything is operable.** Tap the heat pump to switch it on or off, tap a
+  mode chip to pick heating, cooling or hot water, tap a setpoint for a
+  plus/minus stepper. Long press always opens the more-info dialog.
 * **Four layouts** from a single-line compact card to the complete plant.
 * **A visual editor** — no YAML required, though every option is available in
   YAML too.
@@ -93,6 +94,45 @@ circuits:
 More examples — including a plant without a buffer tank and one with four
 circuits — are in [`examples/`](examples).
 
+## Operating the plant from the card
+
+A tap does the obvious thing for the entity behind an element, a long press
+always opens the more-info dialog:
+
+| Entity behind the element | A tap does |
+| --- | --- |
+| `switch`, `light`, `fan`, `input_boolean`, `valve`, `humidifier` | Toggles it |
+| `button`, `input_button`, `script`, `scene` | Presses it |
+| `select`, `input_select` | Opens the list of options |
+| `number`, `input_number` | Opens a plus/minus stepper within min/max/step |
+| `climate` | Opens the hvac modes and the target temperature |
+| `water_heater` | Opens the operation modes and the target temperature |
+| `sensor`, `binary_sensor`, anything else | Opens more-info |
+
+![Control panel](docs/images/controls.png)
+
+Values that can be operated are marked with a dotted underline, mode chips with
+a chevron. Two extra fields exist for this:
+
+```yaml
+heatpump:
+  mode: select.system_mode          # chip on the heat pump, tap to switch mode
+circuits:
+  - mode: climate.circuit_a         # chip on the circuit
+    target_temp: climate.circuit_a  # the setpoint of that thermostat
+dhw:
+  mode: water_heater.dhw            # chip on the hot water panel
+  boost: switch.onetime_dhw         # extra chip, one tap
+```
+
+A `climate` or `water_heater` entity used as `target_temp`, `temp` or
+`room_temp` automatically reads the matching attribute, so
+`target_temp: climate.circuit_a` shows the setpoint rather than the word
+"heat".
+
+Set `controls: false` to go back to plain more-info dialogs, or override a
+single element with its own `tap_action`.
+
 ## Options
 
 ### Card
@@ -105,6 +145,7 @@ circuits — are in [`examples/`](examples).
 | `animation` | boolean | `true` | Move the dots through the pipes |
 | `flow_speed` | number | `1` | Speed multiplier, `0.2` – `3` |
 | `temperature_colors` | boolean | `true` | `false` keeps flow red / return blue |
+| `controls` | boolean | `true` | `false` makes every tap open more-info |
 | `heatpump` | object | `{}` | see below |
 | `buffer` | object \| `false` | shown | Buffer tank |
 | `dhw` | object \| `false` | `full` only | Domestic hot water |
@@ -137,7 +178,7 @@ circuits.
 
 ### `dhw`
 
-`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`
+`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`, `mode`, `boost`
 
 ### `pv` / `solar`
 
@@ -158,6 +199,7 @@ buffer to connect to.
 | `entity` | Tapping the circuit switches this entity |
 | `flow_temp`, `return_temp` | Temperatures and pipe colours |
 | `room_temp`, `target_temp`, `humidity` | Extra values (four are shown) |
+| `mode` | Operating mode chip (`select`, `climate`, or a plain sensor) |
 | `pump` | Circulation pump; also decides whether the circuit is flowing |
 | `valve` | Mixing valve, shown as a percentage under the valve symbol |
 

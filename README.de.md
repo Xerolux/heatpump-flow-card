@@ -22,9 +22,10 @@ die Live-Werte genau dort dar, wo sie hingehören.
   bei höherer Verdichterlast), Umwälzpumpen laufen, und durch jedes
   durchströmte Rohr wandern Punkte. Inaktive Stränge werden abgedunkelt und
   stehen still.
-* **Alles ist anklickbar.** Klick auf die Wärmepumpe schaltet sie ein oder aus,
-  Klick auf Warmwasser, einen Heizkreis, eine Pumpe oder einen Wert öffnet den
-  jeweiligen Dialog.
+* **Alles ist bedienbar.** Klick auf die Wärmepumpe schaltet sie ein oder aus,
+  Klick auf einen Betriebsart-Chip wählt Heizen, Kühlen oder Warmwasser, Klick
+  auf einen Sollwert öffnet ein Plus/Minus-Stellfeld. Langes Drücken öffnet
+  immer den Info-Dialog.
 * **Vier Layouts** – von der kompakten Karte bis zur kompletten Anlage.
 * **Grafischer Editor** – YAML ist möglich, aber nicht nötig.
 * **Nichts ist Pflicht.** Fehlt ein Sensor, bleibt die Stelle einfach leer,
@@ -97,6 +98,44 @@ circuits:
 Weitere Beispiele – auch eine Anlage ohne Puffer und eine mit vier Kreisen –
 liegen in [`examples/`](examples).
 
+## Bedienen direkt in der Karte
+
+Ein Klick tut das Naheliegende für die Entität hinter dem Element, langes
+Drücken öffnet immer den Info-Dialog:
+
+| Entität hinter dem Element | Ein Klick |
+| --- | --- |
+| `switch`, `light`, `fan`, `input_boolean`, `valve`, `humidifier` | schaltet um |
+| `button`, `input_button`, `script`, `scene` | löst aus |
+| `select`, `input_select` | öffnet die Auswahlliste |
+| `number`, `input_number` | öffnet ein Plus/Minus-Stellfeld mit min/max/step |
+| `climate` | öffnet HVAC-Modi und Solltemperatur |
+| `water_heater` | öffnet Betriebsarten und Solltemperatur |
+| `sensor`, `binary_sensor`, alles andere | öffnet more-info |
+
+![Bedienfeld](docs/images/controls.png)
+
+Bedienbare Werte bekommen eine gepunktete Unterstreichung, Betriebsart-Chips
+einen kleinen Pfeil. Dafür gibt es zwei zusätzliche Felder:
+
+```yaml
+heatpump:
+  mode: select.system_mode          # Chip an der Wärmepumpe, Klick wechselt die Betriebsart
+circuits:
+  - mode: climate.circuit_a         # Chip am Heizkreis
+    target_temp: climate.circuit_a  # Sollwert dieses Thermostats
+dhw:
+  mode: water_heater.dhw            # Chip am Warmwasser
+  boost: switch.onetime_dhw         # zusätzlicher Chip, ein Klick
+```
+
+Eine `climate`- oder `water_heater`-Entität als `target_temp`, `temp` oder
+`room_temp` liest automatisch das passende Attribut – `target_temp:
+climate.circuit_a` zeigt also den Sollwert und nicht das Wort „heat“.
+
+Mit `controls: false` gibt es wieder nur die Info-Dialoge; einzelne Elemente
+lassen sich weiterhin per `tap_action` überschreiben.
+
 ## Optionen
 
 ### Karte
@@ -109,6 +148,7 @@ liegen in [`examples/`](examples).
 | `animation` | boolean | `true` | Punkte durch die Rohre bewegen |
 | `flow_speed` | number | `1` | Geschwindigkeit, `0.2` – `3` |
 | `temperature_colors` | boolean | `true` | `false` = Vorlauf rot, Rücklauf blau |
+| `controls` | boolean | `true` | `false` = jeder Klick öffnet nur more-info |
 | `heatpump` | object | `{}` | siehe unten |
 | `buffer` | object \| `false` | sichtbar | Pufferspeicher |
 | `dhw` | object \| `false` | nur `full` | Warmwasser |
@@ -141,7 +181,7 @@ die Heizkreise direkt.
 
 ### `dhw`
 
-`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`
+`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`, `mode`, `boost`
 
 ### `pv` / `solar`
 
@@ -162,6 +202,7 @@ braucht deshalb einen Puffer.
 | `entity` | Klick auf den Heizkreis schaltet diese Entität |
 | `flow_temp`, `return_temp` | Temperaturen und Rohrfarben |
 | `room_temp`, `target_temp`, `humidity` | Weitere Werte (vier werden angezeigt) |
+| `mode` | Chip mit der Betriebsart (`select`, `climate` oder einfacher Sensor) |
 | `pump` | Umwälzpumpe, bestimmt auch, ob der Kreis durchströmt wird |
 | `valve` | Mischer, wird als Prozentwert unter dem Symbol angezeigt |
 

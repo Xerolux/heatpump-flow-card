@@ -29,6 +29,23 @@ for (const theme of ["light", "dark"]) {
   await page.close();
 }
 
+// the control panel, opened on a heating circuit
+{
+  const page = await browser.newPage({ viewport: { width: 1140, height: 900 }, deviceScaleFactor: 1.5 });
+  page.on("pageerror", (error) => errors.push(`controls: ${error.message}`));
+  await page.goto(`file://${resolve(here, "preview.html")}?layout=full`);
+  await page.waitForTimeout(300);
+  await page.evaluate(() => {
+    document
+      .getElementById("card-full")
+      .shadowRoot.querySelector(".hpfc-circuit .hpfc-chip")
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await page.waitForTimeout(200);
+  await page.locator("#card-full").screenshot({ path: resolve(out, "controls.png") });
+  await page.close();
+}
+
 await browser.close();
 if (errors.length) {
   console.error("Errors while rendering:\n" + errors.join("\n"));
