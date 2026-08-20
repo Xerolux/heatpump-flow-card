@@ -198,6 +198,69 @@ climate.circuit_a` zeigt also den Sollwert und nicht das Wort „heat“.
 Mit `controls: false` gibt es wieder nur die Info-Dialoge; einzelne Elemente
 lassen sich weiterhin per `tap_action` überschreiben.
 
+### Was sich zwischendurch zuschaltet
+
+![Abtauen, mit laufendem Heizstab im Speicher](docs/images/extras.png)
+
+Drei Dinge, die eine Wärmepumpe tut, die man leicht übersieht und hinterher
+schlecht erklären kann:
+
+* **Der zweite Wärmeerzeuger.** `aux_heat` und `aux_heat_power` ergänzen im
+  Wärmepumpen-Panel eine Zeile, die aufleuchtet, solange die bivalente Stufe
+  Last übernimmt – man sieht das Zuschalten, statt es später auf der
+  Stromrechnung zu finden.
+* **Abtauen.** Meldet die Wärmepumpe einen Abtauvorgang, steigt Dampf vom
+  Außengerät auf und der Ventilatorring wird eisblau. Erkannt aus `status`
+  (oder `mode`), oder aus einem eigenen `defrost`-Binärsensor.
+* **Ein Heizstab im Speicher.** `heater` und `heater_power` bei `buffer` oder
+  `dhw` zeichnen einen Heizstab in den Speicher – ein my-PV AC-Thor, ein
+  Booster, eine Notheizung –, der glüht, solange er Leistung zieht,
+  beschriftet mit Namen, Leistung und – über `heater_temp` – seiner eigenen
+  Temperatur. Mit `heater_mode` bietet ein Klick Aus / Automatik / Boost an.
+
+```yaml
+heatpump:
+  mode: select.system_mode        # was sie tun soll, und worüber du es änderst
+  status: sensor.operating_state  # was sie gerade tatsächlich tut
+  aux_heat: binary_sensor.second_heat_generator
+  aux_heat_power: sensor.heating_element_power
+buffer:
+  heater: switch.ac_thor
+  heater_power: sensor.ac_thor_power
+```
+
+### Ein Wert aus mehreren Entitäten
+
+Vier Wechselrichter, zwei Batterien, drei Raumfühler – jeder Wert nimmt auch
+eine Liste und macht daraus eine Zahl:
+
+```yaml
+pv:
+  power:                       # wird summiert
+    - sensor.inverter_1_ac_power
+    - sensor.inverter_2_ac_power
+    - sensor.inverter_3_ac_power
+    - sensor.inverter_4_ac_power
+  battery:                     # wird gemittelt, weil es ein Prozentwert ist
+    - sensor.battery_1_soc
+    - sensor.battery_2_soc
+```
+
+Leistungen, Energien und Durchflüsse werden **summiert**, Prozentwerte und
+Temperaturen **gemittelt**. Über die Langform lässt sich das überschreiben –
+zusammen mit den üblichen Zusätzen:
+
+```yaml
+power:
+  entities: [sensor.inverter_1_ac_power, sensor.inverter_2_ac_power]
+  combine: max               # sum (Standard), avg, min, max, first
+  name: Dach
+  decimals: 1
+```
+
+Fehlende oder nicht verfügbare Entitäten werden übersprungen, statt die Summe
+zu verfälschen; ein Klick öffnet die erste Entität der Liste.
+
 ## Optionen
 
 ### Karte
@@ -235,7 +298,8 @@ zuletzt der Zustand von `entity` ausgewertet.
 
 ### `buffer`
 
-`name`, `entity`, `top`, `middle`, `bottom`, `charge`
+`name`, `entity`, `top`, `middle`, `bottom`, `charge`, `heater`, `heater_power`,
+`heater_temp`, `heater_mode`
 
 Der Speicher wird mit einem Verlauf zwischen den Schichttemperaturen gefüllt.
 `charge` erscheint unter dem Namen. Mit `buffer: false` speist die Wärmepumpe
@@ -250,7 +314,7 @@ die Heizkreise direkt.
 | Abschnitt | Optionen |
 | --- | --- |
 | `pv` | `name`, `entity`, `power`, `battery`, `grid`, `threshold` (Watt, Standard `5`) |
-| `solar` | `name`, `entity`, `collector_temp`, `pump`, `yield`, `return_temp` |
+| `solar` | `name`, `entity`, `collector_temp`, `flow_temp`, `return_temp`, `pump`, `yield` |
 
 Der Solarkreis wird in den unteren Teil des Pufferspeichers gezeichnet und
 braucht deshalb einen Puffer.
@@ -309,7 +373,8 @@ Schema Vorlauf rot / Rücklauf blau.
   Karte im Browser, ganz ohne Home Assistant
 * **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** – Installation,
   alle Optionen, Bedienung, Problemlösung, Entwicklung
-* **[Beispiele](examples)** – sechs fertige Konfigurationen
+* **[Beispiele](examples)** – neun fertige Konfigurationen, darunter ein
+  komplettes Dashboard
 
 ## Entwicklung
 

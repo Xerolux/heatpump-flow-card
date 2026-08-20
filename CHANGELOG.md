@@ -1,5 +1,60 @@
 # Changelog
 
+## 1.6.0
+
+* The live demo gained the two new views: four circuits each with their own
+  state, and a defrost cycle with the second heat generator and the element in
+  the tank running.
+* A whole dashboard as an example, not just a card: `09-dashboard-idm.yaml` is
+  a complete view with the flow card, a COP gauge, cycle counters, a 24 hour
+  graph, hot water, both circuits, photovoltaics and solar thermal.
+* A wiki page that lists what the HACS default store requires and how to submit
+  the card to it.
+
+* **Nothing overlaps any more.** A new `check:overlaps` step renders every demo
+  layout in a browser and fails the build when two labels, or a label and a
+  pill, cover each other. It found three: a long circuit name running under its
+  mode chip, the outside temperature under the second heat generator, and the
+  element caption under the bottom layer of the tank. All three are fixed, and
+  long panel titles are now trimmed with an ellipsis instead of colliding.
+* **The element in the tank is captioned**: its name, its power and, with
+  `heater_temp`, its own temperature. `heater_mode` takes over the tap, so one
+  tap offers off / automatic / boost.
+* **The solar circuit shows both ends**: what the collector sends down and what
+  comes back up, as badges on its pipes. New `solar.flow_temp` for plants that
+  measure it separately from the collector.
+* **New `heatpump.flow_rate`**, as a badge under the flow temperature.
+* Values are only coloured by the temperature ramp when they actually carry a
+  temperature — a flow rate in l/min stays neutral.
+
+## 1.5.0
+
+* **Any value can read several entities at once.** Four inverters become one PV
+  power, several batteries become one state of charge: powers and energies are
+  added up, percentages and temperatures averaged, and `combine` (`sum`, `avg`,
+  `min`, `max`, `first`) overrides the choice. Entities that are missing or
+  unavailable are skipped instead of dragging the result down.
+
+## 1.4.0
+
+* **The second heat generator is visible.** `aux_heat` and `aux_heat_power` add
+  a row to the heat pump panel that lights up while the bivalent stage carries
+  load.
+* **Defrost cycles look like defrost cycles.** Vapour rises off the unit and
+  the fan ring turns icy whenever the heat pump reports one. New `defrost`
+  option for plants that signal it separately.
+* **An electric element in the tank.** `heater` and `heater_power` on `buffer`
+  or `dhw` draw a heating element inside the tank — a my-PV AC-Thor, a booster,
+  a backup heater — glowing while it draws power and operable by tapping it.
+* **New `status` option**: what the heat pump reports it is doing, as opposed
+  to `mode`, which is what it was told to do and what a tap changes. The chip
+  and the animation follow `status` when it is set.
+* Two new examples: a complete plant with an IDM heat pump, SolarEdge
+  photovoltaics and a Paradigma solar thermal system, and one with an AC-Thor
+  element in the buffer tank.
+* The documentation check no longer trips over German entity ids — those are
+  data, and an example has to quote them exactly.
+
 ## 1.3.1
 
 * The demo page stamps the card version onto every asset it loads, so a browser

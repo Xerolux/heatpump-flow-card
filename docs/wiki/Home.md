@@ -27,6 +27,7 @@ it.
 | [Colours and Themes](Colours-and-Themes) | The temperature ramp, theme variables |
 | [Troubleshooting](Troubleshooting) | Card not found, empty values, nothing moves |
 | [Development](Development) | Preview, tests, screenshots, releases |
+| [Publishing to HACS](Publishing-to-HACS) | The store checklist and how to submit |
 
 ## In one minute
 

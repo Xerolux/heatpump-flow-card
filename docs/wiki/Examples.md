@@ -12,6 +12,9 @@ and can be pasted into a manual card editor as they are.
 | `04-full.yaml` | PV, solar thermal, hot water, two circuits, modes and boost |
 | `05-advanced.yaml` | No buffer tank, four circuits, long form fields, own actions |
 | `06-idm-heatpump.yaml` | Wired up for the IDM heat pump integration |
+| `07-idm-solaredge-paradigma.yaml` | A whole plant: IDM heat pump, SolarEdge PV, Paradigma solar thermal |
+| `08-immersion-heater.yaml` | An AC-Thor element in the buffer tank, plus the bivalent stage |
+| `09-dashboard-idm.yaml` | A whole dashboard view around that plant — the card plus built-in cards |
 
 ## Every circuit keeps its own state
 
@@ -83,6 +86,54 @@ The entity id prefix follows the device name you gave the integration, so
 `idm_heatpump` may read differently on your system — check
 **Settings → Devices & Services → IDM Heatpump → Entities**. The full file is
 `examples/06-idm-heatpump.yaml`.
+
+## IDM, SolarEdge and Paradigma together
+
+`07-idm-solaredge-paradigma.yaml` wires all three into one card: the IDM heat
+pump with its system mode, both heating circuits and the second heat generator,
+SolarEdge for photovoltaics and battery, and a SystaSolar Aqua controller for
+the Paradigma collectors.
+
+Two details worth copying:
+
+```yaml
+heatpump:
+  mode: select.alm6_15_systembetriebsart          # settable
+  status: sensor.alm6_15_warmepumpen_betriebsart  # what it is really doing
+  aux_heat: binary_sensor.alm6_15_zweiter_warmeerzeuger_web
+  aux_heat_power: sensor.alm6_15_e_heizstab_leistung
+```
+
+`status` is what makes the card show a defrost cycle while the plant stays set
+to automatic, and `aux_heat` is what makes the bivalent stage visible when it
+engages.
+
+For photovoltaics with several inverters, sum them in a template sensor and
+point `pv.power` at that — the card draws one PV source.
+
+## A whole dashboard, not just a card
+
+`09-dashboard-idm.yaml` is a complete view: the flow card across the top, then
+the heat pump with its COP gauge, cycle counters and a 24 hour graph, hot water
+with its thermostat and boost buttons, both heating circuits, photovoltaics,
+solar thermal and the second heat generator.
+
+Paste it under `views:` in **dashboard → pencil → three dots → Raw
+configuration editor**. Everything except the first card is a built-in Home
+Assistant card, so nothing else has to be installed.
+
+## An electric element in the tank
+
+`08-immersion-heater.yaml` adds a my-PV AC-Thor to the buffer tank:
+
+```yaml
+buffer:
+  heater: switch.ac_thor_betriebsmodus
+  heater_power: sensor.ac_thor_power
+```
+
+The element is drawn inside the tank and glows while it draws power. The same
+two options exist on `dhw` for an element in the hot water tank.
 
 ## A plant without a buffer tank
 

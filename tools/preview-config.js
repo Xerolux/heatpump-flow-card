@@ -11,6 +11,7 @@ const heatpump = {
   outside_temp: "sensor.outside_temperature",
   compressor: "sensor.compressor_load",
   mode: "select.system_mode",
+  flow_rate: "sensor.hp_flow_rate",
 };
 
 const buffer = {
@@ -46,6 +47,33 @@ const underfloor = {
 };
 
 window.previewConfigs = {
+  extras: {
+    type: "custom:heatpump-flow-card",
+    layout: "dhw-dual",
+    title: "Defrosting, with the element in the tank running",
+    heatpump: {
+      ...heatpump,
+      status: "sensor.hp_status",
+      aux_heat: "binary_sensor.aux_heat",
+      aux_heat_power: "sensor.aux_heat_power",
+    },
+    buffer: {
+      ...buffer,
+      heater: { entity: "switch.tank_heater", name: "AC-Thor" },
+      heater_power: "sensor.tank_heater_power",
+      heater_temp: "sensor.tank_heater_temperature",
+      heater_mode: "select.tank_heater_mode",
+    },
+    dhw: {
+      name: "Hot water",
+      entity: "switch.hot_water",
+      temp: "sensor.dhw_temperature",
+      target_temp: "number.dhw_setpoint",
+      pump: "binary_sensor.dhw_pump",
+      boost: "button.dhw_boost",
+    },
+    circuits: [radiators, underfloor],
+  },
   "dhw-dual": {
     type: "custom:heatpump-flow-card",
     layout: "dhw-dual",
@@ -174,10 +202,21 @@ window.previewConfigs = {
       pump: "binary_sensor.dhw_pump",
       boost: "button.dhw_boost",
     },
-    pv: { name: "Photovoltaics", power: "sensor.pv_power", battery: "sensor.battery_soc" },
+    pv: {
+      name: "Photovoltaics",
+      // four inverters and two batteries, folded into one value each
+      power: [
+        "sensor.pv_inverter_1",
+        "sensor.pv_inverter_2",
+        "sensor.pv_inverter_3",
+        "sensor.pv_inverter_4",
+      ],
+      battery: ["sensor.battery_1_soc", "sensor.battery_2_soc"],
+    },
     solar: {
       name: "Solar thermal",
       collector_temp: "sensor.collector_temperature",
+      flow_temp: "sensor.solar_flow_temperature",
       pump: "binary_sensor.solar_pump",
       yield: "sensor.solar_yield",
       return_temp: "sensor.solar_return_temperature",
