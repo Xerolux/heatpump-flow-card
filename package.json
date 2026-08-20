@@ -1,7 +1,7 @@
 {
   "name": "heatpump-flow-card",
-  "version": "1.0.0",
-  "description": "Animated hydraulic scheme for Home Assistant: heat pump, buffer tank, hot water, PV, solar thermal and heating circuits.",
+  "version": "1.2.0",
+  "description": "Animated hydraulic scheme for Home Assistant: heat pump, buffer tank, hot water, PV, solar thermal and up to seven heating circuits.",
   "license": "MIT",
   "author": "Xerolux",
   "repository": {
@@ -12,10 +12,13 @@
   "private": true,
   "scripts": {
     "check": "node --check dist/heatpump-flow-card.js",
+    "check:docs": "node tools/check-docs.mjs",
     "test": "node --test test/*.test.mjs",
-    "screenshots": "node tools/screenshot.mjs"
+    "screenshots": "node tools/screenshot.mjs",
+    "site": "node tools/build-site.mjs"
   },
   "devDependencies": {
+    "js-yaml": "^5.3.0",
     "playwright": "^1.49.0"
   }
 }

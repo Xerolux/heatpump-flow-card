@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in the card does not work or looks wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A screenshot and your card YAML usually
+        answer half the questions already.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What did you expect, what did you get?
+    validations:
+      required: true
+  - type: textarea
+    id: yaml
+    attributes:
+      label: Card configuration
+      description: The YAML of the card (Edit card → three dots → Show code editor)
+      render: yaml
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Card version
+      description: Shown in the browser console as "HEATPUMP-FLOW-CARD v…"
+      placeholder: '1.2.0'
+    validations:
+      required: true
+  - type: input
+    id: ha
+    attributes:
+      label: Home Assistant version
+      placeholder: '2026.8.0'
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Browser console
+      description: Any errors while the card is on screen
+      render: text
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Drag an image in here if the problem is visual
