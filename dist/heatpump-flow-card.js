@@ -7,7 +7,10 @@
  * MIT License - Copyright (c) 2026 Xerolux
  */
 
-const CARD_VERSION = "1.6.3";
+(() => {
+"use strict";
+
+const CARD_VERSION = "1.6.4";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -559,15 +562,18 @@ function applyOption(hass, model, option) {
 
 function applyStep(hass, model, direction) {
   const stepper = model && model.stepper;
-  if (!stepper) return;
-  const step = stepper.step || 1;
+  if (!stepper) return null;
+  const step = Number.isFinite(stepper.step) && stepper.step > 0 ? stepper.step : 1;
+  const base = Number.isFinite(stepper.min) ? stepper.min : 0;
   const raw = stepper.value + direction * step;
-  const snapped = Math.round(raw / step) * step;
+  const snapped = base + Math.round((raw - base) / step) * step;
   const value = Number(clamp(snapped, stepper.min, stepper.max).toFixed(3));
+  stepper.value = value;
   hass.callService(stepper.service[0], stepper.service[1], {
     entity_id: model.entityId,
     [stepper.field]: value,
   });
+  return value;
 }
 
 function defaultActionFor(entityId) {
@@ -589,7 +595,7 @@ function performAction(node, scene, actionConfig, entityId) {
     case "control": {
       if (!target || !hass) return;
       if (scene && scene.config && scene.config.controls === false) {
-        performAction(node, scene, { action: "toggle" }, target);
+        fireEvent(node, "hass-more-info", { entityId: target });
         return;
       }
       const model = controlModel(hass, target);
@@ -2252,12 +2258,15 @@ function normalizeConfig(raw) {
   }
 
   let circuits = raw.circuits;
-  if (circuits && !Array.isArray(circuits)) circuits = [circuits];
-  if (!circuits || !circuits.length) {
+  if (circuits === undefined || circuits === null) {
     circuits = [];
     for (let i = 0; i < preset.circuits; i++) {
       circuits.push({ type: i % 2 === 0 ? "radiator" : "underfloor" });
     }
+  } else if (circuits === false) {
+    circuits = [];
+  } else if (!Array.isArray(circuits)) {
+    circuits = [circuits];
   }
   config.circuits = circuits
     .filter((circuit) => circuit && circuit !== true)
@@ -2317,10 +2326,10 @@ function buildScene(card) {
   for (const circuit of config.circuits) {
     consumers.push({ kind: "circuit", cfg: circuit, h: circuitHeight });
   }
-  if (!consumers.length) consumers.push({ kind: "circuit", cfg: { type: "radiator" }, h: circuitHeight });
 
-  const rightH =
-    consumers.reduce((sum, item) => sum + item.h, 0) + G.gapY * (consumers.length - 1);
+  const rightH = consumers.length
+    ? consumers.reduce((sum, item) => sum + item.h, 0) + G.gapY * (consumers.length - 1)
+    : 0;
   const sourcesH =
     (config.pv ? G.pv.h : 0) +
     (config.solar ? G.solar.h : 0) +
@@ -2458,7 +2467,7 @@ function buildScene(card) {
       to: config.heatpump.return_temp,
       active: heatpump.running,
     });
-  } else {
+  } else if (consumers.length) {
     drawPipe(scene, {
       points: [
         [hpRight, hpFlowY],
@@ -2503,7 +2512,7 @@ function buildScene(card) {
   const flowSpan = [Math.min(bufferFlowY, ...inlets), Math.max(bufferFlowY, ...inlets)];
   const returnSpan = [Math.min(bufferReturnY, ...outlets), Math.max(bufferReturnY, ...outlets)];
 
-  if (config.buffer) {
+  if (config.buffer && consumers.length) {
     drawPipe(scene, {
       points: [
         [bufX + G.buffer.w, bufferFlowY],
@@ -3096,23 +3105,33 @@ class HeatpumpFlowCard extends HTMLElement {
       const decimals = String(stepper.step).includes(".")
         ? String(stepper.step).split(".")[1].length
         : 0;
+      const value = document.createElement("span");
+      value.className = "hpfc-pop-value";
+      let decrease;
+      let increase;
+      const refresh = () => {
+        value.textContent =
+          formatNumber(hass, stepper.value, { decimals }) + suffix(stepper.unit);
+        decrease.disabled = stepper.value <= stepper.min;
+        increase.disabled = stepper.value >= stepper.max;
+      };
       const makeButton = (label, direction) => {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = label;
         button.setAttribute("aria-label", `${model.title} ${label}`);
-        button.disabled =
-          direction < 0 ? stepper.value <= stepper.min : stepper.value >= stepper.max;
-        button.addEventListener("click", () => applyStep(this._hass, model, direction));
+        button.addEventListener("click", () => {
+          applyStep(this._hass, model, direction);
+          refresh();
+        });
         return button;
       };
-      const value = document.createElement("span");
-      value.className = "hpfc-pop-value";
-      value.textContent =
-        formatNumber(hass, stepper.value, { decimals }) + suffix(stepper.unit);
-      row.appendChild(makeButton("\u2212", -1));
+      decrease = makeButton("\u2212", -1);
+      increase = makeButton("+", 1);
+      refresh();
+      row.appendChild(decrease);
       row.appendChild(value);
-      row.appendChild(makeButton("+", 1));
+      row.appendChild(increase);
       pop.appendChild(row);
     }
 
@@ -3180,7 +3199,9 @@ class HeatpumpFlowCard extends HTMLElement {
   }
 }
 
-customElements.define("heatpump-flow-card", HeatpumpFlowCard);
+if (!customElements.get("heatpump-flow-card")) {
+  customElements.define("heatpump-flow-card", HeatpumpFlowCard);
+}
 
 /* =========================================================================
  * Visual editor
@@ -3216,12 +3237,15 @@ const EDITOR_TEXTS = {
     defrost: "Defrosting (binary sensor)",
     heater: "Element in the tank",
     heater_power: "Element power",
+    heater_temp: "Element temperature",
+    heater_mode: "Element mode",
     power: "Power",
     cop: "COP / efficiency",
     flow_temp: "Flow temperature",
     return_temp: "Return temperature",
     outside_temp: "Outside temperature",
     compressor: "Compressor load",
+    flow_rate: "Flow rate",
     top: "Top temperature",
     middle: "Middle temperature",
     bottom: "Bottom temperature",
@@ -3233,13 +3257,6 @@ const EDITOR_TEXTS = {
     room_temp: "Room temperature",
     battery: "Battery",
     grid: "Grid",
-    current: "Now",
-    mode: "Mode",
-    boost: "Boost",
-    details: "Details",
-    aux_heat: "Aux heat",
-    heater: "Element",
-    defrosting: "Defrosting",
     collector_temp: "Collector temperature",
     yield: "Yield",
     type: "Emitter type",
@@ -3302,12 +3319,15 @@ const EDITOR_TEXTS = {
     defrost: "Abtauen (Binärsensor)",
     heater: "Heizstab im Speicher",
     heater_power: "Leistung des Heizstabs",
+    heater_temp: "Temperatur des Heizstabs",
+    heater_mode: "Betriebsart des Heizstabs",
     power: "Leistung",
     cop: "COP / Arbeitszahl",
     flow_temp: "Vorlauftemperatur",
     return_temp: "Rücklauftemperatur",
     outside_temp: "Außentemperatur",
     compressor: "Verdichterlast",
+    flow_rate: "Volumenstrom",
     top: "Temperatur oben",
     middle: "Temperatur Mitte",
     bottom: "Temperatur unten",
@@ -3319,13 +3339,6 @@ const EDITOR_TEXTS = {
     room_temp: "Raumtemperatur",
     battery: "Batterie",
     grid: "Netz",
-    current: "Ist",
-    mode: "Betriebsart",
-    boost: "Boost",
-    details: "Details",
-    aux_heat: "Zusatzheizung",
-    heater: "Heizstab",
-    defrosting: "Abtauen",
     collector_temp: "Kollektortemperatur",
     yield: "Ertrag",
     type: "Heizflächen-Typ",
@@ -3378,7 +3391,18 @@ const EDITOR_SECTIONS = {
     "flow_rate",
   ],
   buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power", "heater_temp", "heater_mode"],
-  dhw: ["temp", "target_temp", "mode", "boost", "pump", "charge"],
+  dhw: [
+    "temp",
+    "target_temp",
+    "mode",
+    "boost",
+    "pump",
+    "charge",
+    "heater",
+    "heater_power",
+    "heater_temp",
+    "heater_mode",
+  ],
   pv: ["power", "battery", "grid"],
   solar: ["collector_temp", "pump", "yield", "return_temp", "flow_temp"],
 };
@@ -3390,6 +3414,7 @@ const EDITOR_CIRCUIT_FIELDS = [
   "mode",
   "pump",
   "valve",
+  "humidity",
 ];
 const SECTION_ICONS = {
   heatpump: "mdi:heat-pump",
@@ -3644,7 +3669,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       if (!circuit.type) circuit.type = "radiator";
       circuits.push(circuit);
     }
-    if (circuits.length) config.circuits = circuits;
+    config.circuits = circuits;
     return config;
   }
 
@@ -3659,18 +3684,24 @@ class HeatpumpFlowCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("heatpump-flow-card-editor", HeatpumpFlowCardEditor);
+if (!customElements.get("heatpump-flow-card-editor")) {
+  customElements.define("heatpump-flow-card-editor", HeatpumpFlowCardEditor);
+}
 
 /* =========================================================================
  * Card picker registration
  * ========================================================================= */
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "heatpump-flow-card",
-  name: "Heat Pump Flow Card",
-  description:
-    "Animated hydraulic scheme for a heat pump with buffer tank, hot water, PV, solar thermal and up to seven heating circuits.",
-  preview: true,
-  documentationURL: "https://github.com/Xerolux/heatpump-flow-card",
-});
+if (!window.customCards.some((card) => card.type === "heatpump-flow-card")) {
+  window.customCards.push({
+    type: "heatpump-flow-card",
+    name: "Heat Pump Flow Card",
+    description:
+      "Animated hydraulic scheme for a heat pump with buffer tank, hot water, PV, solar thermal and up to seven heating circuits.",
+    preview: true,
+    documentationURL: "https://github.com/Xerolux/heatpump-flow-card",
+  });
+}
+
+})();
