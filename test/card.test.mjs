@@ -288,16 +288,60 @@ test("a setpoint can be nudged straight from the card", async () => {
     const target = readouts[1]; // Ist | Soll | Pumpe
     target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     const pop = root.querySelector(".hpfc-pop");
-    const value = pop.querySelector(".hpfc-pop-value").textContent;
+    const initialValue = pop.querySelector(".hpfc-pop-value").textContent;
     const buttons = pop.querySelectorAll(".hpfc-pop-step button");
     buttons[1].click(); // +
-    buttons[0].click(); // −
-    return { value, calls: window.serviceCalls };
+    buttons[1].click(); // + again, before Home Assistant reports the new state
+    buttons[0].click(); // − from the optimistic value
+    const currentValue = pop.querySelector(".hpfc-pop-value").textContent;
+    return { initialValue, currentValue, calls: window.serviceCalls };
   });
-  assert.equal(result.value, "55.0 °C");
+  assert.equal(result.initialValue, "55.0 °C");
+  assert.equal(result.currentValue, "55.5 °C");
   assert.deepEqual(result.calls, [
     { domain: "number", service: "set_value", data: { entity_id: "number.dhw_setpoint", value: 55.5 } },
-    { domain: "number", service: "set_value", data: { entity_id: "number.dhw_setpoint", value: 54.5 } },
+    { domain: "number", service: "set_value", data: { entity_id: "number.dhw_setpoint", value: 56 } },
+    { domain: "number", service: "set_value", data: { entity_id: "number.dhw_setpoint", value: 55.5 } },
+  ]);
+});
+
+test("a setpoint step is aligned to its non-zero minimum", async () => {
+  const result = await page.evaluate(() => {
+    window.serviceCalls = [];
+    window.demoStates["number.offset_setpoint"] = {
+      entity_id: "number.offset_setpoint",
+      state: "5",
+      attributes: {
+        friendly_name: "Offset setpoint",
+        unit_of_measurement: "°C",
+        min: 5,
+        max: 8,
+        step: 0.3,
+      },
+    };
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dhw",
+      dhw: { target_temp: "number.offset_setpoint" },
+      circuits: [],
+    });
+    card.hass = window.makeHass("en");
+    document.body.appendChild(card);
+    const root = card.shadowRoot;
+    root.querySelectorAll(".hpfc-dhw .hpfc-readout")[1].dispatchEvent(
+      new MouseEvent("click", { bubbles: true })
+    );
+    const pop = root.querySelector(".hpfc-pop");
+    pop.querySelectorAll(".hpfc-pop-step button")[1].click();
+    return {
+      value: pop.querySelector(".hpfc-pop-value").textContent,
+      calls: window.serviceCalls,
+    };
+  });
+  assert.equal(result.value, "5.3 °C");
+  assert.deepEqual(result.calls, [
+    { domain: "number", service: "set_value", data: { entity_id: "number.offset_setpoint", value: 5.3 } },
   ]);
 });
 

@@ -559,15 +559,18 @@ function applyOption(hass, model, option) {
 
 function applyStep(hass, model, direction) {
   const stepper = model && model.stepper;
-  if (!stepper) return;
-  const step = stepper.step || 1;
+  if (!stepper) return null;
+  const step = Number.isFinite(stepper.step) && stepper.step > 0 ? stepper.step : 1;
+  const base = Number.isFinite(stepper.min) ? stepper.min : 0;
   const raw = stepper.value + direction * step;
-  const snapped = Math.round(raw / step) * step;
+  const snapped = base + Math.round((raw - base) / step) * step;
   const value = Number(clamp(snapped, stepper.min, stepper.max).toFixed(3));
+  stepper.value = value;
   hass.callService(stepper.service[0], stepper.service[1], {
     entity_id: model.entityId,
     [stepper.field]: value,
   });
+  return value;
 }
 
 function defaultActionFor(entityId) {
@@ -3099,23 +3102,33 @@ class HeatpumpFlowCard extends HTMLElement {
       const decimals = String(stepper.step).includes(".")
         ? String(stepper.step).split(".")[1].length
         : 0;
+      const value = document.createElement("span");
+      value.className = "hpfc-pop-value";
+      let decrease;
+      let increase;
+      const refresh = () => {
+        value.textContent =
+          formatNumber(hass, stepper.value, { decimals }) + suffix(stepper.unit);
+        decrease.disabled = stepper.value <= stepper.min;
+        increase.disabled = stepper.value >= stepper.max;
+      };
       const makeButton = (label, direction) => {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = label;
         button.setAttribute("aria-label", `${model.title} ${label}`);
-        button.disabled =
-          direction < 0 ? stepper.value <= stepper.min : stepper.value >= stepper.max;
-        button.addEventListener("click", () => applyStep(this._hass, model, direction));
+        button.addEventListener("click", () => {
+          applyStep(this._hass, model, direction);
+          refresh();
+        });
         return button;
       };
-      const value = document.createElement("span");
-      value.className = "hpfc-pop-value";
-      value.textContent =
-        formatNumber(hass, stepper.value, { decimals }) + suffix(stepper.unit);
-      row.appendChild(makeButton("\u2212", -1));
+      decrease = makeButton("\u2212", -1);
+      increase = makeButton("+", 1);
+      refresh();
+      row.appendChild(decrease);
       row.appendChild(value);
-      row.appendChild(makeButton("+", 1));
+      row.appendChild(increase);
       pop.appendChild(row);
     }
 
