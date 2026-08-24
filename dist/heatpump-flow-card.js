@@ -7,6 +7,9 @@
  * MIT License - Copyright (c) 2026 Xerolux
  */
 
+(() => {
+"use strict";
+
 const CARD_VERSION = "1.6.3";
 
 console.info(
@@ -3196,7 +3199,9 @@ class HeatpumpFlowCard extends HTMLElement {
   }
 }
 
-customElements.define("heatpump-flow-card", HeatpumpFlowCard);
+if (!customElements.get("heatpump-flow-card")) {
+  customElements.define("heatpump-flow-card", HeatpumpFlowCard);
+}
 
 /* =========================================================================
  * Visual editor
@@ -3679,18 +3684,24 @@ class HeatpumpFlowCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("heatpump-flow-card-editor", HeatpumpFlowCardEditor);
+if (!customElements.get("heatpump-flow-card-editor")) {
+  customElements.define("heatpump-flow-card-editor", HeatpumpFlowCardEditor);
+}
 
 /* =========================================================================
  * Card picker registration
  * ========================================================================= */
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "heatpump-flow-card",
-  name: "Heat Pump Flow Card",
-  description:
-    "Animated hydraulic scheme for a heat pump with buffer tank, hot water, PV, solar thermal and up to seven heating circuits.",
-  preview: true,
-  documentationURL: "https://github.com/Xerolux/heatpump-flow-card",
-});
+if (!window.customCards.some((card) => card.type === "heatpump-flow-card")) {
+  window.customCards.push({
+    type: "heatpump-flow-card",
+    name: "Heat Pump Flow Card",
+    description:
+      "Animated hydraulic scheme for a heat pump with buffer tank, hot water, PV, solar thermal and up to seven heating circuits.",
+    preview: true,
+    documentationURL: "https://github.com/Xerolux/heatpump-flow-card",
+  });
+}
+
+})();

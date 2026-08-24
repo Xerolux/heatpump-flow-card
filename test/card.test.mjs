@@ -53,6 +53,34 @@ test("renders every layout without errors", async () => {
   assert.deepEqual(pageErrors, []);
 });
 
+test("loading the card resource twice is safe and idempotent", async () => {
+  const result = await page.evaluate(async () => {
+    const countCards = () =>
+      window.customCards.filter((card) => card.type === "heatpump-flow-card").length;
+    const before = countCards();
+    await new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = new URL(`../dist/heatpump-flow-card.js?reload=${Date.now()}`, location.href).href;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("second card resource load failed"));
+      document.head.appendChild(script);
+    });
+    return {
+      before,
+      after: countCards(),
+      cardDefined: Boolean(customElements.get("heatpump-flow-card")),
+      editorDefined: Boolean(customElements.get("heatpump-flow-card-editor")),
+    };
+  });
+  assert.deepEqual(result, {
+    before: 1,
+    after: 1,
+    cardDefined: true,
+    editorDefined: true,
+  });
+  assert.deepEqual(pageErrors, []);
+});
+
 test("tapping the heat pump toggles its entity", async () => {
   await page.goto(`${previewUrl}?layout=dual`);
   await page.evaluate(() => {
