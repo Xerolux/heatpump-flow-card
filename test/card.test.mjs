@@ -188,6 +188,45 @@ test("the editor round-trips a configuration", async () => {
   assert.equal(result.roundTrip.pv.power, "sensor.pv_power");
 });
 
+test("the editor keeps tank element and circuit humidity fields", async () => {
+  const result = await page.evaluate(() => {
+    const editor = document.createElement("heatpump-flow-card-editor");
+    const config = {
+      type: "custom:heatpump-flow-card",
+      layout: "full",
+      dhw: {
+        heater: "switch.dhw_element",
+        heater_power: { entity: "sensor.dhw_element_power", decimals: 0 },
+        heater_temp: "sensor.dhw_element_temperature",
+        heater_mode: "select.dhw_element_mode",
+      },
+      circuits: [{ type: "underfloor", humidity: "sensor.living_room_humidity" }],
+    };
+    editor.setConfig(config);
+    const data = editor._toData(config);
+    const schema = editor._schema(data, editor._texts);
+    const names = (section) =>
+      section.schema.flatMap((row) =>
+        row.type === "grid" ? row.schema.map((field) => field.name) : [row.name]
+      );
+    return {
+      dhwFields: names(schema.find((row) => row.name === "dhw")),
+      circuitFields: names(schema.find((row) => row.name === "circuit_1")),
+      roundTrip: editor._toConfig(data),
+    };
+  });
+  for (const field of ["heater", "heater_power", "heater_temp", "heater_mode"]) {
+    assert.ok(result.dhwFields.includes(field), `domestic hot water editor is missing ${field}`);
+  }
+  assert.ok(result.circuitFields.includes("humidity"));
+  assert.equal(result.roundTrip.dhw.heater, "switch.dhw_element");
+  assert.deepEqual(result.roundTrip.dhw.heater_power, {
+    entity: "sensor.dhw_element_power",
+    decimals: 0,
+  });
+  assert.equal(result.roundTrip.circuits[0].humidity, "sensor.living_room_humidity");
+});
+
 test("a section switched off in the editor stays off", async () => {
   const result = await page.evaluate(() => {
     const editor = document.createElement("heatpump-flow-card-editor");
