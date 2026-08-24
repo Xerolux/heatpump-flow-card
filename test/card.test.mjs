@@ -308,6 +308,29 @@ test("controls can be switched off", async () => {
   assert.equal(result.affordances, 0);
 });
 
+test("disabled controls never toggle or press entities", async () => {
+  const result = await page.evaluate(() => {
+    window.moreInfo = [];
+    window.serviceCalls = [];
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "full",
+      controls: false,
+      heatpump: { entity: "switch.heat_pump" },
+      dhw: { boost: "button.dhw_boost" },
+    });
+    card.hass = window.makeHass("en");
+    document.body.appendChild(card);
+    const root = card.shadowRoot;
+    root.querySelector(".hpfc-heatpump").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    root.querySelector(".hpfc-dhw .hpfc-chip").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    return { moreInfo: window.moreInfo, calls: window.serviceCalls };
+  });
+  assert.deepEqual(result.moreInfo, ["switch.heat_pump", "button.dhw_boost"]);
+  assert.deepEqual(result.calls, []);
+});
+
 test("draws up to seven heating circuits, A to G", async () => {
   await page.goto(`${previewUrl}?layout=dual`);
   const result = await page.evaluate(() => {

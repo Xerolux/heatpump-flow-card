@@ -589,7 +589,7 @@ function performAction(node, scene, actionConfig, entityId) {
     case "control": {
       if (!target || !hass) return;
       if (scene && scene.config && scene.config.controls === false) {
-        performAction(node, scene, { action: "toggle" }, target);
+        fireEvent(node, "hass-more-info", { entityId: target });
         return;
       }
       const model = controlModel(hass, target);
