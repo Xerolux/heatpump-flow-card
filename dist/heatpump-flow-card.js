@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.6.3";
+const CARD_VERSION = "1.6.4";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,

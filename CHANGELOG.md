@@ -23,6 +23,28 @@ changes shipped with the next tagged release.
 
 Nothing yet.
 
+## [1.6.4] - 2026-08-24
+
+### Fixed
+
+- `controls: false` now consistently opens more-info instead of still toggling
+  switches or pressing buttons.
+- Selecting zero heating circuits in the visual editor is respected instead of
+  silently restoring the layout preset's circuits.
+- The visual editor exposes the hot-water tank element fields and circuit
+  humidity, preserves their advanced YAML field options, and uses the intended
+  descriptive labels again.
+- Repeated setpoint clicks accumulate immediately, and number steps are aligned
+  to the entity's minimum instead of to zero.
+- Loading the card resource more than once is idempotent: custom elements and
+  card-picker metadata are registered only once.
+
+### Changed
+
+- The browser regression suite now covers 31 interactions and rendering cases,
+  including disabled controls, empty circuit lists, editor preservation,
+  non-zero step origins, rapid setpoint changes and duplicate resource loads.
+
 ## [1.6.3] - 2026-08-20
 
 ### Changed
@@ -283,7 +305,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.3...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.4...HEAD
+[1.6.4]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.0...v1.6.1
