@@ -138,6 +138,33 @@ test("works without a buffer tank and without circuits", async () => {
   assert.ok(result.pipes >= 4);
 });
 
+test("an explicit empty circuit list stays empty in the card and editor", async () => {
+  const result = await page.evaluate(() => {
+    const config = {
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      circuits: [],
+    };
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig(config);
+    card.hass = window.makeHass("en");
+    document.body.appendChild(card);
+
+    const editor = document.createElement("heatpump-flow-card-editor");
+    editor.setConfig(config);
+    const data = editor._toData(config);
+    const roundTrip = editor._toConfig(data);
+    return {
+      rendered: card.shadowRoot.querySelectorAll(".hpfc-circuit").length,
+      count: data.circuit_count,
+      roundTrip: roundTrip.circuits,
+    };
+  });
+  assert.equal(result.rendered, 0);
+  assert.equal(result.count, 0);
+  assert.deepEqual(result.roundTrip, []);
+});
+
 test("the editor round-trips a configuration", async () => {
   const result = await page.evaluate(() => {
     const editor = document.createElement("heatpump-flow-card-editor");

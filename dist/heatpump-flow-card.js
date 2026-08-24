@@ -2252,12 +2252,15 @@ function normalizeConfig(raw) {
   }
 
   let circuits = raw.circuits;
-  if (circuits && !Array.isArray(circuits)) circuits = [circuits];
-  if (!circuits || !circuits.length) {
+  if (circuits === undefined || circuits === null) {
     circuits = [];
     for (let i = 0; i < preset.circuits; i++) {
       circuits.push({ type: i % 2 === 0 ? "radiator" : "underfloor" });
     }
+  } else if (circuits === false) {
+    circuits = [];
+  } else if (!Array.isArray(circuits)) {
+    circuits = [circuits];
   }
   config.circuits = circuits
     .filter((circuit) => circuit && circuit !== true)
@@ -2317,10 +2320,10 @@ function buildScene(card) {
   for (const circuit of config.circuits) {
     consumers.push({ kind: "circuit", cfg: circuit, h: circuitHeight });
   }
-  if (!consumers.length) consumers.push({ kind: "circuit", cfg: { type: "radiator" }, h: circuitHeight });
 
-  const rightH =
-    consumers.reduce((sum, item) => sum + item.h, 0) + G.gapY * (consumers.length - 1);
+  const rightH = consumers.length
+    ? consumers.reduce((sum, item) => sum + item.h, 0) + G.gapY * (consumers.length - 1)
+    : 0;
   const sourcesH =
     (config.pv ? G.pv.h : 0) +
     (config.solar ? G.solar.h : 0) +
@@ -2458,7 +2461,7 @@ function buildScene(card) {
       to: config.heatpump.return_temp,
       active: heatpump.running,
     });
-  } else {
+  } else if (consumers.length) {
     drawPipe(scene, {
       points: [
         [hpRight, hpFlowY],
@@ -2503,7 +2506,7 @@ function buildScene(card) {
   const flowSpan = [Math.min(bufferFlowY, ...inlets), Math.max(bufferFlowY, ...inlets)];
   const returnSpan = [Math.min(bufferReturnY, ...outlets), Math.max(bufferReturnY, ...outlets)];
 
-  if (config.buffer) {
+  if (config.buffer && consumers.length) {
     drawPipe(scene, {
       points: [
         [bufX + G.buffer.w, bufferFlowY],
@@ -3644,7 +3647,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       if (!circuit.type) circuit.type = "radiator";
       circuits.push(circuit);
     }
-    if (circuits.length) config.circuits = circuits;
+    config.circuits = circuits;
     return config;
   }
 
