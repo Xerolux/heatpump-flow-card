@@ -995,3 +995,74 @@ test("the magnifier can be switched off", async () => {
   });
   assert.deepEqual(buttons, { byDefault: true, switchedOff: false });
 });
+
+const ALL_LAYOUTS = [
+  "compact",
+  "compact-dual",
+  "single",
+  "dual",
+  "triple",
+  "quad",
+  "dhw",
+  "dhw-dual",
+  "dhw-quad",
+  "pv-single",
+  "pv-dual",
+  "pv-dhw-dual",
+  "solar-dual",
+  "full",
+  "full-quad",
+  "direct",
+  "direct-dual",
+  "direct-dhw",
+];
+
+test("every layout gets the magnifier", async () => {
+  const missing = await page.evaluate((layouts) => {
+    const gone = [];
+    for (const layout of layouts) {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout,
+        heatpump: { entity: "switch.heat_pump" },
+      });
+      document.body.appendChild(card);
+      card.hass = window.makeHass("en");
+      if (!card.shadowRoot.querySelector(".hpfc-zoom")) gone.push(layout);
+      card.remove();
+    }
+    return gone;
+  }, ALL_LAYOUTS);
+  assert.deepEqual(missing, []);
+});
+
+test("a 4K screen is filled, an 8K one is not blown up further", async () => {
+  const measure = async (width, height) => {
+    await page.setViewportSize({ width, height });
+    return page.evaluate(() => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "dual",
+        heatpump: { entity: "switch.heat_pump" },
+      });
+      document.body.appendChild(card);
+      card.hass = window.makeHass("en");
+      const svg = card.shadowRoot.querySelector("svg");
+      const design = svg.viewBox.baseVal.width;
+      card.shadowRoot.querySelector(".hpfc-zoom").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      const scale = parseFloat(svg.style.width) / design;
+      card.closeZoom();
+      card.remove();
+      return scale;
+    });
+  };
+  const uhd = await measure(3840, 2160);
+  const uhd8k = await measure(7680, 4320);
+  await page.setViewportSize({ width: 1200, height: 900 });
+  // 4K is filled by scaling up, and the cap keeps 8K from going further
+  assert.ok(uhd > 2, `expected a 4K screen to scale past 2x, got ${uhd}`);
+  assert.ok(uhd <= 3.001, `expected the cap to hold at 3x, got ${uhd}`);
+  assert.ok(Math.abs(uhd8k - 3) < 0.001, `expected 8K to stop at exactly 3x, got ${uhd8k}`);
+});

@@ -1,0 +1,92 @@
+# The electrical side, in full.
+#
+# As soon as one of `battery_power`, `grid_power`, `wallbox` or `house` is
+# named, the card draws an energy bus under the plant. Photovoltaics, the
+# battery, the grid, a wallbox, the house, the heat pump and an element in a
+# tank hang off it, and every node decides for itself which way its own energy
+# is travelling - so with the heat pump in standby the sun visibly goes into
+# the battery and out to the grid instead of into a machine that is not
+# running.
+#
+# Which way is which:
+#
+#   photovoltaics   always into the bus while producing
+#   battery         out of the bus while charging, into it while discharging
+#   grid            into the bus while importing, out of it while exporting
+#   wallbox         out of the bus while charging
+#   house           out of the bus
+#   heat pump       out of the bus while it draws  (from heatpump.power)
+#   element         out of the bus while it draws  (from *.heater_power)
+#
+# The heat pump and the element join through the entities they already have,
+# so neither is configured twice.
+type: custom:heatpump-flow-card
+layout: full
+title: Heating plant
+heatpump:
+  name: Heat pump
+  entity: switch.heat_pump
+  state_entity: binary_sensor.compressor
+  power: sensor.hp_power            # this is what puts it on the bus
+  cop: sensor.hp_cop
+  flow_temp: sensor.hp_flow_temperature
+  return_temp: sensor.hp_return_temperature
+  outside_temp: sensor.outside_temperature
+pv:
+  name: Photovoltaics
+  # Several inverters are one photovoltaic system: powers are added up.
+  power:
+    - sensor.pv_inverter_1
+    - sensor.pv_inverter_2
+    - sensor.pv_inverter_3
+    - sensor.pv_inverter_4
+  # Several batteries average instead of adding, because it is a percentage.
+  battery:
+    - sensor.battery_1_soc
+    - sensor.battery_2_soc
+  battery_power: sensor.battery_power
+  # Meters disagree about which direction counts as positive. If an arrow
+  # points the wrong way round, flip that one entity - the card never guesses.
+  grid_power:
+    entity: sensor.grid_power
+    invert: true
+  # An openWB, a go-e, a Wallbe - anything that reports its charging power.
+  # openWB numbers its charge points, so check the name against your own.
+  wallbox: sensor.openwb_chargepoint_1_power
+  # If you have no house sensor, a template of production - export - charging
+  # does the job just as well. Leaving it out is fine too.
+  house: sensor.house_consumption
+  # A node stays quiet while its power is within this many watts of zero.
+  threshold: 5
+buffer:
+  name: Buffer tank
+  top: sensor.buffer_top
+  bottom: sensor.buffer_bottom
+  # An element in the tank - a my-PV AC-Thor, a booster, a backup heater. It
+  # glows while it draws, and appears on the bus as a consumer.
+  heater:
+    entity: sensor.tank_heater_power
+    threshold: 20
+  heater_power: sensor.tank_heater_power
+  heater_temp: sensor.tank_heater_temperature
+  heater_mode: select.tank_heater_mode
+dhw:
+  name: Hot water
+  entity: switch.hot_water
+  temp: sensor.dhw_temperature
+  target_temp: number.dhw_setpoint
+circuits:
+  - name: Radiators, ground floor
+    type: radiator
+    entity: switch.circuit_a
+    flow_temp: sensor.circuit_a_flow
+    return_temp: sensor.circuit_a_return
+    room_temp: sensor.living_room_temperature
+    pump: binary_sensor.circuit_a_pump
+  - name: Underfloor heating, first floor
+    type: underfloor
+    entity: switch.circuit_b
+    flow_temp: sensor.circuit_b_flow
+    return_temp: sensor.circuit_b_return
+    room_temp: sensor.bathroom_temperature
+    pump: binary_sensor.circuit_b_pump

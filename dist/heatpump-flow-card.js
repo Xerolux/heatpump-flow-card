@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.8.0";
+const CARD_VERSION = "1.8.1";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -2371,6 +2371,13 @@ function drawDhw(scene, box, cfg) {
  */
 const MIN_ZOOM_SCALE = 0.75;
 
+/**
+ * And how far up. A 4K screen is filled comfortably within this; past it the
+ * drawing would only get bigger, not more readable, which on an 8K panel means
+ * finger-thick pipes. Beyond the cap the card is centred instead.
+ */
+const MAX_ZOOM_SCALE = 3;
+
 /** IDM and friends address their circuits A-G, so seven is the practical ceiling. */
 const MAX_CIRCUITS = 7;
 
@@ -3657,7 +3664,7 @@ class HeatpumpFlowCard extends HTMLElement {
     if (!box || !box.width || !box.height) return;
     const available = { w: window.innerWidth - 32, h: window.innerHeight - 32 };
     const fit = Math.min(available.w / box.width, available.h / box.height);
-    const scale = Math.max(fit, MIN_ZOOM_SCALE);
+    const scale = clamp(fit, MIN_ZOOM_SCALE, MAX_ZOOM_SCALE);
     this._scene.svg.style.width = `${Math.round(box.width * scale)}px`;
     this._scene.svg.style.height = "auto";
   }

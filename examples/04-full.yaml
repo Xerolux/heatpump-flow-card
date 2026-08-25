@@ -17,7 +17,14 @@ heatpump:
 pv:
   name: Photovoltaics
   power: sensor.pv_power
-  battery: sensor.battery_soc
+  battery: sensor.battery_soc          # a percentage, shown next to the name
+  # Naming any of the four below draws the energy bus under the plant, so the
+  # current is shown going where it really goes rather than always into the
+  # heat pump. See 10-energy-bus.yaml for the whole story.
+  battery_power: sensor.battery_power  # + charging, - discharging
+  grid_power: sensor.grid_power        # + import, - export
+  wallbox: sensor.wallbox_power
+  house: sensor.house_consumption
 solar:
   name: Solar thermal
   collector_temp: sensor.collector_temperature

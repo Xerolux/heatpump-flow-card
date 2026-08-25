@@ -271,7 +271,10 @@ back.
 
 It never scales the drawing below three quarters of the size it was designed at
 — below that the labels stop being readable — so on a narrow screen you get a
-readable scheme that scrolls sideways rather than a smaller thumbnail.
+readable scheme that scrolls sideways rather than a smaller thumbnail. There is
+a ceiling at the other end too: a 4K screen is filled comfortably within it, and
+past three times the design size the drawing would only get bigger, not more
+readable, so on a 4K or 8K panel it stops there and centres instead.
 
 `zoom: false` removes the button.
 
@@ -421,7 +424,7 @@ red-flow / blue-return scheme.
   in your browser, no Home Assistant needed
 * **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** — installation,
   every option, controls, troubleshooting, development
-* **[Examples](examples)** — nine ready-made configurations, including a whole
+* **[Examples](examples)** — ten ready-made configurations, including a whole
   dashboard view
 
 ## Development

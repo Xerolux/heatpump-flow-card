@@ -4,12 +4,14 @@
 #   * four circuits, including a fan coil and a pool heat exchanger
 #   * long form fields with their own name, unit, decimals and tap action
 #   * a climate entity as the heat pump: tapping it opens more-info
+#   * `zoom: false`, for a card that should not offer the full screen view
 type: custom:heatpump-flow-card
 layout: direct-dhw
 title: Heating, in detail
 animation: true
 flow_speed: 1.4
 temperature_colors: true
+zoom: false          # removes the magnifier in the bottom right corner
 heatpump:
   name: Air/water heat pump
   entity: climate.heat_pump
