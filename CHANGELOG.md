@@ -29,6 +29,13 @@ changes shipped with the next tagged release.
   GitHub's generated list below it — prose first, commit log second. A version
   without a changelog section stops the release instead of publishing an empty
   one.
+- The section is sliced out by `tools/release-notes.mjs` rather than by an awk
+  pattern inside the workflow. The first attempt did it in the shell, where the
+  pattern had to survive YAML, bash and a regex dialect in turn — it did not,
+  matched every line, and published the funding badges and eighty blank lines
+  as the release body. Three tests now hold it: the section for the current
+  version, a `v` prefix as a tag writes it, and the two ways it must fail
+  rather than fall back to the whole file.
 
 ## [1.8.2] - 2026-08-25
 
