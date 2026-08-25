@@ -13,7 +13,7 @@ const candidate = process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium";
 const browser = await chromium.launch(existsSync(candidate) ? { executablePath: candidate } : {});
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
 
-const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "advanced", "circuits", "extras"];
+const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "advanced", "circuits", "extras", "electrics"];
 const problems = [];
 
 for (const layout of layouts) {

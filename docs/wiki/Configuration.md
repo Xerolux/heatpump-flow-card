@@ -85,16 +85,58 @@ the circuits.
 
 | Section | Options |
 | --- | --- |
-| `pv` | `name`, `entity`, `power`, `battery`, `grid`, `threshold` (watts, default `5`) |
+| `pv` | `name`, `entity`, `power`, `battery`, `grid`, `battery_power`, `grid_power`, `wallbox`, `house`, `threshold` (watts, default `5`) |
 | `solar` | `name`, `entity`, `collector_temp`, `flow_temp`, `return_temp`, `pump`, `yield` |
 
-The PV panel draws a dashed energy line to the heat pump while it produces. The
+The PV panel draws a dashed energy line to the heat pump while the heat pump is
+drawing power. Name `battery_power`, `grid_power`, `wallbox` or `house` and it
+becomes an energy bus under the plant instead — see [the electrical side](#the-electrical-side)
+below. The
 solar circuit is plumbed into the bottom of the buffer tank, so it needs a
 buffer to connect to, and both of its temperatures appear as badges on its
 pipes: `flow_temp` (or the collector) on the way down, `return_temp` on the way
 back up.
 
 **Is solar running?** `pump` → `yield` above 0 → collector above 35 °C.
+
+## the electrical side
+
+With a battery, a meter, a wallbox or the house named, the card draws an energy
+bus below the plant. Photovoltaics, the battery, the grid, a wallbox, the house,
+the heat pump and an element in a tank hang off it, and every node decides for
+itself which way its own energy is travelling.
+
+```yaml
+pv:
+  power: [sensor.inverter_1, sensor.inverter_2]
+  battery: sensor.battery_soc          # a percentage, shown next to the name
+  battery_power: sensor.battery_power  # + charging, - discharging
+  grid_power: sensor.grid_power        # + import, - export
+  wallbox: sensor.wallbox_power        # an openWB or any other charger
+  house: sensor.house_consumption
+```
+
+| Node | Comes from | Direction |
+| --- | --- | --- |
+| Photovoltaics | `pv.power` | always into the bus while producing |
+| Battery | `pv.battery_power` | out of the bus while charging, into it while discharging |
+| Grid | `pv.grid_power` (or `pv.grid`) | into the bus while importing, out of it while exporting |
+| Wallbox | `pv.wallbox` | out of the bus while charging |
+| House | `pv.house` | out of the bus |
+| Heat pump | `heatpump.power` | out of the bus while it draws |
+| Element | `buffer.heater_power` or `dhw.heater_power` | out of the bus while it draws |
+
+Meters disagree about which direction counts as positive. If an arrow points the
+wrong way round, flip that one entity:
+
+```yaml
+  grid_power:
+    entity: sensor.grid_power
+    invert: true
+```
+
+A node stays idle while its power is within `threshold` watts of zero (5 by
+default). `electrics: false` at the top level turns the bus off again.
 
 ## circuits
 

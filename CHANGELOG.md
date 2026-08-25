@@ -23,6 +23,51 @@ changes shipped with the next tagged release.
 
 Nothing yet.
 
+## [1.7.0] - 2026-08-25
+
+### Fixed
+
+- **Photovoltaic power no longer flows into a heat pump that is not drawing
+  any.** The line ran as soon as the roof produced, whatever the heat pump was
+  doing, which read as if a machine in standby were eating the yield. It now
+  needs the heat pump to actually draw — and with a battery or a meter
+  configured the current visibly goes where it really goes (see below).
+- **A mode on its own no longer means a circuit is running.** A circuit whose
+  only state source was `mode` reported itself as running for every value that
+  was not literally "off" — so a circuit sitting on "Normal" showed a green dot
+  and a flowing pipe while the plant was in standby. A mode says what the
+  circuit was told to do; such a circuit now follows the plant, exactly as the
+  documentation always claimed.
+- **A hot water thermostat that is switched on is not a tank that is charging.**
+  `entity: water_heater.x` was read as on/off, but the state of a `climate` or
+  `water_heater` entity is its selected mode: "heat_pump" is not "off", so the
+  tank claimed to be charging at 61.5 °C against a 48 °C target. Those two
+  domains now only rule the tank *out*; the temperatures decide the rest. A
+  `mode` that says off parks the tank outright, and `charge` is read when it is
+  there.
+- More states count as off: "out of service", "no demand", "keine Anforderung",
+  "abgeschaltet", "deaktiviert", "disabled", "gesperrt", "blocked".
+- The IDM examples had the emitters the wrong way round — circuit A is
+  radiators, circuit D is underfloor heating.
+
+### Added
+
+- **The electrical side.** Name `battery_power`, `grid_power`, `wallbox` or
+  `house` and the card draws an energy bus under the plant. Photovoltaics, the
+  battery, the grid, a wallbox, the house, the heat pump and an element in a
+  tank hang off it, and **every node decides for itself which way its own
+  energy is travelling**: the battery takes from the bus while it charges and
+  feeds it while it discharges, the grid the same in reverse. So with the heat
+  pump in standby the sun visibly goes into the battery and out to the grid.
+  - The heat pump joins through its own `power` and an element through
+    `heater_power`, so neither has to be configured twice.
+  - `invert: true` on a single entity flips a meter that counts the other
+    direction as positive; `threshold` (5 W by default) keeps a node quiet
+    around zero; `electrics: false` turns the bus off again.
+- A new demo view and screenshot for it, and the openWB wallbox, the SolarEdge
+  battery and meter and the AC-Thor in the buffer tank wired up in the two IDM
+  examples.
+
 ## [1.6.4] - 2026-08-24
 
 ### Fixed
@@ -305,7 +350,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.4...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.4...v1.7.0
 [1.6.4]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.1...v1.6.2

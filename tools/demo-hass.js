@@ -197,3 +197,32 @@ window.makeHass = (language) => ({
     return unit ? `${text} ${unit}` : text;
   },
 });
+
+// The electrical side: what the plant does with the current when the heat
+// pump is not asking for any.
+for (const [id, state, unit, name] of [
+  ["sensor.battery_power", "1820", "W", "Battery power"],
+  ["sensor.grid_power", "-740", "W", "Grid power"],
+  ["sensor.wallbox_power", "0", "W", "Wallbox"],
+  ["sensor.house_power", "410", "W", "House"],
+  ["sensor.hp_power_idle", "0", "W", "Heat pump power"],
+]) {
+  window.demoStates[id] = {
+    entity_id: id,
+    state,
+    attributes: { friendly_name: name, unit_of_measurement: unit, device_class: "power" },
+  };
+}
+
+// A tank that is already hotter than its target: enabled, but not charging.
+window.demoStates["water_heater.dhw"] = {
+  entity_id: "water_heater.dhw",
+  state: "heat_pump",
+  attributes: {
+    friendly_name: "Hot water",
+    current_temperature: 61.5,
+    temperature: 48,
+    operation_list: ["off", "eco", "heat_pump", "performance"],
+    operation_mode: "heat_pump",
+  },
+};

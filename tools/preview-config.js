@@ -223,4 +223,45 @@ window.previewConfigs = {
     },
     circuits: [radiators, underfloor],
   },
+
+  // The electrical side, with the heat pump in standby: the sun is on the
+  // roof, and every watt of it goes to the battery and the grid.
+  electrics: {
+    type: "custom:heatpump-flow-card",
+    layout: "full",
+    title: "Heating plant",
+    heatpump: { ...heatpump, power: "sensor.hp_power_idle", state_entity: undefined, entity: "switch.heat_pump" },
+    buffer,
+    dhw: {
+      name: "Hot water",
+      entity: "switch.hot_water",
+      temp: "sensor.dhw_temperature",
+      target_temp: "number.dhw_setpoint",
+      pump: "binary_sensor.dhw_pump",
+      boost: "button.dhw_boost",
+    },
+    pv: {
+      name: "Photovoltaics",
+      power: [
+        "sensor.pv_inverter_1",
+        "sensor.pv_inverter_2",
+        "sensor.pv_inverter_3",
+        "sensor.pv_inverter_4",
+      ],
+      battery: ["sensor.battery_1_soc", "sensor.battery_2_soc"],
+      battery_power: "sensor.battery_power",
+      grid_power: "sensor.grid_power",
+      wallbox: "sensor.wallbox_power",
+      house: "sensor.house_power",
+    },
+    solar: {
+      name: "Solar thermal",
+      collector_temp: "sensor.collector_temperature",
+      flow_temp: "sensor.solar_flow_temperature",
+      pump: "binary_sensor.solar_pump",
+      yield: "sensor.solar_yield",
+      return_temp: "sensor.solar_return_temperature",
+    },
+    circuits: [radiators, underfloor],
+  },
 };

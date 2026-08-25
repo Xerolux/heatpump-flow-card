@@ -36,6 +36,15 @@ buffer:
   name: Buffer tank
   top: sensor.alm6_15_warmespeichertemperatur
   bottom: sensor.alm6_15_ladefuhler_temperatur
+  # The AC-Thor in the buffer tank: it glows while it draws power, shows its
+  # own temperature, and one tap operates its mode. Its power also appears as
+  # a consumer on the energy bus.
+  heater:
+    entity: sensor.ac_thor_power
+    threshold: 20
+  heater_power: sensor.ac_thor_power
+  heater_temp: sensor.ac_thor_temp1
+  heater_mode: switch.ac_thor_betriebsmodus
 
 dhw:
   name: Hot water
@@ -58,6 +67,23 @@ pv:
   battery:
     - sensor.solaredge_i1_b1_state_of_energy
   grid: sensor.solaredge_i1_m1_ac_power
+  # The electrical side. As soon as one of these is set the card draws an
+  # energy bus below the plant, and every node decides for itself which way
+  # its own energy is travelling. If an arrow points the wrong way round,
+  # add `invert: true` to that entity - meters disagree about which
+  # direction counts as positive.
+  battery_power:
+    entity: sensor.solaredge_i1_b1_dc_power   # + charging, - discharging
+    # invert: true
+  grid_power:
+    entity: sensor.solaredge_i1_m1_ac_power   # + import, - export
+    # invert: true
+  # An openWB wallbox over MQTT. Check the entity name against your own
+  # installation - openWB numbers its charge points.
+  wallbox: sensor.openwb_chargepoint_1_power
+  # House consumption, if you have a sensor for it (a template of
+  # production - export - charging does the job as well).
+  # house: sensor.house_consumption
 
 solar:
   name: Paradigma solar thermal
@@ -70,7 +96,7 @@ solar:
 
 circuits:
   - name: Heating circuit A
-    type: underfloor
+    type: radiator
     entity: climate.alm6_15
     mode: select.alm6_15_betriebsart_hk_a
     flow_temp: sensor.alm6_15_vorlauftemperatur_hk_a
@@ -79,7 +105,7 @@ circuits:
     pump: binary_sensor.alm6_15_pumpe_heizkreis_a_web
     valve: sensor.alm6_15_mischer_heizkreis_a_web
   - name: Heating circuit D
-    type: radiator
+    type: underfloor
     mode: select.alm6_15_hc_d_mode
     target_temp: number.alm6_15_hc_d_room_setpoint_heat_normal
     # circuit D reports its active mode rather than a flow sensor

@@ -104,6 +104,12 @@ draws.
 
 ![four circuits in different states](docs/images/circuits.png)
 
+**The electrical side.** The heat pump is in standby, so the roof is not feeding
+it: the current goes into the battery and out to the grid, and every node shows
+which way its own energy is travelling.
+
+![battery, grid and wallbox](docs/images/electrics.png)
+
 **Dark theme** — the card follows the dashboard theme:
 
 ![dark theme](docs/images/dual-dark.png)
@@ -300,11 +306,44 @@ circuits.
 
 | Section | Options |
 | --- | --- |
-| `pv` | `name`, `entity`, `power`, `battery`, `grid`, `threshold` (watts, default `5`) |
+| `pv` | `name`, `entity`, `power`, `battery`, `grid`, `battery_power`, `grid_power`, `wallbox`, `house`, `threshold` (watts, default `5`) |
 | `solar` | `name`, `entity`, `collector_temp`, `flow_temp`, `return_temp`, `pump`, `yield` |
 
 The solar circuit is drawn into the bottom of the buffer tank, so it needs a
 buffer to connect to.
+
+### The electrical side
+
+Name `battery_power`, `grid_power`, `wallbox` or `house` and the card draws an
+energy bus under the plant. Photovoltaics, the battery, the grid, a wallbox,
+the house, the heat pump and an element in a tank hang off it, and **each node
+decides for itself which way its own energy is travelling** — so when the heat
+pump is in standby the sun visibly goes into the battery and out to the grid
+instead of into a machine that is not running.
+
+```yaml
+pv:
+  power: [sensor.inverter_1, sensor.inverter_2]
+  battery: sensor.battery_soc         # a percentage, shown next to the name
+  battery_power: sensor.battery_power # + charging, - discharging
+  grid_power: sensor.grid_power       # + import, - export
+  wallbox: sensor.wallbox_power       # an openWB or any other charger
+  house: sensor.house_consumption
+```
+
+Meters disagree about which direction counts as positive. If an arrow points
+the wrong way round, flip that one entity:
+
+```yaml
+  grid_power:
+    entity: sensor.grid_power
+    invert: true
+```
+
+The heat pump joins the bus through its own `power`, and an element in a tank
+through `heater_power` — neither needs configuring twice. `electrics: false`
+at the top level turns the bus off again and restores the single line from the
+photovoltaics to the heat pump.
 
 ### `circuits[]`
 
