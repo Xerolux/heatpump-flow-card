@@ -45,6 +45,9 @@ sections:
             threshold: 20
           heater_power: sensor.ac_thor_power
           heater_temp: sensor.ac_thor_temp1
+          # The AC-Thor exposes several switches; these two are the ones that work.
+          # switch.ac_thor_boost_mode, _boost_activate and _operation_mode read
+          # `unavailable` on this firmware - do not point the card at them.
           heater_mode: switch.ac_thor_betriebsmodus
         dhw:
           name: Hot water
@@ -69,15 +72,16 @@ sections:
           # its own energy is travelling. If an arrow points the wrong way round,
           # add `invert: true` to that entity - meters disagree about which
           # direction counts as positive.
-          battery_power:
-            entity: sensor.solaredge_i1_b1_dc_power   # + charging, - discharging
-            # invert: true
-          grid_power:
-            entity: sensor.solaredge_i1_m1_ac_power   # + import, - export
-            # invert: true
-          # An openWB wallbox over MQTT. Check the entity name against your own
-          # installation - openWB numbers its charge points.
-          wallbox: sensor.openwb_chargepoint_1_power
+          # Verified against this plant: the battery reads +1504 W while its status is
+          # B_STATUS_CHARGE, so positive is charging - the card's own convention.
+          battery_power: sensor.solaredge_i1_b1_dc_power
+          # The meter. SolarEdge ships both this and `..._ac_power_inverted` because
+          # installations disagree about which direction counts as positive. Check it
+          # in the evening with the sun off: the arrow has to point *into* the bus
+          # while you are importing. If it points out, add `invert: true` here.
+          grid_power: sensor.solaredge_i1_m1_ac_power
+          # openWB over MQTT. It numbers its charge points - this plant is on 6.
+          wallbox: sensor.openwb_chargepoint_6_ladeleistung
           # House consumption, if you have a sensor for it (a template of
           # production - export - charging does the job as well).
           # house: sensor.house_consumption

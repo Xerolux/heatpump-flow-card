@@ -13,6 +13,7 @@ heatpump:
   entity: select.alm6_15_systembetriebsart
   mode: select.alm6_15_systembetriebsart
   status: sensor.alm6_15_warmepumpen_betriebsart
+  state_entity: binary_sensor.alm6_15_verdichter_1
   power: sensor.alm6_15_elektrische_leistungsaufnahme_warmepumpe
   cop: sensor.alm6_15_jahresarbeitszahl_cop_momentan
   flow_temp: sensor.alm6_15_warmepumpen_vorlauftemperatur
@@ -38,6 +39,9 @@ buffer:
   heater_mode: switch.ac_thor_betriebsmodus
   # a one-off push instead:
   # heater_mode: switch.ac_thor_boost_aktivieren
+  # Not these three - they read `unavailable` on this firmware, and a field
+  # pointed at one of them stays empty: switch.ac_thor_boost_mode,
+  # switch.ac_thor_boost_activate, switch.ac_thor_operation_mode.
 
 dhw:
   name: Hot water
@@ -60,15 +64,21 @@ pv:
     - sensor.solaredge_i4_ac_power
   battery:
     - sensor.solaredge_i1_b1_state_of_energy
+  # With the electrical side named, the element in the tank shows up as a
+  # consumer on the energy bus below the plant - which is where its power
+  # actually comes from.
+  battery_power: sensor.solaredge_i1_b1_dc_power
+  grid_power: sensor.solaredge_i1_m1_ac_power
+  wallbox: sensor.openwb_chargepoint_6_ladeleistung
 
 circuits:
   - name: Heating circuit A
-    type: underfloor
+    type: radiator
     mode: select.alm6_15_betriebsart_hk_a
     flow_temp: sensor.alm6_15_vorlauftemperatur_hk_a
     room_temp: sensor.alm6_15_raumtemperatur_hk_a
     pump: binary_sensor.alm6_15_pumpe_heizkreis_a_web
   - name: Heating circuit D
-    type: radiator
+    type: underfloor
     mode: select.alm6_15_hc_d_mode
     target_temp: number.alm6_15_hc_d_room_setpoint_heat_normal

@@ -21,7 +21,18 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The two IDM plant examples carry the entity ids that were actually verified
+  against that installation: the openWB wallbox is on charge point 6
+  (`sensor.openwb_chargepoint_6_ladeleistung`, not the placeholder), the
+  SolarEdge battery power is confirmed positive while charging, and the
+  AC-Thor block names the three switches that read `unavailable` on that
+  firmware so nobody points the card at them.
+- The immersion-heater example had the same two emitters the wrong way round —
+  circuit A is radiators, circuit D is underfloor heating — and was missing the
+  compressor as the heat pump's state source. It shows the energy bus now too,
+  which is where the element in the tank gets its power from.
 
 ## [1.8.1] - 2026-08-25
 
