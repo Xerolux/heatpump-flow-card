@@ -55,23 +55,10 @@ jobs:
       # list of merged pull requests is appended below it, so the release page
       # reads as prose first and as a commit log second.
       - name: Take the release notes from the changelog
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          escaped=${VERSION//./\\.}
-          # anchored so that a "1.8" release could never take 1.8.2's section
-          awk -v pat="^## \\[?${escaped}(\\]| |$)" '
-            $0 ~ pat { found = 1; next }
-            found && /^## / { exit }
-            found { print }
-          ' CHANGELOG.md > release-notes.md
-          # the slice starts with the blank line under the heading
-          awk 'NF { seen = 1 } seen' release-notes.md > release-notes.trimmed
-          mv release-notes.trimmed release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "::error::CHANGELOG.md has no body for $VERSION."
-            exit 1
-          fi
+          # no pipe: a pipeline would swallow the script's exit code and ship
+          # an empty body
+          node tools/release-notes.mjs "${{ steps.version.outputs.version }}" > release-notes.md
           echo "--- release notes ---"
           cat release-notes.md
 
