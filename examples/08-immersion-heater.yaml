@@ -72,8 +72,7 @@ pv:
     entity: sensor.solaredge_i1_m1_ac_power
     invert: true
   wallbox: sensor.openwb_chargepoint_6_ladeleistung
-  house:
-    calculate: true
+  house: sensor.hausverbrauch
 
 circuits:
   - name: Heating circuit A

@@ -82,9 +82,8 @@ sections:
             invert: true
           # openWB over MQTT. It numbers its charge points - this plant is on 6.
           wallbox: sensor.openwb_chargepoint_6_ladeleistung
-          # Net inverter output plus the normalized grid value, minus the wallbox.
-          house:
-            calculate: true
+          # UI template helper: inverter output minus export-positive grid power and wallbox.
+          house: sensor.hausverbrauch
         solar:
           name: Paradigma solar thermal
           collector_temp: sensor.systasolar_aqua_s3_kollektor_temp

@@ -39,8 +39,8 @@ changes shipped with the next tagged release.
   only for the consumers it actually serves: flow away from the buffer, return
   towards it.
 - The live-verified IDM/SolarEdge examples invert the plant's export-positive
-  meter, calculate the residual house load and keep the operating-mode sensor
-  out of circuit D's temperature field.
+  meter, use the `sensor.hausverbrauch` template helper and keep the
+  operating-mode sensor out of circuit D's temperature field.
 
 ### Changed
 
