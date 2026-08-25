@@ -85,8 +85,10 @@ pv:
   grid_power: sensor.solaredge_i1_m1_ac_power
   # openWB over MQTT. It numbers its charge points - this plant is on 6.
   wallbox: sensor.openwb_chargepoint_6_ladeleistung
-  # House consumption, if you have a sensor for it (a template of
-  # production - export - charging does the job as well).
+  # House consumption. No meter reports it directly - it is inverters plus
+  # grid import, minus the wallbox. The Template sensors page in the wiki has
+  # the recipe, and the check for which way this meter counts:
+  # https://github.com/Xerolux/heatpump-flow-card/wiki/Template-Sensors
   # house: sensor.house_consumption
 
 solar:

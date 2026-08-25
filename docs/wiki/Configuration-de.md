@@ -206,3 +206,8 @@ falsch herum, dreht man genau diese Entität um:
 Ein Knoten bleibt still, solange seine Leistung innerhalb von `threshold` Watt
 um null liegt (Standard 5). `electrics: false` auf oberster Ebene schaltet die
 Schiene wieder ab.
+
+Den Hausverbrauch gibt es selten als eigene Entität, und bei DC-gekoppelter
+Batterie die PV-Erzeugung auch nicht. Beides ist eine Subtraktion entfernt –
+siehe [Vorlagen-Sensoren](Template-Sensors-de), dort steht auch der Test, in
+welche Richtung dein Zähler positiv zählt.
