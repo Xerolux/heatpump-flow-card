@@ -260,6 +260,30 @@ power:
 Fehlende oder nicht verfügbare Entitäten werden übersprungen, statt die Summe
 zu verfälschen; ein Klick öffnet die erste Entität der Liste.
 
+## Größe
+
+Die Karte füllt die Spalte, die sie bekommt, und skaliert die Zeichnung auf
+diese Breite – es ist ein einziges SVG, also bleibt sie in jeder Größe scharf.
+In einem Sections-Dashboard fordert sie die volle Spaltenbreite und eine Höhe,
+die mit der Zahl der Verbraucher wächst; die **Grid-Optionen** von Home
+Assistant an der Karte (drei Punkte → *Bearbeiten* → Layout) überschreiben
+beides, wenn du es schmaler oder höher willst.
+
+Eine Dashboard-Spalte ist trotzdem oft schmaler, als das Schema gezeichnet ist –
+auf dem Handy im Hochformat wird die ganze Anlage briefmarkengroß. Dafür ist die
+**Lupe unten rechts** da: Sie hebt die laufende Karte in eine bildschirmfüllende
+Ebene, dieselbe Szene mit denselben Animationen, skaliert auf den Bildschirm, den
+du gerade in der Hand hast. Drehst du das Handy, passt sie sich neu an; am
+Monitor wird sie einfach groß. Escape, ein Klick neben die Karte oder die
+Schaltfläche selbst bringen sie zurück.
+
+Kleiner als drei Viertel der Größe, für die sie gezeichnet wurde, wird die
+Zeichnung nie – darunter sind die Beschriftungen nicht mehr lesbar. Auf einem
+schmalen Bildschirm bekommst du also ein lesbares Schema, das seitlich scrollt,
+statt einer kleineren Briefmarke.
+
+`zoom: false` entfernt die Schaltfläche.
+
 ## Optionen
 
 ### Karte
@@ -273,6 +297,7 @@ zu verfälschen; ein Klick öffnet die erste Entität der Liste.
 | `flow_speed` | number | `1` | Geschwindigkeit, `0.2` – `3` |
 | `temperature_colors` | boolean | `true` | `false` = Vorlauf rot, Rücklauf blau |
 | `controls` | boolean | `true` | `false` = jeder Klick öffnet nur more-info |
+| `zoom` | boolean | `true` | Die Lupe, die die Karte bildschirmfüllend öffnet |
 | `heatpump` | object | `{}` | siehe unten |
 | `buffer` | object \| `false` | sichtbar | Pufferspeicher |
 | `dhw` | object \| `false` | nur `full` | Warmwasser |
