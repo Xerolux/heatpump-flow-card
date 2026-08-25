@@ -23,6 +23,27 @@ changes shipped with the next tagged release.
 
 Nothing yet.
 
+## [1.8.1] - 2026-08-25
+
+### Changed
+
+- **The enlarged view has a ceiling as well as a floor.** A 4K screen is filled
+  comfortably within it, but past three times the size the drawing was designed
+  at it would only get bigger, not more readable — on an 8K panel that means
+  finger-thick pipes. Beyond the cap the card is centred instead. Confirmed by
+  a test at 3840×2160 and 7680×4320.
+
+### Added
+
+- `10-energy-bus.yaml`: the electrical side on its own — several inverters and
+  batteries folded into one value each, `battery_power`, `grid_power` with
+  `invert`, an openWB wallbox, house consumption, the element in the tank, and
+  a table of which way each node's energy travels.
+- The complete-plant example carries the battery, the meter, a wallbox and the
+  house now, and the advanced one shows `zoom: false`.
+- The magnifier is covered for all eighteen layout presets, not only the ones
+  the demo happens to render.
+
 ## [1.8.0] - 2026-08-25
 
 ### Added
@@ -368,7 +389,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.1...HEAD
+[1.8.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.4...v1.7.0
 [1.6.4]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.3...v1.6.4

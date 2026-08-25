@@ -280,7 +280,10 @@ Schaltfläche selbst bringen sie zurück.
 Kleiner als drei Viertel der Größe, für die sie gezeichnet wurde, wird die
 Zeichnung nie – darunter sind die Beschriftungen nicht mehr lesbar. Auf einem
 schmalen Bildschirm bekommst du also ein lesbares Schema, das seitlich scrollt,
-statt einer kleineren Briefmarke.
+statt einer kleineren Briefmarke. Nach oben gibt es ebenfalls eine Grenze: Ein
+4K-Schirm wird bequem darunter gefüllt, und jenseits des Dreifachen der
+Designgröße würde die Zeichnung nur größer, nicht lesbarer – auf einem 4K- oder
+8K-Panel hört sie deshalb dort auf und wird stattdessen zentriert.
 
 `zoom: false` entfernt die Schaltfläche.
 
@@ -428,7 +431,7 @@ Schema Vorlauf rot / Rücklauf blau.
   Karte im Browser, ganz ohne Home Assistant
 * **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** – Installation,
   alle Optionen, Bedienung, Problemlösung, Entwicklung
-* **[Beispiele](examples)** – neun fertige Konfigurationen, darunter ein
+* **[Beispiele](examples)** – zehn fertige Konfigurationen, darunter ein
   komplettes Dashboard
 
 ## Entwicklung

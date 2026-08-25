@@ -15,6 +15,7 @@ and can be pasted into a manual card editor as they are.
 | `07-idm-solaredge-paradigma.yaml` | A whole plant: IDM heat pump, SolarEdge PV, Paradigma solar thermal |
 | `08-immersion-heater.yaml` | An AC-Thor element in the buffer tank, plus the bivalent stage |
 | `09-dashboard-idm.yaml` | A whole dashboard view around that plant — the card plus built-in cards |
+| `10-energy-bus.yaml` | The electrical side: battery, grid, wallbox, house and the element on one bus |
 
 ## Every circuit keeps its own state
 
@@ -151,3 +152,25 @@ the drawing.
 Nothing stops you from using more than one card: a `compact` card per floor in a
 sections view, or one `full` card as an overview plus one `single` card per
 circuit on its own dashboard page.
+
+## The electrical side
+
+`10-energy-bus.yaml` is the electrical half on its own. Naming any of
+`battery_power`, `grid_power`, `wallbox` or `house` under `pv` draws a bus
+below the plant, and every node on it decides for itself which way its own
+energy travels:
+
+| Node | Comes from | Direction |
+| --- | --- | --- |
+| Photovoltaics | `pv.power` | always into the bus while producing |
+| Battery | `pv.battery_power` | out of the bus while charging, into it while discharging |
+| Grid | `pv.grid_power` | into the bus while importing, out of it while exporting |
+| Wallbox | `pv.wallbox` | out of the bus while charging |
+| House | `pv.house` | out of the bus |
+| Heat pump | `heatpump.power` | out of the bus while it draws |
+| Element | `buffer.heater_power` or `dhw.heater_power` | out of the bus while it draws |
+
+The heat pump and the element join through the entities they already have, so
+neither is configured twice. Meters disagree about which direction counts as
+positive — if an arrow points the wrong way round, add `invert: true` to that
+one entity rather than to the card.
