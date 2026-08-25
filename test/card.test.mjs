@@ -999,6 +999,63 @@ test("the surplus goes to the battery and the grid, each the right way round", a
   assert.equal(bus.trunk.active, true);
 });
 
+test("electrical thresholds use watts and negative one-way nodes stay quiet", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "pv-single",
+      heatpump: { power: "sensor.hp_kw" },
+      pv: {
+        power: "sensor.pv_kw",
+        grid_power: "sensor.grid_kw",
+        wallbox: "sensor.wallbox_kw",
+      },
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    for (const [entity, state] of [
+      ["sensor.hp_kw", 0.8],
+      ["sensor.pv_kw", -0.1],
+      ["sensor.grid_kw", -0.6],
+      ["sensor.wallbox_kw", -0.5],
+    ]) {
+      hass.states[entity] = {
+        entity_id: entity,
+        state: String(state),
+        attributes: { unit_of_measurement: "kW", device_class: "power" },
+      };
+    }
+    card.hass = hass;
+    const root = card.shadowRoot;
+    const branch = (part) => {
+      const group = root.querySelector(`.hpfc-pipe-group[data-part="${part}"]`);
+      return {
+        active: !group.classList.contains("hpfc-stopped"),
+        towardsBus: group.querySelector(".hpfc-dots").classList.contains("hpfc-dots-reverse"),
+      };
+    };
+    const state = {
+      heatpumpRunning: root.querySelector(".hpfc-heatpump").classList.contains("hpfc-running"),
+      heatpump: branch("power-heatpump"),
+      pv: branch("power-pv"),
+      grid: branch("power-grid"),
+      wallbox: branch("power-wallbox"),
+    };
+    card.remove();
+    return state;
+  });
+
+  // 0.8 kW is 800 W, comfortably above both watt-based defaults.
+  assert.equal(result.heatpumpRunning, true);
+  assert.deepEqual(result.heatpump, { active: true, towardsBus: false });
+  // A negative PV or consumer reading is not production or consumption.
+  assert.deepEqual(result.pv, { active: false, towardsBus: false });
+  assert.deepEqual(result.wallbox, { active: false, towardsBus: false });
+  // A negative meter reading is export and therefore runs away from the bus.
+  assert.deepEqual(result.grid, { active: true, towardsBus: false });
+});
+
 test("the card can be enlarged to the screen, and comes back", async () => {
   const result = await page.evaluate(async () => {
     const card = document.createElement("heatpump-flow-card");

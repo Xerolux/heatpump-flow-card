@@ -175,15 +175,33 @@ function numberValue(hass, field) {
   return combineValues(values, field.combine || (isShareLike(unitOf(hass, field)) ? "avg" : "sum"));
 }
 
+const POWER_UNIT_FACTORS = { mW: 0.001, W: 1, kW: 1000, MW: 1000000, GW: 1000000000 };
+
+/** Convert one power field to watts before comparing or balancing it. */
+function powerWatts(hass, field) {
+  if (!field || !field.entity) return null;
+  const entities = fieldEntities(field);
+  const values = (entities.length ? entities : [field.entity])
+    .map((entity) => {
+      const single = { ...field, entity, entities: undefined };
+      const value = singleNumber(hass, single);
+      if (value === null) return null;
+      const unit = unitOf(hass, single);
+      const factor = POWER_UNIT_FACTORS[unit] === undefined ? 1 : POWER_UNIT_FACTORS[unit];
+      return value * factor;
+    })
+    .filter((value) => value !== null);
+  if (!values.length) return null;
+  const value = combineValues(values, field.combine || "sum");
+  return field.invert ? -value : value;
+}
+
 /**
- * Signed power of a field. Meters disagree about which way is positive, so
+ * Signed power in watts. Meters disagree about which way is positive, so
  * `invert: true` flips the sign of one without touching the entity.
  */
 function signedPower(hass, field) {
-  if (!field || !field.entity) return null;
-  const value = numberValue(hass, field);
-  if (value === null) return null;
-  return field.invert ? -value : value;
+  return powerWatts(hass, field);
 }
 
 /** Truthiness of a field: on-ish states, or a number above the threshold. */
@@ -1303,7 +1321,7 @@ function heatPumpMode(hass, cfg) {
 function heatPumpRunning(hass, cfg) {
   if (cfg.state_entity && cfg.state_entity.entity) return isActive(hass, cfg.state_entity);
   if (cfg.power && cfg.power.entity) {
-    const value = numberValue(hass, cfg.power);
+    const value = powerWatts(hass, cfg.power);
     if (value !== null) return value > (cfg.power_threshold === undefined ? 20 : cfg.power_threshold);
   }
   if (cfg.compressor && cfg.compressor.entity) {
@@ -1750,7 +1768,7 @@ function drawPv(scene, box, cfg) {
 
   const producing = (hass) => {
     if (cfg.power && cfg.power.entity) {
-      const value = numberValue(hass, cfg.power);
+      const value = powerWatts(hass, cfg.power);
       if (value !== null) return value > (cfg.threshold === undefined ? 5 : cfg.threshold);
     }
     return cfg.entity ? isActive(hass, { entity: cfg.entity }) : false;
@@ -1813,9 +1831,9 @@ function electricDirection(node) {
     const value = signedPower(hass, node.field);
     if (value === null) return null;
     const threshold = node.field.threshold === undefined ? 5 : node.field.threshold;
+    if (node.kind === "source") return value > threshold ? "in" : null;
+    if (node.kind === "sink") return value > threshold ? "out" : null;
     if (Math.abs(value) <= threshold) return null;
-    if (node.kind === "source") return "in";
-    if (node.kind === "sink") return "out";
     // A battery counts charging as positive, a meter counts importing as
     // positive; `invert: true` on the entity settles a plant that disagrees.
     if (node.kind === "battery") return value > 0 ? "out" : "in";
