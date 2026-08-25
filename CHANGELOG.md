@@ -21,6 +21,27 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-08-25
+
+### Fixed
+
+- **House consumption can now be calculated inside the card.** Set
+  `pv.house.calculate: true` and it balances net inverter output with the
+  normalized grid meter, subtracting the separately shown wallbox. Mixed W and
+  kW sources are converted before the calculation; a normal Home Assistant
+  entity remains supported for other topologies.
+- **Electrical flow thresholds are watts even when an entity reports kW.** A
+  heat pump drawing 0.8 kW no longer looks idle against the 5 W bus threshold,
+  and negative one-way sources or consumers no longer animate in the wrong
+  direction.
+- **Hydraulic distributor arrows now agree on both sides of the buffer.** The
+  upper and lower flow and return rails are separate segments, each animating
+  only for the consumers it actually serves: flow away from the buffer, return
+  towards it.
+- The live-verified IDM/SolarEdge examples invert the plant's export-positive
+  meter, calculate the residual house load and keep the operating-mode sensor
+  out of circuit D's temperature field.
+
 ### Changed
 
 - **Release notes say what changed.** The release page carried nothing but the
@@ -439,7 +460,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.2...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.3...HEAD
+[1.8.3]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.2...v1.8.3
 [1.8.2]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.1...v1.8.2
 [1.8.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.7.0...v1.8.0
