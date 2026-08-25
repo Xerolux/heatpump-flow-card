@@ -1066,3 +1066,82 @@ test("a 4K screen is filled, an 8K one is not blown up further", async () => {
   assert.ok(uhd <= 3.001, `expected the cap to hold at 3x, got ${uhd}`);
   assert.ok(Math.abs(uhd8k - 3) < 0.001, `expected 8K to stop at exactly 3x, got ${uhd8k}`);
 });
+
+test("an element that is merely enabled does not read as heating", async () => {
+  const captions = await page.evaluate(() => {
+    const read = (switchState) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "single",
+        heatpump: { entity: "switch.heat_pump" },
+        buffer: {
+          top: "sensor.buffer_top",
+          heater: { entity: "sensor.tank_heater_power", name: "AC-Thor", threshold: 20 },
+          heater_power: "sensor.tank_heater_power",
+          heater_mode: "switch.tank_heater_enable",
+        },
+      });
+      document.body.appendChild(card);
+      const hass = window.makeHass("en");
+      hass.states["sensor.tank_heater_power"] = {
+        entity_id: "sensor.tank_heater_power",
+        state: "0",
+        attributes: { unit_of_measurement: "W", device_class: "power" },
+      };
+      hass.states["switch.tank_heater_enable"] = {
+        entity_id: "switch.tank_heater_enable",
+        state: switchState,
+        attributes: {},
+      };
+      card.hass = hass;
+      const caption = card.shadowRoot.querySelector(".hpfc-heater-name").textContent;
+      card.remove();
+      return caption;
+    };
+    return { enabled: read("on"), disabled: read("off") };
+  });
+  // enabled but drawing nothing: the glow and the watts already say it is idle
+  assert.equal(captions.enabled, "AC-Thor");
+  // switched off is worth saying, nothing else in the drawing shows it
+  assert.match(captions.disabled, /AC-Thor · /);
+});
+
+test("a long label gives way to the value beside it", async () => {
+  const fits = await page.evaluate(() => {
+    const measure = (lang) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "single",
+        heatpump: {
+          entity: "switch.heat_pump",
+          aux_heat: "binary_sensor.aux_heat",
+          aux_heat_power: "sensor.aux_heat_power",
+        },
+      });
+      document.body.appendChild(card);
+      const hass = window.makeHass(lang);
+      hass.states["sensor.aux_heat_power"] = {
+        entity_id: "sensor.aux_heat_power",
+        state: "3000",
+        attributes: { unit_of_measurement: "W", device_class: "power" },
+      };
+      hass.states["binary_sensor.aux_heat"] = {
+        entity_id: "binary_sensor.aux_heat",
+        state: "on",
+        attributes: {},
+      };
+      card.hass = hass;
+      const aux = card.shadowRoot.querySelector(".hpfc-aux");
+      const label = aux.querySelector(".hpfc-label").getBoundingClientRect();
+      const value = aux.querySelector(".hpfc-value").getBoundingClientRect();
+      const text = aux.querySelector(".hpfc-label").textContent;
+      card.remove();
+      return { clear: label.right <= value.left + 1, text };
+    };
+    return { en: measure("en"), de: measure("de") };
+  });
+  assert.equal(fits.en.clear, true, `English label runs into the value: "${fits.en.text}"`);
+  assert.equal(fits.de.clear, true, `German label runs into the value: "${fits.de.text}"`);
+});

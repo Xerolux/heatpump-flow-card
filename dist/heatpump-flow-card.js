@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.8.1";
+const CARD_VERSION = "1.8.2";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -755,6 +755,32 @@ function drawPanel(scene, box, title, options) {
  * it. Measured once the card is laid out, which is why it rides along with the
  * updaters.
  */
+/** Width of a text node, 0 where the browser cannot measure it. */
+function textWidth(node) {
+  try {
+    return node.getComputedTextLength();
+  } catch (err) {
+    return 0;
+  }
+}
+
+/**
+ * Shortens a label to the room its neighbour leaves it. Unlike fitText this
+ * runs on every update, because the room depends on a value that changes - and
+ * on the language: "Zusatzheizung" needs half again the width of "Aux heat".
+ */
+function shrinkToFit(node, text, maxWidth) {
+  node.textContent = text;
+  if (!(maxWidth > 0)) return;
+  const width = textWidth(node);
+  if (!width || width <= maxWidth) return;
+  let content = text;
+  while (content.length > 1 && textWidth(node) > maxWidth) {
+    content = content.slice(0, -1);
+    node.textContent = `${content.trimEnd()}…`;
+  }
+}
+
 function fitText(scene, node, text, maxWidth) {
   let done = false;
   scene.add(() => {
@@ -1375,7 +1401,9 @@ function drawHeatPump(scene, box, cfg) {
         d: `M ${box.x + 26} ${auxY} l 5 -7 l 5 14 l 5 -14 l 5 14 l 5 -7`,
       })
     );
-    aux.appendChild(svgText(box.x + 70, auxY + 4, texts.aux_heat, { class: "hpfc-label" }));
+    const auxLabelX = box.x + 58;
+    const auxLabel = svgText(auxLabelX, auxY + 4, texts.aux_heat, { class: "hpfc-label" });
+    aux.appendChild(auxLabel);
     const auxValue = svgText(box.x + box.w - 24, auxY + 4, "", {
       class: "hpfc-value",
       "text-anchor": "end",
@@ -1399,6 +1427,8 @@ function drawHeatPump(scene, box, cfg) {
       auxValue.textContent = cfg.aux_heat_power
         ? displayValue(hass, cfg.aux_heat_power, "")
         : displayValue(hass, cfg.aux_heat, "");
+      const room = box.x + box.w - 24 - textWidth(auxValue) - 10 - auxLabelX;
+      shrinkToFit(auxLabel, textsFor(hass).aux_heat, room);
     });
   }
 
@@ -1564,7 +1594,19 @@ function drawTank(scene, box, cfg, options) {
       if (heaterName) {
         const name =
           (opts.heater && opts.heater.name) || opts.heaterLabel || textsFor(hass).heater;
-        const mode = opts.heaterMode ? displayValue(hass, opts.heaterMode, "") : "";
+        // A plain switch that is on says only that the element is *allowed* to
+        // run. Whether it is running is already in the glow and in the watts,
+        // and an "on" next to 0 W reads like a contradiction. Off is worth the
+        // word, because nothing else in the drawing shows it.
+        let mode = "";
+        if (opts.heaterMode && opts.heaterMode.entity) {
+          const domain = domainOf(opts.heaterMode.entity);
+          const plainSwitch = domain === "switch" || domain === "input_boolean";
+          const raw = String(rawValue(hass, opts.heaterMode) || "").toLowerCase();
+          if (!plainSwitch || raw === "off") {
+            mode = displayValue(hass, opts.heaterMode, "");
+          }
+        }
         heaterName.textContent = mode ? `${name} · ${mode}` : name;
       }
     });

@@ -65,6 +65,14 @@ fließen.
 | `heater_temp` | Seine eigene Temperatur, neben der Leistung |
 | `heater_mode` | Aus / Automatik / Boost – übernimmt den Klick auf den Heizstab |
 
+Die Beschriftung des Heizstabs trägt seinen `heater_mode` neben dem Namen. Ein
+reiner `switch` ist die Ausnahme: Eingeschaltet sagt er nur, dass der Heizstab
+laufen *darf* – ob er läuft, beantworten Glühen und Wattzahl bereits –, deshalb
+wird nur sein *Aus* ausgeschrieben. Eine `select`- oder `climate`-Betriebsart
+steht immer da, weil benannte Optionen etwas tragen, das die Zeichnung nicht
+zeigen kann.
+
+
 Nur `top` und `bottom` konfiguriert → zwei Pillen. Gar nichts → drei leere.
 `buffer: false` verrohrt die Wärmepumpe direkt auf die Heizkreise.
 

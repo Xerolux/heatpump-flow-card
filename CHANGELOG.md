@@ -21,8 +21,22 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.8.2] - 2026-08-25
+
 ### Fixed
 
+- **"Zusatzheizung" ran into its own value.** The second heat generator's label
+  sat at a fixed position, which was fine for "Aux heat" and half a word too
+  long in German. It now gives way to the value beside it, and `check:overlaps`
+  renders **every layout in both languages** — the collision only ever existed
+  in the translation, which is exactly why the check never saw it.
+- **An element that is merely switched on no longer reads as heating.** With a
+  plain `switch` as `heater_mode`, the caption said "AC-Thor · on" beside
+  0 W: the switch means the element is *allowed* to run, not that it is
+  running. Only its off state is written out now — the glow and the wattage
+  already answer the rest. A `select` or `climate` mode is still always shown.
 - The two IDM plant examples carry the entity ids that were actually verified
   against that installation: the openWB wallbox is on charge point 6
   (`sensor.openwb_chargepoint_6_ladeleistung`, not the placeholder), the
@@ -411,7 +425,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.1...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.2...HEAD
+[1.8.2]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.1...v1.8.2
 [1.8.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.4...v1.7.0
