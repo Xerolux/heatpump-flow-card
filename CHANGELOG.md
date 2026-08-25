@@ -21,7 +21,14 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The two IDM plant examples carry the entity ids that were actually verified
+  against that installation: the openWB wallbox is on charge point 6
+  (`sensor.openwb_chargepoint_6_ladeleistung`, not the placeholder), the
+  SolarEdge battery power is confirmed positive while charging, and the
+  AC-Thor block names the three switches that read `unavailable` on that
+  firmware so nobody points the card at them.
 
 ## [1.8.1] - 2026-08-25
 
