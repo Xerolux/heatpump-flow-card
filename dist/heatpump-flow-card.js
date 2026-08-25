@@ -920,6 +920,7 @@ function drawPipe(scene, options) {
     class: `hpfc-pipe-group${options.className ? ` ${options.className}` : ""}`,
   });
   if (options.part) group.setAttribute("data-part", options.part);
+  if (options.segment) group.setAttribute("data-segment", options.segment);
 
   const gradientId = `hpfc-grad-${++gradientCounter}`;
   const first = points[0];
@@ -2870,30 +2871,68 @@ function buildScene(card) {
     });
   }
 
-  if (flowSpan[1] - flowSpan[0] > 2) {
+  // A distributor can have consumers above and below the buffer connection.
+  // One path through the whole rail cannot animate both directions at once,
+  // so each side gets its own path and activity state.
+  const flowAbove = consumers.filter((item) => item.inletY < bufferFlowY - 2);
+  const flowBelow = consumers.filter((item) => item.inletY > bufferFlowY + 2);
+  const returnAbove = consumers.filter((item) => item.outletY < bufferReturnY - 2);
+  const returnBelow = consumers.filter((item) => item.outletY > bufferReturnY + 2);
+  const segmentRunning = (items) => (hass) =>
+    items.some((item) => item.running && item.running(hass));
+
+  if (flowAbove.length) {
     drawPipe(scene, {
       points: [
+        [flowRailX, bufferFlowY],
         [flowRailX, flowSpan[0]],
+      ],
+      role: "flow",
+      part: "flow-spine",
+      segment: "upper",
+      from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
+      active: segmentRunning(flowAbove),
+    });
+  }
+  if (flowBelow.length) {
+    drawPipe(scene, {
+      points: [
+        [flowRailX, bufferFlowY],
         [flowRailX, flowSpan[1]],
       ],
       role: "flow",
       part: "flow-spine",
+      segment: "lower",
       from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
-      active: anyConsumer,
+      active: segmentRunning(flowBelow),
     });
   }
-  if (returnSpan[1] - returnSpan[0] > 2) {
+  if (returnAbove.length) {
     drawPipe(scene, {
       points: [
-        [returnRailX, returnSpan[1]],
         [returnRailX, returnSpan[0]],
+        [returnRailX, bufferReturnY],
       ],
       role: "return",
       part: "return-spine",
-      from: consumers[0] ? consumers[0].cfg.return_temp : null,
+      segment: "upper",
+      from: returnAbove[0].cfg.return_temp || returnAbove[0].cfg.flow_temp,
       to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
-      active: anyConsumer,
-      reverse: bufferReturnY < returnSpan[1],
+      active: segmentRunning(returnAbove),
+    });
+  }
+  if (returnBelow.length) {
+    drawPipe(scene, {
+      points: [
+        [returnRailX, returnSpan[1]],
+        [returnRailX, bufferReturnY],
+      ],
+      role: "return",
+      part: "return-spine",
+      segment: "lower",
+      from: returnBelow[0].cfg.return_temp || returnBelow[0].cfg.flow_temp,
+      to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
+      active: segmentRunning(returnBelow),
     });
   }
 

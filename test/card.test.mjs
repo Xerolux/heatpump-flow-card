@@ -550,6 +550,76 @@ test("every circuit shows its own state - A running does not mean D is", async (
   assert.equal(state.spine, true);
 });
 
+test("distributor segments flow away from the buffer and return to it independently", async () => {
+  const result = await page.evaluate(() => {
+    const read = (dhwOn, circuitOn) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "dhw-dual",
+        heatpump: { state_entity: "binary_sensor.compressor" },
+        buffer: { top: "sensor.buffer_top", bottom: "sensor.buffer_bottom" },
+        dhw: { pump: "binary_sensor.dhw_pump" },
+        circuits: [
+          { name: "middle", pump: "binary_sensor.middle_pump" },
+          { name: "lower", pump: "binary_sensor.lower_pump" },
+        ],
+      });
+      document.body.appendChild(card);
+      const hass = window.makeHass("en");
+      for (const [entity, on] of [
+        ["binary_sensor.compressor", true],
+        ["binary_sensor.dhw_pump", dhwOn],
+        ["binary_sensor.middle_pump", false],
+        ["binary_sensor.lower_pump", circuitOn],
+      ]) {
+        hass.states[entity] = { entity_id: entity, state: on ? "on" : "off", attributes: {} };
+      }
+      card.hass = hass;
+      const root = card.shadowRoot;
+      const segment = (part, name) => {
+        const group = root.querySelector(
+          `.hpfc-pipe-group[data-part="${part}"][data-segment="${name}"]`
+        );
+        const path = group.querySelector(".hpfc-dots");
+        const start = path.getPointAtLength(0);
+        const end = path.getPointAtLength(path.getTotalLength());
+        return {
+          active: !group.classList.contains("hpfc-stopped"),
+          startY: Math.round(start.y),
+          endY: Math.round(end.y),
+          reversed: path.classList.contains("hpfc-dots-reverse"),
+        };
+      };
+      const state = {
+        flowUpper: segment("flow-spine", "upper"),
+        flowLower: segment("flow-spine", "lower"),
+        returnUpper: segment("return-spine", "upper"),
+        returnLower: segment("return-spine", "lower"),
+      };
+      card.remove();
+      return state;
+    };
+    return { upperOnly: read(true, false), lowerOnly: read(false, true) };
+  });
+
+  assert.equal(result.upperOnly.flowUpper.active, true);
+  assert.equal(result.upperOnly.returnUpper.active, true);
+  assert.equal(result.upperOnly.flowLower.active, false);
+  assert.equal(result.upperOnly.returnLower.active, false);
+  assert.equal(result.lowerOnly.flowUpper.active, false);
+  assert.equal(result.lowerOnly.returnUpper.active, false);
+  assert.equal(result.lowerOnly.flowLower.active, true);
+  assert.equal(result.lowerOnly.returnLower.active, true);
+
+  // Flow leaves the buffer in both directions; return water approaches it.
+  assert.ok(result.upperOnly.flowUpper.startY > result.upperOnly.flowUpper.endY);
+  assert.ok(result.lowerOnly.flowLower.startY < result.lowerOnly.flowLower.endY);
+  assert.ok(result.upperOnly.returnUpper.startY < result.upperOnly.returnUpper.endY);
+  assert.ok(result.lowerOnly.returnLower.startY > result.lowerOnly.returnLower.endY);
+  for (const segment of Object.values(result.upperOnly)) assert.equal(segment.reversed, false);
+});
+
 test("a circuit parked in its off mode stays off while the heat pump runs", async () => {
   const result = await page.evaluate(() => {
     const card = document.createElement("heatpump-flow-card");
