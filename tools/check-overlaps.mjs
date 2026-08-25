@@ -14,10 +14,14 @@ const browser = await chromium.launch(existsSync(candidate) ? { executablePath: 
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
 
 const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "advanced", "circuits", "extras", "electrics"];
+// German words are the longer ones - "Zusatzheizung" against "Aux heat" - so a
+// label that fits in English can still collide in the translation.
+const languages = ["en", "de"];
 const problems = [];
 
 for (const layout of layouts) {
-  await page.goto(`${preview}?layout=${layout}`);
+  for (const lang of languages) {
+  await page.goto(`${preview}?layout=${layout}&lang=${lang}`);
   await page.waitForTimeout(250);
   const hits = await page.evaluate((name) => {
     const root = document.getElementById(`card-${name}`).shadowRoot;
@@ -61,7 +65,8 @@ for (const layout of layouts) {
     }
     return found;
   }, layout);
-  for (const hit of hits) problems.push(`${layout}: ${hit}`);
+  for (const hit of hits) problems.push(`${layout} (${lang}): ${hit}`);
+  }
 }
 
 await browser.close();
@@ -71,4 +76,4 @@ if (problems.length) {
   for (const problem of problems) console.error(` - ${problem}`);
   process.exit(1);
 }
-console.log(`no overlapping labels in ${layouts.length} layouts`);
+console.log(`no overlapping labels in ${layouts.length} layouts \u00d7 ${languages.length} languages`);

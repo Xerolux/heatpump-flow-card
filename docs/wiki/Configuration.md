@@ -65,6 +65,13 @@ tank flow.
 | `heater_temp` | Its own temperature, printed next to the power |
 | `heater_mode` | Off / automatic / boost — takes over the tap on the element |
 
+The element's caption carries its `heater_mode` next to the name. A plain
+`switch` is the exception: switched on it says only that the element is allowed
+to run, which the glow and the wattage already answer, so only its *off* state
+is written out. A `select` or `climate` mode is always shown, because named
+options carry something the drawing cannot.
+
+
 Configure only `top` and `bottom` and the tank shows two pills; configure none
 and it shows three empty ones. `buffer: false` wires the heat pump straight to
 the circuits.
