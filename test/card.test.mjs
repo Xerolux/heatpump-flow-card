@@ -200,7 +200,7 @@ test("the editor round-trips a configuration", async () => {
       type: "custom:heatpump-flow-card",
       layout: "full",
       heatpump: { entity: "switch.heat_pump", power: { entity: "sensor.hp_power", decimals: 2 } },
-      pv: { power: "sensor.pv_power" },
+      pv: { power: "sensor.pv_power", house: { calculate: true, name: "Residual house" } },
       circuits: [{ type: "underfloor", pump: "binary_sensor.circuit_a_pump" }],
     };
     editor.setConfig(config);
@@ -214,6 +214,7 @@ test("the editor round-trips a configuration", async () => {
   assert.deepEqual(result.roundTrip.heatpump.power, { entity: "sensor.hp_power", decimals: 2 });
   assert.equal(result.roundTrip.circuits[0].type, "underfloor");
   assert.equal(result.roundTrip.pv.power, "sensor.pv_power");
+  assert.deepEqual(result.roundTrip.pv.house, { calculate: true, name: "Residual house" });
 });
 
 test("the editor keeps tank element and circuit humidity fields", async () => {
@@ -548,6 +549,76 @@ test("every circuit shows its own state - A running does not mean D is", async (
   // the distributor carries water as long as any circuit draws
   assert.equal(state.trunk, true);
   assert.equal(state.spine, true);
+});
+
+test("distributor segments flow away from the buffer and return to it independently", async () => {
+  const result = await page.evaluate(() => {
+    const read = (dhwOn, circuitOn) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "dhw-dual",
+        heatpump: { state_entity: "binary_sensor.compressor" },
+        buffer: { top: "sensor.buffer_top", bottom: "sensor.buffer_bottom" },
+        dhw: { pump: "binary_sensor.dhw_pump" },
+        circuits: [
+          { name: "middle", pump: "binary_sensor.middle_pump" },
+          { name: "lower", pump: "binary_sensor.lower_pump" },
+        ],
+      });
+      document.body.appendChild(card);
+      const hass = window.makeHass("en");
+      for (const [entity, on] of [
+        ["binary_sensor.compressor", true],
+        ["binary_sensor.dhw_pump", dhwOn],
+        ["binary_sensor.middle_pump", false],
+        ["binary_sensor.lower_pump", circuitOn],
+      ]) {
+        hass.states[entity] = { entity_id: entity, state: on ? "on" : "off", attributes: {} };
+      }
+      card.hass = hass;
+      const root = card.shadowRoot;
+      const segment = (part, name) => {
+        const group = root.querySelector(
+          `.hpfc-pipe-group[data-part="${part}"][data-segment="${name}"]`
+        );
+        const path = group.querySelector(".hpfc-dots");
+        const start = path.getPointAtLength(0);
+        const end = path.getPointAtLength(path.getTotalLength());
+        return {
+          active: !group.classList.contains("hpfc-stopped"),
+          startY: Math.round(start.y),
+          endY: Math.round(end.y),
+          reversed: path.classList.contains("hpfc-dots-reverse"),
+        };
+      };
+      const state = {
+        flowUpper: segment("flow-spine", "upper"),
+        flowLower: segment("flow-spine", "lower"),
+        returnUpper: segment("return-spine", "upper"),
+        returnLower: segment("return-spine", "lower"),
+      };
+      card.remove();
+      return state;
+    };
+    return { upperOnly: read(true, false), lowerOnly: read(false, true) };
+  });
+
+  assert.equal(result.upperOnly.flowUpper.active, true);
+  assert.equal(result.upperOnly.returnUpper.active, true);
+  assert.equal(result.upperOnly.flowLower.active, false);
+  assert.equal(result.upperOnly.returnLower.active, false);
+  assert.equal(result.lowerOnly.flowUpper.active, false);
+  assert.equal(result.lowerOnly.returnUpper.active, false);
+  assert.equal(result.lowerOnly.flowLower.active, true);
+  assert.equal(result.lowerOnly.returnLower.active, true);
+
+  // Flow leaves the buffer in both directions; return water approaches it.
+  assert.ok(result.upperOnly.flowUpper.startY > result.upperOnly.flowUpper.endY);
+  assert.ok(result.lowerOnly.flowLower.startY < result.lowerOnly.flowLower.endY);
+  assert.ok(result.upperOnly.returnUpper.startY < result.upperOnly.returnUpper.endY);
+  assert.ok(result.lowerOnly.returnLower.startY > result.lowerOnly.returnLower.endY);
+  for (const segment of Object.values(result.upperOnly)) assert.equal(segment.reversed, false);
 });
 
 test("a circuit parked in its off mode stays off while the heat pump runs", async () => {
@@ -927,6 +998,115 @@ test("the surplus goes to the battery and the grid, each the right way round", a
   assert.equal(bus.wallbox.active, false);
   assert.equal(bus.heatpump.active, false);
   assert.equal(bus.trunk.active, true);
+});
+
+test("electrical thresholds use watts and negative one-way nodes stay quiet", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "pv-single",
+      heatpump: { power: "sensor.hp_kw" },
+      pv: {
+        power: "sensor.pv_kw",
+        grid_power: "sensor.grid_kw",
+        wallbox: "sensor.wallbox_kw",
+      },
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    for (const [entity, state] of [
+      ["sensor.hp_kw", 0.8],
+      ["sensor.pv_kw", -0.1],
+      ["sensor.grid_kw", -0.6],
+      ["sensor.wallbox_kw", -0.5],
+    ]) {
+      hass.states[entity] = {
+        entity_id: entity,
+        state: String(state),
+        attributes: { unit_of_measurement: "kW", device_class: "power" },
+      };
+    }
+    card.hass = hass;
+    const root = card.shadowRoot;
+    const branch = (part) => {
+      const group = root.querySelector(`.hpfc-pipe-group[data-part="${part}"]`);
+      return {
+        active: !group.classList.contains("hpfc-stopped"),
+        towardsBus: group.querySelector(".hpfc-dots").classList.contains("hpfc-dots-reverse"),
+      };
+    };
+    const state = {
+      heatpumpRunning: root.querySelector(".hpfc-heatpump").classList.contains("hpfc-running"),
+      heatpump: branch("power-heatpump"),
+      pv: branch("power-pv"),
+      grid: branch("power-grid"),
+      wallbox: branch("power-wallbox"),
+    };
+    card.remove();
+    return state;
+  });
+
+  // 0.8 kW is 800 W, comfortably above both watt-based defaults.
+  assert.equal(result.heatpumpRunning, true);
+  assert.deepEqual(result.heatpump, { active: true, towardsBus: false });
+  // A negative PV or consumer reading is not production or consumption.
+  assert.deepEqual(result.pv, { active: false, towardsBus: false });
+  assert.deepEqual(result.wallbox, { active: false, towardsBus: false });
+  // A negative meter reading is export and therefore runs away from the bus.
+  assert.deepEqual(result.grid, { active: true, towardsBus: false });
+});
+
+test("house consumption can be calculated from mixed-unit inverter and grid power", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "pv-single",
+      heatpump: { power: "sensor.hp_power" },
+      pv: {
+        power: ["sensor.inverter_w", "sensor.inverter_kw"],
+        grid_power: { entity: "sensor.meter_w", invert: true },
+        wallbox: "sensor.wallbox_kw",
+        house: { calculate: true, name: "Residual house", decimals: 0 },
+      },
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    for (const [entity, state, unit] of [
+      ["sensor.inverter_w", 4000, "W"],
+      ["sensor.inverter_kw", 7.3, "kW"],
+      ["sensor.meter_w", 9850, "W"],
+      ["sensor.wallbox_kw", 0, "kW"],
+      ["sensor.hp_power", 0, "W"],
+    ]) {
+      hass.states[entity] = {
+        entity_id: entity,
+        state: String(state),
+        attributes: { unit_of_measurement: unit, device_class: "power" },
+      };
+    }
+    card.hass = hass;
+    const root = card.shadowRoot;
+    const house = root.querySelector(".hpfc-enode-house");
+    const branch = root.querySelector('.hpfc-pipe-group[data-part="power-house"]');
+    const state = {
+      label: house.querySelector(".hpfc-label").textContent,
+      value: house.querySelector(".hpfc-value").textContent,
+      active: !branch.classList.contains("hpfc-stopped"),
+      towardsBus: branch.querySelector(".hpfc-dots").classList.contains("hpfc-dots-reverse"),
+    };
+    card.remove();
+    return state;
+  });
+
+  // 4,000 W + 7.3 kW - 9,850 W export = 1,450 W residual consumption.
+  assert.deepEqual(result, {
+    label: "Residual house",
+    value: "1,450 W",
+    active: true,
+    towardsBus: false,
+  });
 });
 
 test("the card can be enlarged to the screen, and comes back", async () => {

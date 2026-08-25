@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.8.2";
+const CARD_VERSION = "1.8.3";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -86,6 +86,7 @@ function asField(value) {
       if (!entities.length) return null;
       return { ...value, entity: value.entity || entities[0], entities };
     }
+    if (value.calculate === true) return { unit: "W", ...value };
     if (value.entity || value.attribute) return { ...value };
   }
   return null;
@@ -175,15 +176,33 @@ function numberValue(hass, field) {
   return combineValues(values, field.combine || (isShareLike(unitOf(hass, field)) ? "avg" : "sum"));
 }
 
+const POWER_UNIT_FACTORS = { mW: 0.001, W: 1, kW: 1000, MW: 1000000, GW: 1000000000 };
+
+/** Convert one power field to watts before comparing or balancing it. */
+function powerWatts(hass, field) {
+  if (!field || !field.entity) return null;
+  const entities = fieldEntities(field);
+  const values = (entities.length ? entities : [field.entity])
+    .map((entity) => {
+      const single = { ...field, entity, entities: undefined };
+      const value = singleNumber(hass, single);
+      if (value === null) return null;
+      const unit = unitOf(hass, single);
+      const factor = POWER_UNIT_FACTORS[unit] === undefined ? 1 : POWER_UNIT_FACTORS[unit];
+      return value * factor;
+    })
+    .filter((value) => value !== null);
+  if (!values.length) return null;
+  const value = combineValues(values, field.combine || "sum");
+  return field.invert ? -value : value;
+}
+
 /**
- * Signed power of a field. Meters disagree about which way is positive, so
+ * Signed power in watts. Meters disagree about which way is positive, so
  * `invert: true` flips the sign of one without touching the entity.
  */
 function signedPower(hass, field) {
-  if (!field || !field.entity) return null;
-  const value = numberValue(hass, field);
-  if (value === null) return null;
-  return field.invert ? -value : value;
+  return powerWatts(hass, field);
 }
 
 /** Truthiness of a field: on-ish states, or a number above the threshold. */
@@ -920,6 +939,7 @@ function drawPipe(scene, options) {
     class: `hpfc-pipe-group${options.className ? ` ${options.className}` : ""}`,
   });
   if (options.part) group.setAttribute("data-part", options.part);
+  if (options.segment) group.setAttribute("data-segment", options.segment);
 
   const gradientId = `hpfc-grad-${++gradientCounter}`;
   const first = points[0];
@@ -1302,7 +1322,7 @@ function heatPumpMode(hass, cfg) {
 function heatPumpRunning(hass, cfg) {
   if (cfg.state_entity && cfg.state_entity.entity) return isActive(hass, cfg.state_entity);
   if (cfg.power && cfg.power.entity) {
-    const value = numberValue(hass, cfg.power);
+    const value = powerWatts(hass, cfg.power);
     if (value !== null) return value > (cfg.power_threshold === undefined ? 20 : cfg.power_threshold);
   }
   if (cfg.compressor && cfg.compressor.entity) {
@@ -1749,7 +1769,7 @@ function drawPv(scene, box, cfg) {
 
   const producing = (hass) => {
     if (cfg.power && cfg.power.entity) {
-      const value = numberValue(hass, cfg.power);
+      const value = powerWatts(hass, cfg.power);
       if (value !== null) return value > (cfg.threshold === undefined ? 5 : cfg.threshold);
     }
     return cfg.entity ? isActive(hass, { entity: cfg.entity }) : false;
@@ -1775,12 +1795,21 @@ function electricNodes(config) {
     (config.buffer && config.buffer.heater_power) ||
     (config.dhw && config.dhw.heater_power) ||
     null;
-  return [
+  const nodes = [
     { key: "pv", kind: "source", field: pv.power, text: "pv", name: pv.name },
     { key: "battery", kind: "battery", field: pv.battery_power, soc: pv.battery, text: "battery" },
     { key: "grid", kind: "grid", field: pv.grid_power || pv.grid, text: "grid" },
     { key: "wallbox", kind: "sink", field: pv.wallbox, text: "wallbox" },
-    { key: "house", kind: "sink", field: pv.house, text: "house" },
+    {
+      key: "house",
+      kind: "sink",
+      field: pv.house,
+      text: "house",
+      calculate:
+        pv.house && pv.house.calculate === true
+          ? (hass) => calculatedHousePower(hass, config)
+          : null,
+    },
     {
       key: "heatpump",
       kind: "sink",
@@ -1789,7 +1818,8 @@ function electricNodes(config) {
       name: config.heatpump.name,
     },
     { key: "heater", kind: "sink", field: tankHeater, text: "heater" },
-  ].filter((node) => node.field && node.field.entity);
+  ];
+  return nodes.filter((node) => node.field && (node.field.entity || node.calculate));
 }
 
 /**
@@ -1804,17 +1834,35 @@ function hasElectrics(config) {
 }
 
 /**
+ * Residual building consumption from net inverter output and the normalized
+ * grid meter. A DC-coupled battery is already reflected in inverter AC power;
+ * the wallbox is subtracted because it has its own node on the bus.
+ */
+function calculatedHousePower(hass, config) {
+  const pv = config.pv || {};
+  const production = signedPower(hass, pv.power);
+  const grid = signedPower(hass, pv.grid_power || pv.grid);
+  if (production === null || grid === null) return null;
+  const wallbox = signedPower(hass, pv.wallbox);
+  return production + grid - Math.max(0, wallbox === null ? 0 : wallbox);
+}
+
+function electricNodePower(hass, node) {
+  return node.calculate ? node.calculate(hass) : signedPower(hass, node.field);
+}
+
+/**
  * Which way the energy of one node travels: "in" towards the bus, "out" from
  * the bus into the node, or null while it is carrying nothing.
  */
 function electricDirection(node) {
   return (hass) => {
-    const value = signedPower(hass, node.field);
+    const value = electricNodePower(hass, node);
     if (value === null) return null;
     const threshold = node.field.threshold === undefined ? 5 : node.field.threshold;
+    if (node.kind === "source") return value > threshold ? "in" : null;
+    if (node.kind === "sink") return value > threshold ? "out" : null;
     if (Math.abs(value) <= threshold) return null;
-    if (node.kind === "source") return "in";
-    if (node.kind === "sink") return "out";
     // A battery counts charging as positive, a meter counts importing as
     // positive; `invert: true` on the entity settles a plant that disagrees.
     if (node.kind === "battery") return value > 0 ? "out" : "in";
@@ -1956,7 +2004,12 @@ function drawElectrics(scene, box, nodes) {
       }
       label.textContent = title;
       fitText(scene, label, title, tileW - 52);
-      value.textContent = displayValue(hass, node.field);
+      const calculated = node.calculate ? node.calculate(hass) : null;
+      value.textContent = node.calculate
+        ? calculated === null
+          ? "–"
+          : formatNumber(hass, calculated, node.field) + suffix(node.field.unit || "W")
+        : displayValue(hass, node.field);
       const direction = node.direction(hass);
       group.classList.toggle("hpfc-running", direction !== null);
       group.classList.toggle("hpfc-feeding", direction === "in");
@@ -2870,30 +2923,68 @@ function buildScene(card) {
     });
   }
 
-  if (flowSpan[1] - flowSpan[0] > 2) {
+  // A distributor can have consumers above and below the buffer connection.
+  // One path through the whole rail cannot animate both directions at once,
+  // so each side gets its own path and activity state.
+  const flowAbove = consumers.filter((item) => item.inletY < bufferFlowY - 2);
+  const flowBelow = consumers.filter((item) => item.inletY > bufferFlowY + 2);
+  const returnAbove = consumers.filter((item) => item.outletY < bufferReturnY - 2);
+  const returnBelow = consumers.filter((item) => item.outletY > bufferReturnY + 2);
+  const segmentRunning = (items) => (hass) =>
+    items.some((item) => item.running && item.running(hass));
+
+  if (flowAbove.length) {
     drawPipe(scene, {
       points: [
+        [flowRailX, bufferFlowY],
         [flowRailX, flowSpan[0]],
+      ],
+      role: "flow",
+      part: "flow-spine",
+      segment: "upper",
+      from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
+      active: segmentRunning(flowAbove),
+    });
+  }
+  if (flowBelow.length) {
+    drawPipe(scene, {
+      points: [
+        [flowRailX, bufferFlowY],
         [flowRailX, flowSpan[1]],
       ],
       role: "flow",
       part: "flow-spine",
+      segment: "lower",
       from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
-      active: anyConsumer,
+      active: segmentRunning(flowBelow),
     });
   }
-  if (returnSpan[1] - returnSpan[0] > 2) {
+  if (returnAbove.length) {
     drawPipe(scene, {
       points: [
-        [returnRailX, returnSpan[1]],
         [returnRailX, returnSpan[0]],
+        [returnRailX, bufferReturnY],
       ],
       role: "return",
       part: "return-spine",
-      from: consumers[0] ? consumers[0].cfg.return_temp : null,
+      segment: "upper",
+      from: returnAbove[0].cfg.return_temp || returnAbove[0].cfg.flow_temp,
       to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
-      active: anyConsumer,
-      reverse: bufferReturnY < returnSpan[1],
+      active: segmentRunning(returnAbove),
+    });
+  }
+  if (returnBelow.length) {
+    drawPipe(scene, {
+      points: [
+        [returnRailX, returnSpan[1]],
+        [returnRailX, bufferReturnY],
+      ],
+      role: "return",
+      part: "return-spine",
+      segment: "lower",
+      from: returnBelow[0].cfg.return_temp || returnBelow[0].cfg.flow_temp,
+      to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
+      active: segmentRunning(returnBelow),
     });
   }
 

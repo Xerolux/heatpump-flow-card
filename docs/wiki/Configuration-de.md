@@ -187,9 +187,10 @@ pv:
   power: [sensor.wechselrichter_1, sensor.wechselrichter_2]
   battery: sensor.batterie_ladestand      # Prozent, steht neben dem Namen
   battery_power: sensor.batterie_leistung # + laden, - entladen
-  grid_power: sensor.netz_leistung        # + Bezug, - Einspeisung
+  grid_power: sensor.netz_leistung        # + Bezug, - Einspeisung; ggf. unten umdrehen
   wallbox: sensor.wallbox_leistung        # openWB oder jede andere
-  house: sensor.hausverbrauch
+  house:
+    calculate: true                       # Netto-PV + Netz - Wallbox
 ```
 
 | Knoten | Kommt aus | Richtung |
@@ -198,7 +199,7 @@ pv:
 | Batterie | `pv.battery_power` | beim Laden aus der Schiene, beim Entladen hinein |
 | Netz | `pv.grid_power` (oder `pv.grid`) | beim Bezug in die Schiene, bei Einspeisung heraus |
 | Wallbox | `pv.wallbox` | beim Laden aus der Schiene |
-| Haus | `pv.house` | aus der Schiene |
+| Haus | `pv.house`-Entität oder `calculate: true` | aus der Schiene |
 | Wärmepumpe | `heatpump.power` | aus der Schiene, solange sie zieht |
 | Heizstab | `buffer.heater_power` oder `dhw.heater_power` | aus der Schiene, solange er zieht |
 
@@ -212,10 +213,12 @@ falsch herum, dreht man genau diese Entität um:
 ```
 
 Ein Knoten bleibt still, solange seine Leistung innerhalb von `threshold` Watt
-um null liegt (Standard 5). `electrics: false` auf oberster Ebene schaltet die
-Schiene wieder ab.
+um null liegt (Standard 5). W- und kW-Entitäten werden davor einheitlich in
+Watt umgerechnet. `electrics: false` auf oberster Ebene schaltet die Schiene
+wieder ab.
 
-Den Hausverbrauch gibt es selten als eigene Entität, und bei DC-gekoppelter
-Batterie die PV-Erzeugung auch nicht. Beides ist eine Subtraktion entfernt –
-siehe [Vorlagen-Sensoren](Template-Sensors-de), dort steht auch der Test, in
-welche Richtung dein Zähler positiv zählt.
+Mit `house: { calculate: true }` berechnet die Karte den restlichen
+Hausverbrauch als Netto-Wechselrichterleistung plus normalisierten Netzwert,
+abzüglich der separat gezeigten Wallbox. Eine normale Entität funktioniert
+weiterhin, wenn die Anlage anders aufgebaut ist oder der Wert auch außerhalb
+der Karte gebraucht wird – siehe [Vorlagen-Sensoren](Template-Sensors-de).

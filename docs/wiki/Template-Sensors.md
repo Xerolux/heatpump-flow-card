@@ -5,6 +5,11 @@ Two of the values the card can draw rarely exist as an entity of their own:
 photovoltaic production**. Both are a subtraction away from entities you
 already have, and Home Assistant builds them without any add-on.
 
+If the value is only needed in this card, `pv.house: { calculate: true }`
+performs the house calculation directly. Use a template sensor when another
+dashboard or automation also needs the result, or when the plant needs a
+different formula.
+
 Everything below is Home Assistant configuration, not card configuration — the
 card only ever reads the finished sensor.
 
