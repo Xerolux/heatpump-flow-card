@@ -200,7 +200,7 @@ test("the editor round-trips a configuration", async () => {
       type: "custom:heatpump-flow-card",
       layout: "full",
       heatpump: { entity: "switch.heat_pump", power: { entity: "sensor.hp_power", decimals: 2 } },
-      pv: { power: "sensor.pv_power" },
+      pv: { power: "sensor.pv_power", house: { calculate: true, name: "Residual house" } },
       circuits: [{ type: "underfloor", pump: "binary_sensor.circuit_a_pump" }],
     };
     editor.setConfig(config);
@@ -214,6 +214,7 @@ test("the editor round-trips a configuration", async () => {
   assert.deepEqual(result.roundTrip.heatpump.power, { entity: "sensor.hp_power", decimals: 2 });
   assert.equal(result.roundTrip.circuits[0].type, "underfloor");
   assert.equal(result.roundTrip.pv.power, "sensor.pv_power");
+  assert.deepEqual(result.roundTrip.pv.house, { calculate: true, name: "Residual house" });
 });
 
 test("the editor keeps tank element and circuit humidity fields", async () => {
@@ -1054,6 +1055,58 @@ test("electrical thresholds use watts and negative one-way nodes stay quiet", as
   assert.deepEqual(result.wallbox, { active: false, towardsBus: false });
   // A negative meter reading is export and therefore runs away from the bus.
   assert.deepEqual(result.grid, { active: true, towardsBus: false });
+});
+
+test("house consumption can be calculated from mixed-unit inverter and grid power", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "pv-single",
+      heatpump: { power: "sensor.hp_power" },
+      pv: {
+        power: ["sensor.inverter_w", "sensor.inverter_kw"],
+        grid_power: { entity: "sensor.meter_w", invert: true },
+        wallbox: "sensor.wallbox_kw",
+        house: { calculate: true, name: "Residual house", decimals: 0 },
+      },
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    for (const [entity, state, unit] of [
+      ["sensor.inverter_w", 4000, "W"],
+      ["sensor.inverter_kw", 7.3, "kW"],
+      ["sensor.meter_w", 9850, "W"],
+      ["sensor.wallbox_kw", 0, "kW"],
+      ["sensor.hp_power", 0, "W"],
+    ]) {
+      hass.states[entity] = {
+        entity_id: entity,
+        state: String(state),
+        attributes: { unit_of_measurement: unit, device_class: "power" },
+      };
+    }
+    card.hass = hass;
+    const root = card.shadowRoot;
+    const house = root.querySelector(".hpfc-enode-house");
+    const branch = root.querySelector('.hpfc-pipe-group[data-part="power-house"]');
+    const state = {
+      label: house.querySelector(".hpfc-label").textContent,
+      value: house.querySelector(".hpfc-value").textContent,
+      active: !branch.classList.contains("hpfc-stopped"),
+      towardsBus: branch.querySelector(".hpfc-dots").classList.contains("hpfc-dots-reverse"),
+    };
+    card.remove();
+    return state;
+  });
+
+  // 4,000 W + 7.3 kW - 9,850 W export = 1,450 W residual consumption.
+  assert.deepEqual(result, {
+    label: "Residual house",
+    value: "1,450 W",
+    active: true,
+    towardsBus: false,
+  });
 });
 
 test("the card can be enlarged to the screen, and comes back", async () => {

@@ -352,9 +352,10 @@ pv:
   power: [sensor.inverter_1, sensor.inverter_2]
   battery: sensor.battery_soc         # a percentage, shown next to the name
   battery_power: sensor.battery_power # + charging, - discharging
-  grid_power: sensor.grid_power       # + import, - export
+  grid_power: sensor.grid_power       # + import, - export; use invert below if needed
   wallbox: sensor.wallbox_power       # an openWB or any other charger
-  house: sensor.house_consumption
+  house:
+    calculate: true                   # net PV + normalized grid - wallbox
 ```
 
 Meters disagree about which direction counts as positive. If an arrow points
@@ -370,6 +371,11 @@ The heat pump joins the bus through its own `power`, and an element in a tank
 through `heater_power` — neither needs configuring twice. `electrics: false`
 at the top level turns the bus off again and restores the single line from the
 photovoltaics to the heat pump.
+
+`house` also accepts a normal Home Assistant entity. With `calculate: true`,
+the card calculates the residual building consumption from the net inverter
+power plus the normalized grid value, minus the separately shown wallbox. The
+calculation uses watts even when one of the source entities reports kW.
 
 ### `circuits[]`
 

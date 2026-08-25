@@ -86,6 +86,7 @@ function asField(value) {
       if (!entities.length) return null;
       return { ...value, entity: value.entity || entities[0], entities };
     }
+    if (value.calculate === true) return { unit: "W", ...value };
     if (value.entity || value.attribute) return { ...value };
   }
   return null;
@@ -1794,12 +1795,21 @@ function electricNodes(config) {
     (config.buffer && config.buffer.heater_power) ||
     (config.dhw && config.dhw.heater_power) ||
     null;
-  return [
+  const nodes = [
     { key: "pv", kind: "source", field: pv.power, text: "pv", name: pv.name },
     { key: "battery", kind: "battery", field: pv.battery_power, soc: pv.battery, text: "battery" },
     { key: "grid", kind: "grid", field: pv.grid_power || pv.grid, text: "grid" },
     { key: "wallbox", kind: "sink", field: pv.wallbox, text: "wallbox" },
-    { key: "house", kind: "sink", field: pv.house, text: "house" },
+    {
+      key: "house",
+      kind: "sink",
+      field: pv.house,
+      text: "house",
+      calculate:
+        pv.house && pv.house.calculate === true
+          ? (hass) => calculatedHousePower(hass, config)
+          : null,
+    },
     {
       key: "heatpump",
       kind: "sink",
@@ -1808,7 +1818,8 @@ function electricNodes(config) {
       name: config.heatpump.name,
     },
     { key: "heater", kind: "sink", field: tankHeater, text: "heater" },
-  ].filter((node) => node.field && node.field.entity);
+  ];
+  return nodes.filter((node) => node.field && (node.field.entity || node.calculate));
 }
 
 /**
@@ -1823,12 +1834,30 @@ function hasElectrics(config) {
 }
 
 /**
+ * Residual building consumption from net inverter output and the normalized
+ * grid meter. A DC-coupled battery is already reflected in inverter AC power;
+ * the wallbox is subtracted because it has its own node on the bus.
+ */
+function calculatedHousePower(hass, config) {
+  const pv = config.pv || {};
+  const production = signedPower(hass, pv.power);
+  const grid = signedPower(hass, pv.grid_power || pv.grid);
+  if (production === null || grid === null) return null;
+  const wallbox = signedPower(hass, pv.wallbox);
+  return production + grid - Math.max(0, wallbox === null ? 0 : wallbox);
+}
+
+function electricNodePower(hass, node) {
+  return node.calculate ? node.calculate(hass) : signedPower(hass, node.field);
+}
+
+/**
  * Which way the energy of one node travels: "in" towards the bus, "out" from
  * the bus into the node, or null while it is carrying nothing.
  */
 function electricDirection(node) {
   return (hass) => {
-    const value = signedPower(hass, node.field);
+    const value = electricNodePower(hass, node);
     if (value === null) return null;
     const threshold = node.field.threshold === undefined ? 5 : node.field.threshold;
     if (node.kind === "source") return value > threshold ? "in" : null;
@@ -1975,7 +2004,12 @@ function drawElectrics(scene, box, nodes) {
       }
       label.textContent = title;
       fitText(scene, label, title, tileW - 52);
-      value.textContent = displayValue(hass, node.field);
+      const calculated = node.calculate ? node.calculate(hass) : null;
+      value.textContent = node.calculate
+        ? calculated === null
+          ? "–"
+          : formatNumber(hass, calculated, node.field) + suffix(node.field.unit || "W")
+        : displayValue(hass, node.field);
       const direction = node.direction(hass);
       group.classList.toggle("hpfc-running", direction !== null);
       group.classList.toggle("hpfc-feeding", direction === "in");

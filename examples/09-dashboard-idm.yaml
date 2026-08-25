@@ -75,16 +75,16 @@ sections:
           # Verified against this plant: the battery reads +1504 W while its status is
           # B_STATUS_CHARGE, so positive is charging - the card's own convention.
           battery_power: sensor.solaredge_i1_b1_dc_power
-          # The meter. SolarEdge ships both this and `..._ac_power_inverted` because
-          # installations disagree about which direction counts as positive. Check it
-          # in the evening with the sun off: the arrow has to point *into* the bus
-          # while you are importing. If it points out, add `invert: true` here.
-          grid_power: sensor.solaredge_i1_m1_ac_power
+          # Live-verified on this plant: the plain SolarEdge value is positive while
+          # exporting, whereas the card's convention is positive import.
+          grid_power:
+            entity: sensor.solaredge_i1_m1_ac_power
+            invert: true
           # openWB over MQTT. It numbers its charge points - this plant is on 6.
           wallbox: sensor.openwb_chargepoint_6_ladeleistung
-          # House consumption, if you have a sensor for it (a template of
-          # production - export - charging does the job as well).
-          # house: sensor.house_consumption
+          # Net inverter output plus the normalized grid value, minus the wallbox.
+          house:
+            calculate: true
         solar:
           name: Paradigma solar thermal
           collector_temp: sensor.systasolar_aqua_s3_kollektor_temp

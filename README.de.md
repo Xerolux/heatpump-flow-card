@@ -360,9 +360,10 @@ pv:
   power: [sensor.wechselrichter_1, sensor.wechselrichter_2]
   battery: sensor.batterie_ladestand    # Prozent, steht neben dem Namen
   battery_power: sensor.batterie_leistung # + laden, - entladen
-  grid_power: sensor.netz_leistung        # + Bezug, - Einspeisung
+  grid_power: sensor.netz_leistung        # + Bezug, - Einspeisung; ggf. unten umdrehen
   wallbox: sensor.wallbox_leistung        # openWB oder jede andere
-  house: sensor.hausverbrauch
+  house:
+    calculate: true                       # Netto-PV + Netz - Wallbox
 ```
 
 Zähler sind sich nicht einig, welche Richtung positiv zählt. Zeigt ein Pfeil
@@ -377,6 +378,13 @@ falsch herum, dreht man genau diese Entität um:
 Die Wärmepumpe hängt über ihr eigenes `power` an der Schiene, ein Heizstab im
 Speicher über `heater_power` – beides muss man nicht doppelt eintragen.
 `electrics: false` auf oberster Ebene schaltet die Schiene wieder ab.
+
+`house` kann weiterhin eine normale Home-Assistant-Entität sein. Mit
+`calculate: true` berechnet die Karte den restlichen Hausverbrauch aus der
+Netto-Wechselrichterleistung plus dem normalisierten Netzwert, abzüglich der
+separat gezeigten Wallbox. Dabei rechnet sie auch gemischte W- und kW-Sensoren
+korrekt in Watt um.
+
 ### `circuits[]`
 
 | Option | Beschreibung |

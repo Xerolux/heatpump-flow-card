@@ -68,8 +68,12 @@ pv:
   # consumer on the energy bus below the plant - which is where its power
   # actually comes from.
   battery_power: sensor.solaredge_i1_b1_dc_power
-  grid_power: sensor.solaredge_i1_m1_ac_power
+  grid_power:
+    entity: sensor.solaredge_i1_m1_ac_power
+    invert: true
   wallbox: sensor.openwb_chargepoint_6_ladeleistung
+  house:
+    calculate: true
 
 circuits:
   - name: Heating circuit A

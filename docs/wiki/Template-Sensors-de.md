@@ -5,6 +5,11 @@ den **Hausverbrauch** und – bei einer Anlage mit DC-gekoppelter Batterie – d
 **tatsächliche PV-Erzeugung**. Beide sind eine Subtraktion von Entitäten, die du
 schon hast, und Home Assistant baut sie ohne Zusatz-Integration.
 
+Wird der Wert nur in dieser Karte gebraucht, erledigt
+`pv.house: { calculate: true }` die Hausberechnung direkt. Ein Vorlagen-Sensor
+bleibt sinnvoll, wenn auch ein anderes Dashboard oder eine Automation den Wert
+braucht oder die Anlage eine andere Formel verlangt.
+
 Alles hier ist Home-Assistant-Konfiguration, keine Karten-Konfiguration – die
 Karte liest nur den fertigen Sensor.
 

@@ -119,9 +119,10 @@ pv:
   power: [sensor.inverter_1, sensor.inverter_2]
   battery: sensor.battery_soc          # a percentage, shown next to the name
   battery_power: sensor.battery_power  # + charging, - discharging
-  grid_power: sensor.grid_power        # + import, - export
+  grid_power: sensor.grid_power        # + import, - export; invert below if needed
   wallbox: sensor.wallbox_power        # an openWB or any other charger
-  house: sensor.house_consumption
+  house:
+    calculate: true                    # net PV + normalized grid - wallbox
 ```
 
 | Node | Comes from | Direction |
@@ -130,7 +131,7 @@ pv:
 | Battery | `pv.battery_power` | out of the bus while charging, into it while discharging |
 | Grid | `pv.grid_power` (or `pv.grid`) | into the bus while importing, out of it while exporting |
 | Wallbox | `pv.wallbox` | out of the bus while charging |
-| House | `pv.house` | out of the bus |
+| House | `pv.house` entity or `calculate: true` | out of the bus |
 | Heat pump | `heatpump.power` | out of the bus while it draws |
 | Element | `buffer.heater_power` or `dhw.heater_power` | out of the bus while it draws |
 
@@ -144,12 +145,15 @@ wrong way round, flip that one entity:
 ```
 
 A node stays idle while its power is within `threshold` watts of zero (5 by
-default). `electrics: false` at the top level turns the bus off again.
+default). W and kW entities are normalized before that comparison.
+`electrics: false` at the top level turns the bus off again.
 
-House consumption is rarely an entity of its own, and on a plant with a
-DC-coupled battery neither is the photovoltaic production. Both are one
-subtraction away — see [Template sensors](Template-Sensors), which also carries
-the check for which direction your meter counts as positive.
+With `house: { calculate: true }`, the card calculates residual building
+consumption as net inverter power plus the normalized grid value, minus the
+separately shown wallbox. A normal entity still works when you need another
+topology or want the value elsewhere in Home Assistant — see
+[Template sensors](Template-Sensors), which also carries the check for which
+direction your meter counts as positive.
 
 ## circuits
 
