@@ -928,3 +928,70 @@ test("the surplus goes to the battery and the grid, each the right way round", a
   assert.equal(bus.heatpump.active, false);
   assert.equal(bus.trunk.active, true);
 });
+
+test("the card can be enlarged to the screen, and comes back", async () => {
+  const result = await page.evaluate(async () => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: { entity: "switch.heat_pump" },
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+
+    const button = card.shadowRoot.querySelector(".hpfc-zoom");
+    const stage = card.shadowRoot.querySelector(".hpfc-stage");
+    const svg = stage.querySelector("svg");
+    const designWidth = svg.viewBox.baseVal.width;
+
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const host = document.querySelector(".heatpump-flow-card-zoom");
+    const opened = {
+      hasLayer: Boolean(host),
+      stageMoved: Boolean(host && host.shadowRoot.contains(stage)),
+      // never smaller than the size the scheme was drawn at times the floor
+      wideEnough: parseFloat(svg.style.width) >= designWidth * 0.75 - 1,
+      // and no wider than the screen unless it had to scroll
+      sane: parseFloat(svg.style.width) > 0,
+    };
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    const closed = {
+      layerGone: !document.querySelector(".heatpump-flow-card-zoom"),
+      stageBack: card.shadowRoot.querySelector("ha-card").contains(stage),
+      widthCleared: svg.style.width === "",
+    };
+    card.remove();
+    return { opened, closed };
+  });
+  assert.deepEqual(result.opened, {
+    hasLayer: true,
+    stageMoved: true,
+    wideEnough: true,
+    sane: true,
+  });
+  assert.deepEqual(result.closed, { layerGone: true, stageBack: true, widthCleared: true });
+});
+
+test("the magnifier can be switched off", async () => {
+  const buttons = await page.evaluate(() => {
+    const read = (zoom) => {
+      const card = document.createElement("heatpump-flow-card");
+      const config = {
+        type: "custom:heatpump-flow-card",
+        layout: "single",
+        heatpump: { entity: "switch.heat_pump" },
+      };
+      if (zoom === false) config.zoom = false;
+      card.setConfig(config);
+      document.body.appendChild(card);
+      card.hass = window.makeHass("en");
+      const present = Boolean(card.shadowRoot.querySelector(".hpfc-zoom"));
+      card.remove();
+      return present;
+    };
+    return { byDefault: read(undefined), switchedOff: read(false) };
+  });
+  assert.deepEqual(buttons, { byDefault: true, switchedOff: false });
+});

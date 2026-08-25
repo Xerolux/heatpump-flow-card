@@ -15,6 +15,7 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `flow_speed` | number | `1` | Geschwindigkeit, `0.2`–`3` |
 | `temperature_colors` | boolean | `true` | `false` = Vorlauf rot, Rücklauf blau |
 | `controls` | boolean | `true` | `false` = jeder Klick öffnet nur more-info |
+| `zoom` | boolean | `true` | Die Lupe, die die Karte bildschirmfüllend öffnet |
 | `heatpump` | object | `{}` | Das Wärmepumpen-Panel |
 | `buffer` | object \| `false` | sichtbar | Pufferspeicher |
 | `dhw` | object \| `false` | nur `full` | Warmwasser |

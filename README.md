@@ -253,6 +253,28 @@ power:
 Entities that are missing or unavailable are skipped rather than dragging the
 total down, and a tap opens the first one in the list.
 
+## Size
+
+The card fills whatever column it is given and scales the drawing to that width
+— it is one SVG, so it stays sharp at any size. In a sections dashboard it asks
+for the full column width and a height that grows with the number of consumers;
+Home Assistant's own **grid options** on the card (three dots → *Edit* → the
+layout tab) override both if you want it narrower or taller.
+
+A dashboard column is still often narrower than the scheme was drawn for — on a
+phone in portrait the whole plant ends up thumbnail sized. That is what the
+**magnifier in the bottom-right corner** is for: it lifts the live card out into
+a full screen layer, the same scene with the same animations, scaled to the
+screen you are holding. Turn the phone and it re-fits itself; on a monitor it
+simply gets big. Escape, a click beside the card, or the button again brings it
+back.
+
+It never scales the drawing below three quarters of the size it was designed at
+— below that the labels stop being readable — so on a narrow screen you get a
+readable scheme that scrolls sideways rather than a smaller thumbnail.
+
+`zoom: false` removes the button.
+
 ## Options
 
 ### Card
@@ -266,6 +288,7 @@ total down, and a tap opens the first one in the list.
 | `flow_speed` | number | `1` | Speed multiplier, `0.2` – `3` |
 | `temperature_colors` | boolean | `true` | `false` keeps flow red / return blue |
 | `controls` | boolean | `true` | `false` makes every tap open more-info |
+| `zoom` | boolean | `true` | The magnifier that opens the card full screen |
 | `heatpump` | object | `{}` | see below |
 | `buffer` | object \| `false` | shown | Buffer tank |
 | `dhw` | object \| `false` | `full` only | Domestic hot water |

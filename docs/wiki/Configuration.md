@@ -15,6 +15,7 @@ empty, a section you set to `false` is not drawn at all.
 | `flow_speed` | number | `1` | Speed multiplier, `0.2`–`3` |
 | `temperature_colors` | boolean | `true` | `false` keeps flow red and return blue |
 | `controls` | boolean | `true` | `false` makes every tap open more-info |
+| `zoom` | boolean | `true` | The magnifier that opens the card full screen |
 | `heatpump` | object | `{}` | The heat pump panel |
 | `buffer` | object \| `false` | shown | Buffer tank |
 | `dhw` | object \| `false` | `full` only | Domestic hot water |

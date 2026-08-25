@@ -23,6 +23,24 @@ changes shipped with the next tagged release.
 
 Nothing yet.
 
+## [1.8.0] - 2026-08-25
+
+### Added
+
+- **A magnifier in the bottom-right corner.** A dashboard column is often
+  narrower than the scheme was drawn for — on a phone in portrait the whole
+  plant ends up thumbnail sized. The button lifts the *live* card out into a
+  full screen layer: the same scene with the same animations, scaled to the
+  screen it is on. It re-fits when the phone is turned, and Escape, a click
+  beside the card or the button again brings it back.
+  - It never scales the drawing below three quarters of the size it was
+    designed at, because below that the labels stop being readable. On a narrow
+    screen you get a readable scheme that scrolls sideways instead of a smaller
+    thumbnail.
+  - `zoom: false` removes the button; it is also a switch in the visual editor.
+- Both READMEs gained a **Size** section: how the card fills its column, where
+  Home Assistant's own grid options come in, and what the magnifier does.
+
 ## [1.7.0] - 2026-08-25
 
 ### Fixed
@@ -350,7 +368,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.4...v1.7.0
 [1.6.4]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.6.2...v1.6.3

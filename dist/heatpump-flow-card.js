@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.7.0";
+const CARD_VERSION = "1.8.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -999,6 +999,8 @@ const TEXTS = {
     wallbox: "Wallbox",
     house: "House",
     electrics: "Electricity",
+    enlarge: "Enlarge",
+    shrink: "Back to the dashboard",
     current: "Now",
     mode: "Mode",
     boost: "Boost",
@@ -1043,6 +1045,8 @@ const TEXTS = {
     wallbox: "Wallbox",
     house: "Haus",
     electrics: "Strom",
+    enlarge: "Vergrößern",
+    shrink: "Zurück zum Dashboard",
     current: "Ist",
     mode: "Betriebsart",
     boost: "Boost",
@@ -2361,6 +2365,12 @@ function drawDhw(scene, box, cfg) {
  * Configuration
  * ========================================================================= */
 
+/**
+ * How far the enlarged view may scale the drawing down before it stops. Below
+ * this the labels stop being readable, and scrolling is the better answer.
+ */
+const MIN_ZOOM_SCALE = 0.75;
+
 /** IDM and friends address their circuits A-G, so seven is the practical ceiling. */
 const MAX_CIRCUITS = 7;
 
@@ -2509,6 +2519,7 @@ function normalizeConfig(raw) {
     temperature_colors: raw.temperature_colors !== false,
     controls: raw.controls !== false,
     dim_inactive: raw.dim_inactive !== false,
+    zoom: raw.zoom !== false,
     electrics: raw.electrics !== false,
     heatpump: normalizeSection(raw.heatpump || {}, SECTION_FIELDS.heatpump),
     pv: null,
@@ -2948,6 +2959,56 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 }
 .hpfc-error { padding: 16px; color: var(--error-color, #db4437); font-size: 14px; }
 .hpfc-stage { position: relative; }
+.hpfc-zoom {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--divider-color, #d5d5d5);
+  background: var(--card-background-color, #fff);
+  color: var(--secondary-text-color, #757575);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+.hpfc-zoom:hover, .hpfc-zoom:focus-visible { opacity: 1; }
+.hpfc-zoom svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+}
+/* dropping the upright stroke turns the plus into a minus */
+.hpfc-zoom-open .hpfc-zoom-plus { display: none; }
+.hpfc-zoom-shell {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  /* centring is done with the child's auto margins: centring with
+     justify-content would make the overflow on the left unreachable when the
+     drawing is wider than the screen */
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: auto;
+  padding: 16px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.72);
+}
+.hpfc-stage-zoom {
+  margin: auto;
+  padding: 8px;
+  border-radius: 16px;
+  background: var(--card-background-color, #fff);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
 .hpfc-backdrop { position: absolute; inset: 0; z-index: 1; }
 .hpfc-pop {
   position: absolute;
@@ -3265,6 +3326,7 @@ class HeatpumpFlowCard extends HTMLElement {
   }
 
   _render() {
+    this.closeZoom();
     const root = this.shadowRoot;
     this._control = null;
     this._popover = null;
@@ -3302,6 +3364,7 @@ class HeatpumpFlowCard extends HTMLElement {
     this._stage = document.createElement("div");
     this._stage.className = "hpfc-stage";
     this._stage.appendChild(this._scene.svg);
+    if (this._config.zoom !== false) this._stage.appendChild(this._buildZoomButton());
     card.appendChild(this._stage);
     this._update();
     if (typeof window.requestAnimationFrame === "function") {
@@ -3475,6 +3538,134 @@ class HeatpumpFlowCard extends HTMLElement {
     pop.style.top = `${top}px`;
   }
 
+  /* ---- enlarging the card ---- */
+
+  /**
+   * A dashboard column is often narrower than the scheme was drawn for - on a
+   * phone in portrait the whole plant ends up thumbnail sized. The button in
+   * the corner lifts the *live* scene out into a full screen layer, so it is
+   * the same card with the same animations, only as large as the screen
+   * allows.
+   */
+  _buildZoomButton() {
+    const button = document.createElement("button");
+    button.className = "hpfc-zoom";
+    button.type = "button";
+    button.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+      '<circle cx="10.5" cy="10.5" r="6.2" /><line x1="15.2" y1="15.2" x2="20.5" y2="20.5" />' +
+      '<line class="hpfc-zoom-plus" x1="10.5" y1="7.6" x2="10.5" y2="13.4" />' +
+      '<line x1="7.6" y1="10.5" x2="13.4" y2="10.5" /></svg>';
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.toggleZoom();
+    });
+    this._zoomButton = button;
+    this._labelZoomButton();
+    return button;
+  }
+
+  _labelZoomButton() {
+    if (!this._zoomButton) return;
+    const texts = textsFor(this._hass);
+    const label = this._zoomHost ? texts.shrink : texts.enlarge;
+    this._zoomButton.setAttribute("aria-label", label);
+    this._zoomButton.setAttribute("title", label);
+    this._zoomButton.classList.toggle("hpfc-zoom-open", Boolean(this._zoomHost));
+  }
+
+  toggleZoom() {
+    if (this._zoomHost) this.closeZoom();
+    else this.openZoom();
+  }
+
+  openZoom() {
+    if (this._zoomHost || !this._stage) return;
+    this.closeControl();
+
+    const host = document.createElement("div");
+    host.className = "heatpump-flow-card-zoom";
+    host.style.cssText = "position:fixed;inset:0;z-index:9999";
+    const root = host.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = CARD_STYLES;
+    root.appendChild(style);
+
+    const shell = document.createElement("div");
+    shell.className = "hpfc-zoom-shell";
+    shell.addEventListener("click", (event) => {
+      if (event.target === shell) this.closeZoom();
+    });
+    shell.appendChild(this._stage);
+    root.appendChild(shell);
+    document.body.appendChild(host);
+
+    this._zoomHost = host;
+    this._zoomShell = shell;
+    this._stage.classList.add("hpfc-stage-zoom");
+    this._onZoomKey = (event) => {
+      if (event.key === "Escape") this.closeZoom();
+    };
+    this._onZoomResize = () => this._fitZoom();
+    document.addEventListener("keydown", this._onZoomKey);
+    window.addEventListener("resize", this._onZoomResize);
+    if (window.screen && window.screen.orientation) {
+      window.screen.orientation.addEventListener("change", this._onZoomResize);
+    }
+    this._fitZoom();
+    // A drawing wider than the screen opens in the middle rather than at one
+    // edge; both sides stay reachable by scrolling. The scroll extent only
+    // exists once the browser has laid the layer out.
+    const centre = () => {
+      shell.scrollLeft = Math.max(0, (shell.scrollWidth - shell.clientWidth) / 2);
+      shell.scrollTop = Math.max(0, (shell.scrollHeight - shell.clientHeight) / 2);
+    };
+    if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(centre);
+    else centre();
+    this._labelZoomButton();
+    if (this._zoomButton) this._zoomButton.focus();
+  }
+
+  closeZoom() {
+    if (!this._zoomHost) return;
+    document.removeEventListener("keydown", this._onZoomKey);
+    window.removeEventListener("resize", this._onZoomResize);
+    if (window.screen && window.screen.orientation) {
+      window.screen.orientation.removeEventListener("change", this._onZoomResize);
+    }
+    const card = this.shadowRoot ? this.shadowRoot.querySelector("ha-card") : null;
+    this._stage.classList.remove("hpfc-stage-zoom");
+    if (this._scene) {
+      this._scene.svg.style.width = "";
+      this._scene.svg.style.height = "";
+    }
+    if (card) card.appendChild(this._stage);
+    this._zoomHost.remove();
+    this._zoomHost = null;
+    this._zoomShell = null;
+    this._labelZoomButton();
+  }
+
+  /**
+   * Fills the screen, but never shrinks the drawing below the size it was
+   * designed at: on a narrow screen it stays readable and scrolls sideways
+   * instead of becoming a thumbnail again.
+   */
+  _fitZoom() {
+    if (!this._zoomHost || !this._scene) return;
+    const box = this._scene.svg.viewBox.baseVal;
+    if (!box || !box.width || !box.height) return;
+    const available = { w: window.innerWidth - 32, h: window.innerHeight - 32 };
+    const fit = Math.min(available.w / box.width, available.h / box.height);
+    const scale = Math.max(fit, MIN_ZOOM_SCALE);
+    this._scene.svg.style.width = `${Math.round(box.width * scale)}px`;
+    this._scene.svg.style.height = "auto";
+  }
+
+  disconnectedCallback() {
+    this.closeZoom();
+  }
+
   getCardSize() {
     if (!this._config) return 6;
     const consumers = this._config.circuits.length + (this._config.dhw ? 1 : 0);
@@ -3506,6 +3697,7 @@ const EDITOR_TEXTS = {
     animation: "Animate the flow",
     temperature_colors: "Colour pipes by temperature",
     controls: "Operate entities from the card",
+    zoom: "Button to enlarge the card",
     flow_speed: "Flow speed",
     show_buffer: "Show buffer tank",
     show_dhw: "Show domestic hot water",
@@ -3592,6 +3784,7 @@ const EDITOR_TEXTS = {
     animation: "Fluss animieren",
     temperature_colors: "Rohre nach Temperatur einfärben",
     controls: "Entitäten direkt in der Karte bedienen",
+    zoom: "Schaltfläche zum Vergrößern",
     flow_speed: "Fließgeschwindigkeit",
     show_buffer: "Pufferspeicher anzeigen",
     show_dhw: "Warmwasser anzeigen",
@@ -3816,6 +4009,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
           { name: "animation", selector: { boolean: {} } },
           { name: "temperature_colors", selector: { boolean: {} } },
           { name: "controls", selector: { boolean: {} } },
+          { name: "zoom", selector: { boolean: {} } },
         ],
       },
       { name: "flow_speed", selector: { number: { min: 0.2, max: 3, step: 0.1, mode: "slider" } } },
@@ -3885,6 +4079,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       animation: config.animation !== false,
       temperature_colors: config.temperature_colors !== false,
       controls: config.controls !== false,
+      zoom: config.zoom !== false,
       flow_speed: config.flow_speed === undefined ? 1 : config.flow_speed,
     };
 
@@ -3934,6 +4129,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     if (data.animation === false) config.animation = false;
     if (data.temperature_colors === false) config.temperature_colors = false;
     if (data.controls === false) config.controls = false;
+    if (data.zoom === false) config.zoom = false;
     if (data.flow_speed !== undefined && Number(data.flow_speed) !== 1) {
       config.flow_speed = Number(data.flow_speed);
     }
