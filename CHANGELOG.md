@@ -21,7 +21,14 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Release notes say what changed.** The release page carried nothing but the
+  list of merged pull requests, which names the branches rather than the work.
+  The release now leads with this file's section for that version and keeps
+  GitHub's generated list below it — prose first, commit log second. A version
+  without a changelog section stops the release instead of publishing an empty
+  one.
 
 ## [1.8.2] - 2026-08-25
 
