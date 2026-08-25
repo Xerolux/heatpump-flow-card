@@ -818,3 +818,113 @@ test("a list of entities can be combined explicitly", async () => {
   // an entity that is not there is skipped rather than poisoning the total
   assert.equal(values.missing, "980 W");
 });
+
+test("a mode on its own is a setting, not a running circuit", async () => {
+  const result = await page.evaluate(() => {
+    const read = (heatPumpOn) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "single",
+        heatpump: { entity: "switch.heat_pump", state_entity: "binary_sensor.compressor" },
+        circuits: [{ name: "mode only", type: "underfloor", mode: "select.circuit_a_mode" }],
+      });
+      document.body.appendChild(card);
+      const hass = window.makeHass("en");
+      hass.states["binary_sensor.compressor"] = {
+        entity_id: "binary_sensor.compressor",
+        state: heatPumpOn ? "on" : "off",
+        attributes: {},
+      };
+      card.hass = hass;
+      const running = card.shadowRoot
+        .querySelector('.hpfc-circuit[data-part="circuit-1"]')
+        .classList.contains("hpfc-running");
+      card.remove();
+      return running;
+    };
+    return { withPump: read(true), withoutPump: read(false) };
+  });
+  // "Normal" says what it was told to do; the plant says whether it is doing it
+  assert.deepEqual(result, { withPump: true, withoutPump: false });
+});
+
+test("a tank above its target is not charging", async () => {
+  const running = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dhw",
+      heatpump: { entity: "switch.heat_pump" },
+      dhw: { name: "Hot water", entity: "water_heater.dhw", mode: "water_heater.dhw" },
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const state = card.shadowRoot.querySelector(".hpfc-dhw").classList.contains("hpfc-running");
+    card.remove();
+    return state;
+  });
+  // enabled on "heat_pump", but 61.5 °C against a 48 °C target: nothing to do
+  assert.equal(running, false);
+});
+
+test("photovoltaic power does not flow into a heat pump that is not drawing", async () => {
+  const flowing = await page.evaluate(() => {
+    const read = (watts) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "pv-single",
+        heatpump: { power: "sensor.hp_power" },
+        pv: { power: "sensor.pv_power" },
+      });
+      document.body.appendChild(card);
+      const hass = window.makeHass("en");
+      hass.states["sensor.hp_power"] = {
+        entity_id: "sensor.hp_power",
+        state: String(watts),
+        attributes: { unit_of_measurement: "W" },
+      };
+      card.hass = hass;
+      const node = card.shadowRoot.querySelector(".hpfc-energy");
+      const active = !node.classList.contains("hpfc-stopped");
+      card.remove();
+      return active;
+    };
+    return { drawing: read(2140), standby: read(0) };
+  });
+  assert.deepEqual(flowing, { drawing: true, standby: false });
+});
+
+test("the surplus goes to the battery and the grid, each the right way round", async () => {
+  await page.goto(`${previewUrl}?layout=electrics`);
+  const bus = await page.evaluate(() => {
+    const root = document.getElementById("card-electrics").shadowRoot;
+    const read = (part) => {
+      const group = root.querySelector(`.hpfc-pipe-group[data-part="${part}"]`);
+      if (!group) return null;
+      return {
+        active: !group.classList.contains("hpfc-stopped"),
+        towardsBus: group.querySelector(".hpfc-dots").classList.contains("hpfc-dots-reverse"),
+      };
+    };
+    return {
+      pv: read("power-pv"),
+      battery: read("power-battery"),
+      grid: read("power-grid"),
+      house: read("power-house"),
+      wallbox: read("power-wallbox"),
+      heatpump: read("power-heatpump"),
+      trunk: read("power-bus"),
+    };
+  });
+  // the roof feeds the bus, the battery and the grid take it off the bus
+  assert.deepEqual(bus.pv, { active: true, towardsBus: true });
+  assert.deepEqual(bus.battery, { active: true, towardsBus: false });
+  assert.deepEqual(bus.grid, { active: true, towardsBus: false });
+  assert.deepEqual(bus.house, { active: true, towardsBus: false });
+  // nothing is charging and the heat pump is in standby
+  assert.equal(bus.wallbox.active, false);
+  assert.equal(bus.heatpump.active, false);
+  assert.equal(bus.trunk.active, true);
+});

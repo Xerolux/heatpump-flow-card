@@ -106,6 +106,12 @@ zieht.
 
 ![vier Heizkreise mit unterschiedlichem Zustand](docs/images/circuits.png)
 
+**Die elektrische Seite.** Die Wärmepumpe steht in Bereitschaft, das Dach speist
+sie also nicht: Der Strom geht in die Batterie und ins Netz, und jeder Knoten
+zeigt, in welche Richtung sein Strom fließt.
+
+![Batterie, Netz und Wallbox](docs/images/electrics.png)
+
 **Dunkles Theme** – die Karte übernimmt das Theme des Dashboards:
 
 ![dunkles Theme](docs/images/dual-dark.png)
@@ -306,12 +312,43 @@ die Heizkreise direkt.
 
 | Abschnitt | Optionen |
 | --- | --- |
-| `pv` | `name`, `entity`, `power`, `battery`, `grid`, `threshold` (Watt, Standard `5`) |
+| `pv` | `name`, `entity`, `power`, `battery`, `grid`, `battery_power`, `grid_power`, `wallbox`, `house`, `threshold` (Watt, Standard `5`) |
 | `solar` | `name`, `entity`, `collector_temp`, `flow_temp`, `return_temp`, `pump`, `yield` |
 
-Der Solarkreis wird in den unteren Teil des Pufferspeichers gezeichnet und
-braucht deshalb einen Puffer.
+Der Solarkreis wird in den Boden des Pufferspeichers gezeichnet und braucht
+deshalb einen Puffer.
 
+### Die elektrische Seite
+
+Sobald `battery_power`, `grid_power`, `wallbox` oder `house` gesetzt ist,
+zeichnet die Karte unter der Anlage eine Stromschiene. Photovoltaik, Batterie,
+Netz, Wallbox, Haus, Wärmepumpe und ein Heizstab im Speicher hängen daran, und
+**jeder Knoten entscheidet selbst, in welche Richtung sein Strom fließt** –
+steht die Wärmepumpe in Bereitschaft, wandert die Sonne also sichtbar in die
+Batterie und ins Netz statt in eine Maschine, die nicht läuft.
+
+```yaml
+pv:
+  power: [sensor.wechselrichter_1, sensor.wechselrichter_2]
+  battery: sensor.batterie_ladestand    # Prozent, steht neben dem Namen
+  battery_power: sensor.batterie_leistung # + laden, - entladen
+  grid_power: sensor.netz_leistung        # + Bezug, - Einspeisung
+  wallbox: sensor.wallbox_leistung        # openWB oder jede andere
+  house: sensor.hausverbrauch
+```
+
+Zähler sind sich nicht einig, welche Richtung positiv zählt. Zeigt ein Pfeil
+falsch herum, dreht man genau diese Entität um:
+
+```yaml
+  grid_power:
+    entity: sensor.netz_leistung
+    invert: true
+```
+
+Die Wärmepumpe hängt über ihr eigenes `power` an der Schiene, ein Heizstab im
+Speicher über `heater_power` – beides muss man nicht doppelt eintragen.
+`electrics: false` auf oberster Ebene schaltet die Schiene wieder ab.
 ### `circuits[]`
 
 | Option | Beschreibung |

@@ -77,7 +77,7 @@ Nur `top` und `bottom` konfiguriert → zwei Pillen. Gar nichts → drei leere.
 
 | Abschnitt | Optionen |
 | --- | --- |
-| `pv` | `name`, `entity`, `power`, `battery`, `grid`, `threshold` (Watt, Standard `5`) |
+| `pv` | `name`, `entity`, `power`, `battery`, `grid`, `battery_power`, `grid_power`, `wallbox`, `house`, `threshold` (Watt, Standard `5`) |
 | `solar` | `name`, `entity`, `collector_temp`, `flow_temp`, `return_temp`, `pump`, `yield` |
 
 Die PV-Fläche zeichnet eine gestrichelte Energielinie zur Wärmepumpe, solange
@@ -165,3 +165,43 @@ buffer:
   gezeichnet, glüht im Betrieb, darunter die Leistung. Funktioniert bei
   `buffer` und bei `dhw` – ein AC-Thor im Puffer und ein Booster im
   Warmwasserspeicher lassen sich also beide zeigen.
+
+## Die elektrische Seite
+
+Sobald `battery_power`, `grid_power`, `wallbox` oder `house` gesetzt ist,
+zeichnet die Karte unter der Anlage eine Stromschiene. Photovoltaik, Batterie,
+Netz, Wallbox, Haus, Wärmepumpe und ein Heizstab im Speicher hängen daran, und
+jeder Knoten entscheidet selbst, in welche Richtung sein Strom fließt.
+
+```yaml
+pv:
+  power: [sensor.wechselrichter_1, sensor.wechselrichter_2]
+  battery: sensor.batterie_ladestand      # Prozent, steht neben dem Namen
+  battery_power: sensor.batterie_leistung # + laden, - entladen
+  grid_power: sensor.netz_leistung        # + Bezug, - Einspeisung
+  wallbox: sensor.wallbox_leistung        # openWB oder jede andere
+  house: sensor.hausverbrauch
+```
+
+| Knoten | Kommt aus | Richtung |
+| --- | --- | --- |
+| Photovoltaik | `pv.power` | bei Erzeugung immer in die Schiene |
+| Batterie | `pv.battery_power` | beim Laden aus der Schiene, beim Entladen hinein |
+| Netz | `pv.grid_power` (oder `pv.grid`) | beim Bezug in die Schiene, bei Einspeisung heraus |
+| Wallbox | `pv.wallbox` | beim Laden aus der Schiene |
+| Haus | `pv.house` | aus der Schiene |
+| Wärmepumpe | `heatpump.power` | aus der Schiene, solange sie zieht |
+| Heizstab | `buffer.heater_power` oder `dhw.heater_power` | aus der Schiene, solange er zieht |
+
+Zähler sind sich nicht einig, welche Richtung positiv zählt. Zeigt ein Pfeil
+falsch herum, dreht man genau diese Entität um:
+
+```yaml
+  grid_power:
+    entity: sensor.netz_leistung
+    invert: true
+```
+
+Ein Knoten bleibt still, solange seine Leistung innerhalb von `threshold` Watt
+um null liegt (Standard 5). `electrics: false` auf oberster Ebene schaltet die
+Schiene wieder ab.

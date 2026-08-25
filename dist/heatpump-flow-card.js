@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.6.4";
+const CARD_VERSION = "1.7.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -173,6 +173,17 @@ function numberValue(hass, field) {
     .filter((value) => value !== null);
   if (!values.length) return null;
   return combineValues(values, field.combine || (isShareLike(unitOf(hass, field)) ? "avg" : "sum"));
+}
+
+/**
+ * Signed power of a field. Meters disagree about which way is positive, so
+ * `invert: true` flips the sign of one without touching the entity.
+ */
+function signedPower(hass, field) {
+  if (!field || !field.entity) return null;
+  const value = numberValue(hass, field);
+  if (value === null) return null;
+  return field.invert ? -value : value;
 }
 
 /** Truthiness of a field: on-ish states, or a number above the threshold. */
@@ -909,9 +920,10 @@ function drawPipe(scene, options) {
     stroke: `url(#${gradientId})`,
     fill: "none",
   });
+  const reverseFn = typeof options.reverse === "function" ? options.reverse : null;
   const dots = svgEl("path", {
     d,
-    class: `hpfc-dots${options.reverse ? " hpfc-dots-reverse" : ""}`,
+    class: `hpfc-dots${options.reverse === true ? " hpfc-dots-reverse" : ""}`,
     fill: "none",
   });
   group.appendChild(base);
@@ -943,6 +955,7 @@ function drawPipe(scene, options) {
         : typeof options.active === "function"
           ? options.active(hass)
           : isActive(hass, options.active);
+    if (reverseFn) dots.classList.toggle("hpfc-dots-reverse", Boolean(reverseFn(hass)));
     group.classList.toggle("hpfc-idle", !running && scene.config.dim_inactive !== false);
     group.classList.toggle("hpfc-stopped", !running);
     dots.style.display = running && scene.config.animation !== false ? "" : "none";
@@ -983,6 +996,9 @@ const TEXTS = {
     bottom: "Bottom",
     battery: "Battery",
     grid: "Grid",
+    wallbox: "Wallbox",
+    house: "House",
+    electrics: "Electricity",
     current: "Now",
     mode: "Mode",
     boost: "Boost",
@@ -1024,6 +1040,9 @@ const TEXTS = {
     bottom: "Unten",
     battery: "Batterie",
     grid: "Netz",
+    wallbox: "Wallbox",
+    house: "Haus",
+    electrics: "Strom",
     current: "Ist",
     mode: "Betriebsart",
     boost: "Boost",
@@ -1697,6 +1716,215 @@ function drawPv(scene, box, cfg) {
   return { group, producing };
 }
 
+/* ---- the electrical side ------------------------------------------------
+ * Where the current actually goes. Photovoltaics feed a bus; the battery, the
+ * grid, a wallbox, the house, the heat pump and an element in a tank hang off
+ * it, and each one decides for itself which way its own energy is travelling.
+ */
+
+/** The nodes that have an entity behind them, in the order they are drawn. */
+function electricNodes(config) {
+  const pv = config.pv || {};
+  const tankHeater =
+    (config.buffer && config.buffer.heater_power) ||
+    (config.dhw && config.dhw.heater_power) ||
+    null;
+  return [
+    { key: "pv", kind: "source", field: pv.power, text: "pv", name: pv.name },
+    { key: "battery", kind: "battery", field: pv.battery_power, soc: pv.battery, text: "battery" },
+    { key: "grid", kind: "grid", field: pv.grid_power || pv.grid, text: "grid" },
+    { key: "wallbox", kind: "sink", field: pv.wallbox, text: "wallbox" },
+    { key: "house", kind: "sink", field: pv.house, text: "house" },
+    {
+      key: "heatpump",
+      kind: "sink",
+      field: config.heatpump.power,
+      text: "heatpump",
+      name: config.heatpump.name,
+    },
+    { key: "heater", kind: "sink", field: tankHeater, text: "heater" },
+  ].filter((node) => node.field && node.field.entity);
+}
+
+/**
+ * The strip is only worth drawing once there is something to route to: a
+ * battery, the grid as a power reading, a wallbox or the house. A card that
+ * only names its photovoltaic power keeps the single line to the heat pump.
+ */
+function hasElectrics(config) {
+  const pv = config.pv;
+  if (!pv || config.electrics === false) return false;
+  return Boolean(pv.battery_power || pv.grid_power || pv.wallbox || pv.house);
+}
+
+/**
+ * Which way the energy of one node travels: "in" towards the bus, "out" from
+ * the bus into the node, or null while it is carrying nothing.
+ */
+function electricDirection(node) {
+  return (hass) => {
+    const value = signedPower(hass, node.field);
+    if (value === null) return null;
+    const threshold = node.field.threshold === undefined ? 5 : node.field.threshold;
+    if (Math.abs(value) <= threshold) return null;
+    if (node.kind === "source") return "in";
+    if (node.kind === "sink") return "out";
+    // A battery counts charging as positive, a meter counts importing as
+    // positive; `invert: true` on the entity settles a plant that disagrees.
+    if (node.kind === "battery") return value > 0 ? "out" : "in";
+    if (node.kind === "grid") return value > 0 ? "in" : "out";
+    return null;
+  };
+}
+
+function electricGlyph(node, x, y) {
+  const g = svgEl("g", { class: `hpfc-eglyph hpfc-eglyph-${node.key}` });
+  if (node.key === "pv") {
+    g.appendChild(
+      svgEl("path", { class: "hpfc-pv-panel", d: `M ${x + 4} ${y - 8} L ${x + 18} ${y - 8} L ${x + 14} ${y + 8} L ${x} ${y + 8} Z` })
+    );
+  } else if (node.key === "battery") {
+    g.appendChild(svgEl("rect", { class: "hpfc-battery-cap", x: x + 5, y: y - 12, width: 6, height: 3, rx: 1 }));
+    g.appendChild(svgEl("rect", { class: "hpfc-battery-fill", x: x + 3, y: y - 6, width: 10, height: 12, rx: 1.5 }));
+    g.appendChild(svgEl("rect", { class: "hpfc-battery-shell", x, y: y - 9, width: 16, height: 18, rx: 3 }));
+  } else if (node.key === "grid") {
+    // a pylon: two legs leaning together, braced, with the crossarms the
+    // lines hang from
+    g.appendChild(
+      svgEl("path", {
+        class: "hpfc-pylon",
+        d:
+          `M ${x + 1} ${y + 10} L ${x + 7} ${y - 10} ` +
+          `M ${x + 17} ${y + 10} L ${x + 11} ${y - 10} ` +
+          `M ${x + 3} ${y + 3} L ${x + 15} ${y + 3} ` +
+          `M ${x + 3} ${y + 3} L ${x + 14} ${y - 4} ` +
+          `M ${x + 15} ${y + 3} L ${x + 4} ${y - 4}`,
+      })
+    );
+    g.appendChild(svgEl("line", { class: "hpfc-pylon", x1: x - 1, y1: y - 4, x2: x + 19, y2: y - 4 }));
+    g.appendChild(svgEl("line", { class: "hpfc-pylon", x1: x + 2, y1: y - 10, x2: x + 16, y2: y - 10 }));
+  } else if (node.key === "wallbox") {
+    g.appendChild(svgEl("rect", { class: "hpfc-wallbox-body", x: x + 1, y: y - 10, width: 12, height: 20, rx: 3 }));
+    g.appendChild(
+      svgEl("path", { class: "hpfc-wallbox-bolt", d: `M ${x + 8} ${y - 5} L ${x + 4} ${y + 1} L ${x + 7} ${y + 1} L ${x + 5} ${y + 6}` })
+    );
+    g.appendChild(
+      svgEl("path", { class: "hpfc-wallbox-cable", d: `M ${x + 13} ${y + 4} Q ${x + 19} ${y + 6} ${x + 18} ${y - 4}` })
+    );
+  } else if (node.key === "house") {
+    g.appendChild(
+      svgEl("path", { class: "hpfc-house", d: `M ${x} ${y + 1} L ${x + 9} ${y - 9} L ${x + 18} ${y + 1} L ${x + 18} ${y + 9} L ${x} ${y + 9} Z` })
+    );
+  } else if (node.key === "heater") {
+    g.appendChild(
+      svgEl("path", { class: "hpfc-eheater", d: `M ${x} ${y - 6} L ${x + 6} ${y - 6} L ${x + 3} ${y} L ${x + 9} ${y} L ${x + 6} ${y + 6} L ${x + 16} ${y + 6}` })
+    );
+  } else {
+    g.appendChild(svgEl("circle", { class: "hpfc-fan-ring", cx: x + 9, cy: y, r: 9 }));
+    g.appendChild(svgEl("circle", { class: "hpfc-hub", cx: x + 9, cy: y, r: 2.5 }));
+    for (let i = 0; i < 3; i++) {
+      const a = (Math.PI * 2 * i) / 3;
+      g.appendChild(
+        svgEl("line", {
+          class: "hpfc-grille",
+          x1: x + 9,
+          y1: y,
+          x2: x + 9 + Math.cos(a) * 7,
+          y2: y + Math.sin(a) * 7,
+        })
+      );
+    }
+  }
+  return g;
+}
+
+function drawElectrics(scene, box, nodes) {
+  const texts = textsFor(scene.hass());
+  const busY = box.y + 10;
+  const tileY = box.y + 40;
+  const tileH = 56;
+  const gap = 14;
+  const tileW = Math.min(150, Math.max(96, (box.w - gap * (nodes.length - 1)) / nodes.length));
+  const span = tileW * nodes.length + gap * (nodes.length - 1);
+  const startX = box.x + Math.max(0, (box.w - span) / 2);
+
+  const placed = nodes.map((node, index) => {
+    const x = startX + index * (tileW + gap);
+    return { ...node, x, cx: x + tileW / 2, direction: electricDirection(node) };
+  });
+
+  // the bus everything hangs off
+  if (placed.length > 1) {
+    drawPipe(scene, {
+      points: [
+        [placed[0].cx, busY],
+        [placed[placed.length - 1].cx, busY],
+      ],
+      role: "pv",
+      className: "hpfc-energy",
+      part: "power-bus",
+      active: (hass) => placed.some((node) => node.direction(hass) !== null),
+    });
+  }
+
+  for (const node of placed) {
+    drawPipe(scene, {
+      points: [
+        [node.cx, busY],
+        [node.cx, tileY],
+      ],
+      role: "pv",
+      className: "hpfc-energy",
+      part: `power-${node.key}`,
+      active: (hass) => node.direction(hass) !== null,
+      reverse: (hass) => node.direction(hass) === "in",
+    });
+
+    const group = svgEl("g", { class: `hpfc-node hpfc-enode hpfc-enode-${node.key}` });
+    group.appendChild(
+      svgEl("rect", { x: node.x, y: tileY, width: tileW, height: tileH, rx: 14, class: "hpfc-panel" })
+    );
+    group.appendChild(electricGlyph(node, node.x + 12, tileY + tileH / 2));
+    const label = svgText(node.x + 40, tileY + 24, "", { class: "hpfc-label" });
+    const value = svgText(node.x + 40, tileY + 42, "–", { class: "hpfc-value" });
+    group.appendChild(label);
+    group.appendChild(value);
+    scene.root.appendChild(group);
+    if (node.field.entity) {
+      attachAction(scene, group, {
+        entity: node.field.entity,
+        tap_action: node.field.tap_action,
+        hold_action: node.field.hold_action,
+        label: node.name || texts[node.text],
+      });
+    }
+
+    const fill = group.querySelector(".hpfc-battery-fill");
+    scene.add(() => {
+      const hass = scene.hass();
+      const t = textsFor(hass);
+      let title = node.name || node.field.name || t[node.text] || node.key;
+      if (node.soc && node.soc.entity) {
+        const soc = displayValue(hass, node.soc, "");
+        if (soc && soc !== "–") title += ` · ${soc}`;
+      }
+      label.textContent = title;
+      fitText(scene, label, title, tileW - 52);
+      value.textContent = displayValue(hass, node.field);
+      const direction = node.direction(hass);
+      group.classList.toggle("hpfc-running", direction !== null);
+      group.classList.toggle("hpfc-feeding", direction === "in");
+      if (fill) {
+        const soc = node.soc ? numberValue(hass, node.soc) : null;
+        const level = soc === null ? 100 : Math.max(0, Math.min(100, soc));
+        const filled = Math.max(1, (12 * level) / 100);
+        fill.setAttribute("height", filled);
+        fill.setAttribute("y", tileY + tileH / 2 - 6 + 12 - filled);
+      }
+    });
+  }
+}
+
 function drawSolar(scene, box, cfg) {
   const texts = textsFor(scene.hass());
   const group = drawPanel(scene, box, cfg.name || texts.solar, {
@@ -1884,7 +2112,32 @@ function drawEmitter(scene, group, area, type, options) {
   return wrap;
 }
 
-const OFF_MODE_WORDS = ["off", "aus", "standby", "idle", "closed", "inaktiv", "geschlossen"];
+const OFF_MODE_WORDS = [
+  "off",
+  "aus",
+  "standby",
+  "idle",
+  "closed",
+  "inaktiv",
+  "geschlossen",
+  "out of service",
+  "no demand",
+  "keine anforderung",
+  "abgeschaltet",
+  "deaktiviert",
+  "disabled",
+  "gesperrt",
+  "blocked",
+];
+
+/** Whether a mode-like field names one of the states that mean "parked". */
+function modeSaysOff(hass, field) {
+  if (!field || !field.entity) return false;
+  const raw = rawValue(hass, field);
+  if (raw === undefined || raw === null || raw === "") return false;
+  const text = String(raw).toLowerCase();
+  return OFF_MODE_WORDS.some((word) => text.includes(word));
+}
 
 /**
  * Whether a single circuit is being served right now. Every circuit answers
@@ -1910,7 +2163,8 @@ function circuitRunning(scene, cfg) {
       if (value !== null) return value > 0;
     }
     if (cfg.entity) return isActive(hass, { entity: cfg.entity });
-    if (modeRaw !== null) return true;
+    // A mode is what the circuit was told to do, not what it is doing: on its
+    // own it says nothing, so such a circuit follows the plant.
     return scene.flags.heatpumpRunning ? scene.flags.heatpumpRunning(hass) : false;
   };
 }
@@ -2017,8 +2271,24 @@ function drawDhw(scene, box, cfg) {
   group.classList.add("hpfc-dhw");
 
   const running = (hass) => {
+    // A mode that says off parks the tank, whatever anything else reports.
+    if (modeSaysOff(hass, cfg.mode)) return false;
     if (cfg.pump && cfg.pump.entity) return isActive(hass, cfg.pump);
-    if (cfg.entity) return isActive(hass, { entity: cfg.entity });
+    if (cfg.charge && cfg.charge.entity) {
+      const value = numberValue(hass, cfg.charge);
+      if (value !== null) return value > 0;
+    }
+    if (cfg.entity) {
+      const domain = domainOf(cfg.entity);
+      if (domain === "climate" || domain === "water_heater") {
+        // Their state is the selected mode. "off" is off; anything else only
+        // says the thermostat is enabled, so the temperatures decide below.
+        const raw = String(rawValue(hass, { entity: cfg.entity }) || "").toLowerCase();
+        if (!raw || raw === "off" || raw === "unavailable" || raw === "unknown") return false;
+      } else {
+        return isActive(hass, { entity: cfg.entity });
+      }
+    }
     const current = numberValue(hass, cfg.temp);
     const target = numberValue(hass, cfg.target_temp);
     if (current !== null && target !== null) return current < target - 1;
@@ -2140,7 +2410,7 @@ const SECTION_FIELDS = {
     "defrost",
     "flow_rate",
   ],
-  pv: ["power", "battery", "grid"],
+  pv: ["power", "battery", "grid", "battery_power", "grid_power", "wallbox", "house"],
   solar: ["collector_temp", "pump", "yield", "return_temp", "flow_temp"],
   buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power", "heater_temp", "heater_mode"],
   dhw: [
@@ -2239,6 +2509,7 @@ function normalizeConfig(raw) {
     temperature_colors: raw.temperature_colors !== false,
     controls: raw.controls !== false,
     dim_inactive: raw.dim_inactive !== false,
+    electrics: raw.electrics !== false,
     heatpump: normalizeSection(raw.heatpump || {}, SECTION_FIELDS.heatpump),
     pv: null,
     solar: null,
@@ -2348,7 +2619,10 @@ function buildScene(card) {
   }
 
   const solarLanes = config.solar && config.buffer;
-  const height = G.pad + contentH + (solarLanes ? 88 : G.pad);
+  const electrics = hasElectrics(config) ? electricNodes(config) : [];
+  const showElectrics = electrics.length > 1;
+  const stripY = G.pad + contentH + (solarLanes ? 88 : G.pad);
+  const height = stripY + (showElectrics ? 110 : 0);
   const laneA = G.pad + contentH + 20;
   const laneB = G.pad + contentH + 54;
 
@@ -2631,8 +2905,13 @@ function buildScene(card) {
     }
   }
 
-  // photovoltaic energy line
-  if (pv) {
+  // The electrical side. With a battery, a meter, a wallbox or the house it is
+  // a bus of its own, because that is where the current goes when the heat
+  // pump is not asking for any. Without them a single line to the heat pump
+  // says enough - but only while the heat pump is actually drawing.
+  if (showElectrics) {
+    drawElectrics(scene, { x: G.pad, y: stripY, w: width - G.pad * 2, h: 110 }, electrics);
+  } else if (pv) {
     drawPipe(scene, {
       points: [
         [srcX + G.pv.w, srcY + 62],
@@ -2643,7 +2922,9 @@ function buildScene(card) {
       role: "pv",
       className: "hpfc-energy",
       radius: 10,
-      active: pv.producing,
+      active: (hass) =>
+        pv.producing(hass) &&
+        (scene.flags.heatpumpRunning ? scene.flags.heatpumpRunning(hass) : true),
     });
   }
 
@@ -2867,6 +3148,17 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 
 /* sources --------------------------------------------------------------- */
 .hpfc-pv-panel { fill: #1e3a8a; stroke: var(--hpfc-stroke); }
+.hpfc-battery-shell { fill: none; stroke: var(--hpfc-stroke); stroke-width: 1.5; }
+.hpfc-battery-cap { fill: var(--hpfc-muted); }
+.hpfc-battery-fill { fill: #22c55e; opacity: 0.85; transition: height 0.6s ease, y 0.6s ease; }
+.hpfc-pylon { fill: none; stroke: var(--hpfc-muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.hpfc-wallbox-body { fill: var(--hpfc-surface); stroke: var(--hpfc-stroke); stroke-width: 1.5; }
+.hpfc-wallbox-bolt { fill: none; stroke: #f59e0b; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.hpfc-wallbox-cable { fill: none; stroke: var(--hpfc-muted); stroke-width: 1.6; stroke-linecap: round; }
+.hpfc-house { fill: rgba(127, 127, 127, 0.2); stroke: var(--hpfc-stroke); stroke-width: 1.4; stroke-linejoin: round; }
+.hpfc-eheater { fill: none; stroke: #ef4444; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hpfc-enode .hpfc-panel { transition: stroke 0.5s ease; }
+.hpfc-enode.hpfc-running .hpfc-panel { stroke: var(--hpfc-accent, #f59e0b); }
 .hpfc-pv-cell { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
 .hpfc-sun-core { fill: #fbbf24; }
 .hpfc-rays line { stroke: #fbbf24; stroke-width: 2; stroke-linecap: round; }
@@ -3256,7 +3548,11 @@ const EDITOR_TEXTS = {
     valve: "Mixing valve",
     room_temp: "Room temperature",
     battery: "Battery",
+    battery_power: "Battery power (+ charging)",
     grid: "Grid",
+    grid_power: "Grid power (+ import)",
+    wallbox: "Wallbox power",
+    house: "House consumption",
     collector_temp: "Collector temperature",
     yield: "Yield",
     type: "Emitter type",
@@ -3338,7 +3634,11 @@ const EDITOR_TEXTS = {
     valve: "Mischer",
     room_temp: "Raumtemperatur",
     battery: "Batterie",
+    battery_power: "Batterieleistung (+ laden)",
     grid: "Netz",
+    grid_power: "Netzleistung (+ Bezug)",
+    wallbox: "Wallbox-Leistung",
+    house: "Hausverbrauch",
     collector_temp: "Kollektortemperatur",
     yield: "Ertrag",
     type: "Heizflächen-Typ",
@@ -3403,7 +3703,7 @@ const EDITOR_SECTIONS = {
     "heater_temp",
     "heater_mode",
   ],
-  pv: ["power", "battery", "grid"],
+  pv: ["power", "battery", "battery_power", "grid_power", "wallbox", "house", "grid"],
   solar: ["collector_temp", "pump", "yield", "return_temp", "flow_temp"],
 };
 const EDITOR_CIRCUIT_FIELDS = [
