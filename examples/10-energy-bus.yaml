@@ -53,8 +53,10 @@ pv:
   # An openWB, a go-e, a Wallbe - anything that reports its charging power.
   # openWB numbers its charge points, so check the name against your own.
   wallbox: sensor.openwb_chargepoint_1_power
-  # If you have no house sensor, a template of production - export - charging
-  # does the job just as well. Leaving it out is fine too.
+  # Few plants measure house consumption directly. It is a subtraction away
+  # from what you already have - see the Template sensors page in the wiki:
+  # https://github.com/Xerolux/heatpump-flow-card/wiki/Template-Sensors
+  # Leaving it out is fine too, the bus works without it.
   house: sensor.house_consumption
   # A node stays quiet while its power is within this many watts of zero.
   threshold: 5

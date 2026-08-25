@@ -6,6 +6,7 @@
 * [Configuration](Configuration)
 * [Controls](Controls)
 * [Examples](Examples)
+* [Template sensors](Template-Sensors)
 * [Colours and Themes](Colours-and-Themes)
 * [Troubleshooting](Troubleshooting)
 * [Development](Development)
@@ -18,6 +19,7 @@
 * [Installation](Installation-de)
 * [Konfiguration](Configuration-de)
 * [Bedienung](Controls-de)
+* [Vorlagen-Sensoren](Template-Sensors-de)
 * [Problemlösung](Troubleshooting-de)
 
 ---

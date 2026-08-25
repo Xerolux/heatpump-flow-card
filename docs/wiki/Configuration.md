@@ -139,6 +139,11 @@ wrong way round, flip that one entity:
 A node stays idle while its power is within `threshold` watts of zero (5 by
 default). `electrics: false` at the top level turns the bus off again.
 
+House consumption is rarely an entity of its own, and on a plant with a
+DC-coupled battery neither is the photovoltaic production. Both are one
+subtraction away — see [Template sensors](Template-Sensors), which also carries
+the check for which direction your meter counts as positive.
+
 ## circuits
 
 ```yaml

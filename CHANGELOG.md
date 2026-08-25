@@ -34,6 +34,17 @@ changes shipped with the next tagged release.
   compressor as the heat pump's state source. It shows the energy bus now too,
   which is where the element in the tank gets its power from.
 
+### Added
+
+- A **Template sensors** wiki page, in English and German: how to build the two
+  values a plant rarely reports on its own — house consumption, and the
+  photovoltaic production of a plant whose battery hangs on the DC side of one
+  inverter — either through the Helpers interface or in YAML, including the
+  reload step people trip over. It also carries the test for which direction a
+  meter counts as positive, which needs no measurement: a house consumption
+  cannot be negative, so a mirrored figure names the answer.
+- The configuration pages and the two examples that offer `house` link to it.
+
 ## [1.8.1] - 2026-08-25
 
 ### Changed
