@@ -84,4 +84,8 @@ circuits:
   - name: Heating circuit D
     type: underfloor
     mode: select.alm6_15_hc_d_mode
+    flow_temp: sensor.heizkreis_d_hc_d_flow_temp
+    room_temp: sensor.heizkreis_d_hc_d_room_temp
     target_temp: number.alm6_15_hc_d_room_setpoint_heat_normal
+    pump: binary_sensor.heizkreis_d_pumpe_heizkreis_d_web
+    valve: sensor.heizkreis_d_mischer_heizkreis_d_web
