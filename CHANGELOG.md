@@ -21,6 +21,13 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+### Fixed
+
+- The live IDM examples now wire circuit D to its real flow and room
+  temperatures, circulation pump and mixing valve. The previous full-plant
+  example incorrectly used the active-mode enum as `room_temp`, while the
+  other IDM examples omitted these fields entirely.
+
 ## [1.8.3] - 2026-08-25
 
 ### Fixed

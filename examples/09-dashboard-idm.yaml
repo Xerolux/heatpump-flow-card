@@ -103,7 +103,11 @@ sections:
           - name: Heating circuit D
             type: underfloor
             mode: select.alm6_15_hc_d_mode
+            flow_temp: sensor.heizkreis_d_hc_d_flow_temp
+            room_temp: sensor.heizkreis_d_hc_d_room_temp
             target_temp: number.alm6_15_hc_d_room_setpoint_heat_normal
+            pump: binary_sensor.heizkreis_d_pumpe_heizkreis_d_web
+            valve: sensor.heizkreis_d_mischer_heizkreis_d_web
 
   # -------------------------------------------------------------- heat pump
   - type: grid
@@ -192,8 +196,16 @@ sections:
           - type: divider
           - entity: select.alm6_15_hc_d_mode
             name: Circuit D mode
+          - entity: sensor.heizkreis_d_hc_d_flow_temp
+            name: Circuit D flow temperature
+          - entity: sensor.heizkreis_d_hc_d_room_temp
+            name: Circuit D room temperature
           - entity: number.alm6_15_hc_d_room_setpoint_heat_normal
             name: Circuit D room setpoint
+          - entity: binary_sensor.heizkreis_d_pumpe_heizkreis_d_web
+            name: Circuit D pump
+          - entity: sensor.heizkreis_d_mischer_heizkreis_d_web
+            name: Circuit D mixing valve
           - entity: sensor.alm6_15_hc_d_active_mode
             name: Circuit D active mode
 

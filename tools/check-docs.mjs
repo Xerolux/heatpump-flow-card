@@ -67,6 +67,25 @@ for (const file of readdirSync(resolve(root, "examples")).filter((f) => f.endsWi
     if (Array.isArray(card.circuits) && card.circuits.length > 7) {
       problems.push(`${file} configures ${card.circuits.length} circuits, the card draws seven`);
     }
+    const circuitD = Array.isArray(card.circuits)
+      ? card.circuits.find(
+          (circuit) =>
+            circuit?.target_temp === "number.alm6_15_hc_d_room_setpoint_heat_normal"
+        )
+      : undefined;
+    if (circuitD) {
+      const expected = {
+        flow_temp: "sensor.heizkreis_d_hc_d_flow_temp",
+        room_temp: "sensor.heizkreis_d_hc_d_room_temp",
+        pump: "binary_sensor.heizkreis_d_pumpe_heizkreis_d_web",
+        valve: "sensor.heizkreis_d_mischer_heizkreis_d_web",
+      };
+      for (const [field, entity] of Object.entries(expected)) {
+        if (circuitD[field] !== entity) {
+          problems.push(`${file} circuit D must use ${field}: ${entity}`);
+        }
+      }
+    }
   }
 }
 

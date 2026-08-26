@@ -109,6 +109,21 @@ heatpump:
 to automatic, and `aux_heat` is what makes the bivalent stage visible when it
 engages.
 
+The second IDM device in this installation exposes circuit D under a separate
+device prefix. Wire its measured temperatures and operating components to the
+circuit instead of using the active-mode enum as a temperature:
+
+```yaml
+- name: Heating circuit D
+  type: underfloor
+  mode: select.alm6_15_hc_d_mode
+  flow_temp: sensor.heizkreis_d_hc_d_flow_temp
+  room_temp: sensor.heizkreis_d_hc_d_room_temp
+  target_temp: number.alm6_15_hc_d_room_setpoint_heat_normal
+  pump: binary_sensor.heizkreis_d_pumpe_heizkreis_d_web
+  valve: sensor.heizkreis_d_mischer_heizkreis_d_web
+```
+
 For photovoltaics with several inverters, sum them in a template sensor and
 point `pv.power` at that — the card draws one PV source.
 
