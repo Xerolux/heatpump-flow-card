@@ -124,6 +124,23 @@ window.demoStates["sensor.aux_heat_power"] = {
   state: "3000",
   attributes: { friendly_name: "Element power", unit_of_measurement: "W", device_class: "power" },
 };
+// A wood stove: a second, hand-fed heat source feeding the buffer alongside
+// the heat pump.
+window.demoStates["binary_sensor.wood_stove"] = {
+  entity_id: "binary_sensor.wood_stove",
+  state: "on",
+  attributes: { friendly_name: "Wood stove burning" },
+};
+window.demoStates["sensor.wood_stove_flow_temperature"] = {
+  entity_id: "sensor.wood_stove_flow_temperature",
+  state: "68.4",
+  attributes: { friendly_name: "Wood stove flow", unit_of_measurement: "°C", device_class: "temperature" },
+};
+window.demoStates["sensor.wood_stove_return_temperature"] = {
+  entity_id: "sensor.wood_stove_return_temperature",
+  state: "52.1",
+  attributes: { friendly_name: "Wood stove return", unit_of_measurement: "°C", device_class: "temperature" },
+};
 window.demoStates["switch.tank_heater"] = {
   entity_id: "switch.tank_heater",
   state: "on",

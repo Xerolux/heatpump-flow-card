@@ -1060,6 +1060,7 @@ const TEXTS = {
     defrost: "Defrost",
     idle: "Standby",
     off: "Off",
+    wood_stove: "Wood stove",
   },
   de: {
     heatpump: "Wärmepumpe",
@@ -1106,6 +1107,7 @@ const TEXTS = {
     defrost: "Abtauen",
     idle: "Bereitschaft",
     off: "Aus",
+    wood_stove: "Holzofen",
   },
 };
 
@@ -1482,6 +1484,84 @@ function drawHeatPump(scene, box, cfg) {
   });
 
   return { group, running: (hass) => heatPumpRunning(hass, cfg) };
+}
+
+/**
+ * Whether a solid-fuel stove counts as running. There is usually no power or
+ * compressor reading to fall back on - just a state entity, a reported status
+ * text, or the tap entity's own state, in that order.
+ */
+function woodStoveRunning(hass, cfg) {
+  if (cfg.state_entity && cfg.state_entity.entity) return isActive(hass, cfg.state_entity);
+  if (cfg.status && cfg.status.entity) {
+    const st = stateOf(hass, cfg.status);
+    if (!isMissing(st)) {
+      const raw = String(st.state || "").toLowerCase();
+      return !["off", "aus", "idle", "standby", "unavailable", "unknown", "burned_out"].some(
+        (needle) => raw.includes(needle)
+      );
+    }
+  }
+  if (cfg.entity) return isActive(hass, { entity: cfg.entity });
+  return false;
+}
+
+/**
+ * A second, independent heat source feeding the buffer alongside the heat
+ * pump - a wood stove, a pellet boiler, anything fed and lit by hand rather
+ * than run from a compressor. Deliberately plain: no power, COP or mode chip,
+ * because none of that exists for something you load with logs.
+ */
+function drawWoodStove(scene, box, cfg) {
+  const texts = textsFor(scene.hass());
+  const group = drawPanel(scene, box, cfg.name || texts.wood_stove, {
+    entity: cfg.entity,
+    tap_action: cfg.tap_action,
+    hold_action: cfg.hold_action,
+  });
+  group.classList.add("hpfc-woodstove");
+
+  drawStatusDot(scene, group, box.x + box.w - 16, box.y + 16, (hass) => {
+    if (cfg.entity && isMissing(hass && hass.states ? hass.states[cfg.entity] : undefined)) {
+      return "unknown";
+    }
+    return woodStoveRunning(hass, cfg) ? "on" : "off";
+  });
+
+  // Firebox: a simple two-tone flame, lit while the stove is running.
+  const boxSize = { x: box.x + 14, y: box.y + 46, w: 80, h: 62 };
+  group.appendChild(
+    svgEl("rect", { x: boxSize.x, y: boxSize.y, width: boxSize.w, height: boxSize.h, rx: 10, class: "hpfc-ws-body" })
+  );
+  const flameCx = boxSize.x + boxSize.w / 2;
+  const flameCy = boxSize.y + boxSize.h / 2 + 4;
+  const flame = svgEl("g", { class: "hpfc-flame" });
+  flame.appendChild(
+    svgEl("path", {
+      class: "hpfc-flame-outer",
+      d: `M ${flameCx} ${flameCy - 22} c 10 10 14 18 14 26 a 14 14 0 1 1 -28 0 c 0 -8 4 -16 14 -26 Z`,
+    })
+  );
+  flame.appendChild(
+    svgEl("path", {
+      class: "hpfc-flame-inner",
+      d: `M ${flameCx} ${flameCy - 8} c 5 6 7 10 7 14 a 7 7 0 1 1 -14 0 c 0 -4 2 -8 7 -14 Z`,
+    })
+  );
+  group.appendChild(flame);
+
+  // Readout on the right, if a probe exists - most installs will not have one.
+  if (cfg.flow_temp || cfg.return_temp) {
+    const field = cfg.flow_temp || cfg.return_temp;
+    drawReadout(scene, group, box.x + 108, box.y + 60, texts.flow, field, { colorize: true, strong: true });
+  }
+
+  scene.add(() => {
+    const hass = scene.hass();
+    group.classList.toggle("hpfc-on", woodStoveRunning(hass, cfg));
+  });
+
+  return { group, running: (hass) => woodStoveRunning(hass, cfg) };
 }
 
 /** Vertical tank with a temperature gradient - used for buffer and DHW. */
@@ -2524,6 +2604,7 @@ const SECTION_FIELDS = {
   ],
   pv: ["power", "battery", "grid", "battery_power", "grid_power", "wallbox", "house"],
   solar: ["collector_temp", "pump", "yield", "return_temp", "flow_temp"],
+  wood_stove: ["state_entity", "status", "flow_temp", "return_temp"],
   buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power", "heater_temp", "heater_mode"],
   dhw: [
     "temp",
@@ -2628,6 +2709,7 @@ function normalizeConfig(raw) {
     solar: null,
     buffer: null,
     dhw: null,
+    wood_stove: null,
     circuits: [],
   };
 
@@ -2635,7 +2717,7 @@ function normalizeConfig(raw) {
     config.heatpump.power_threshold = raw.heatpump.power_threshold;
   }
 
-  for (const key of ["pv", "solar", "buffer", "dhw"]) {
+  for (const key of ["pv", "solar", "buffer", "dhw", "wood_stove"]) {
     if (!sectionEnabled(raw, key, preset)) continue;
     const source = typeof raw[key] === "object" && raw[key] !== null ? raw[key] : {};
     config[key] = normalizeSection(source, SECTION_FIELDS[key]);
@@ -2671,11 +2753,13 @@ function normalizeConfig(raw) {
 const GEOMETRY = {
   pad: 14,
   hp: { w: 200, h: 190 },
+  ws: { w: 200, h: 120 },
   pv: { w: 170, h: 118 },
   solar: { w: 170, h: 122 },
   buffer: { w: 126, min: 250, max: 330 },
   sourceGap: 74,
   hpGap: 110,
+  hpGapWithWoodStove: 150,
   railGap: 92,
   gapY: 16,
 };
@@ -2689,13 +2773,15 @@ function buildScene(card) {
   const showSources = Boolean(config.pv || config.solar);
   const hpHeight =
     config.heatpump.aux_heat || config.heatpump.aux_heat_power ? G.hp.h + 34 : G.hp.h;
+  const wsHeight = config.wood_stove ? G.ws.h : 0;
+  const leftHeight = config.wood_stove ? hpHeight + G.gapY + wsHeight : hpHeight;
 
   // ---- horizontal placement -------------------------------------------
   let x = G.pad;
   const srcX = x;
   if (showSources) x += G.pv.w + G.sourceGap;
   const hpX = x;
-  x += G.hp.w + G.hpGap;
+  x += G.hp.w + (config.wood_stove ? G.hpGapWithWoodStove : G.hpGap);
   let bufX = null;
   if (config.buffer) {
     bufX = x;
@@ -2719,9 +2805,10 @@ function buildScene(card) {
     (config.solar ? G.solar.h : 0) +
     (config.pv && config.solar ? G.gapY : 0);
   const bufferMin = config.dense ? 200 : G.buffer.min;
-  const contentH = Math.max(rightH, hpHeight + 30, sourcesH, config.buffer ? bufferMin : 0);
+  const contentH = Math.max(rightH, leftHeight + 30, sourcesH, config.buffer ? bufferMin : 0);
 
-  const hpY = G.pad + (contentH - hpHeight) / 2;
+  const hpY = G.pad + (contentH - leftHeight) / 2;
+  const wsY = hpY + hpHeight + G.gapY;
   const srcY = G.pad + (contentH - sourcesH) / 2;
   const bufH = Math.min(contentH, G.buffer.max);
   const bufY = G.pad + (contentH - bufH) / 2;
@@ -2771,6 +2858,12 @@ function buildScene(card) {
   // ---- nodes ------------------------------------------------------------
   const heatpump = drawHeatPump(scene, { x: hpX, y: hpY, w: G.hp.w, h: hpHeight }, config.heatpump);
   scene.flags.heatpumpRunning = heatpump.running;
+
+  let woodStove = null;
+  if (config.wood_stove) {
+    woodStove = drawWoodStove(scene, { x: hpX, y: wsY, w: G.ws.w, h: wsHeight }, config.wood_stove);
+    scene.flags.woodStoveRunning = woodStove.running;
+  }
 
   let pv = null;
   let solar = null;
@@ -2874,6 +2967,55 @@ function buildScene(card) {
       from: null,
       to: config.heatpump.return_temp,
       active: heatpump.running,
+    });
+  }
+
+  // A wood stove (or any second, hand-fed heat source) plumbs into the buffer
+  // on its own pair of pipes, in a channel of its own so it never crosses the
+  // heat pump's. Only wired up when there is a buffer for it to feed - same
+  // as solar, this does not attempt to feed circuits directly.
+  let woodStoveFlowY = null;
+  let woodStoveReturnY = null;
+  if (config.buffer && config.wood_stove) {
+    const wsMid = hpRight + 18;
+    woodStoveFlowY = wsY + 40;
+    woodStoveReturnY = wsY + wsHeight - 30;
+    const bufferWsFlowY = bufY + 20;
+    const bufferWsReturnY = bufY + 92;
+    drawPipe(scene, {
+      points: [
+        [hpRight, woodStoveFlowY],
+        [wsMid, woodStoveFlowY],
+        [wsMid, bufferWsFlowY],
+        [bufX, bufferWsFlowY],
+      ],
+      role: "flow",
+      from: config.wood_stove.flow_temp,
+      to: config.buffer.top,
+      active: woodStove.running,
+    });
+    drawPipe(scene, {
+      points: [
+        [bufX, bufferWsReturnY],
+        [wsMid + 24, bufferWsReturnY],
+        [wsMid + 24, woodStoveReturnY],
+        [hpRight, woodStoveReturnY],
+      ],
+      role: "return",
+      from: config.buffer.bottom,
+      to: config.wood_stove.return_temp,
+      active: woodStove.running,
+    });
+  }
+
+  if (config.wood_stove && config.wood_stove.flow_temp && woodStoveFlowY !== null) {
+    drawBadge(scene, hpRight + 28, woodStoveFlowY - 16, config.wood_stove.flow_temp, {
+      label: textsFor(scene.hass()).flow,
+    });
+  }
+  if (config.wood_stove && config.wood_stove.return_temp && woodStoveReturnY !== null) {
+    drawBadge(scene, hpRight + 28, woodStoveReturnY + 17, config.wood_stove.return_temp, {
+      label: textsFor(scene.hass()).ret,
     });
   }
 
@@ -3298,6 +3440,10 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-aux.hpfc-on .hpfc-aux-plate { fill: rgba(249, 115, 22, 0.18); }
 .hpfc-aux.hpfc-on .hpfc-coil { stroke: #f97316; animation: hpfc-glow 1.6s ease-in-out infinite; }
 .hpfc-aux.hpfc-on .hpfc-value { fill: #f97316; }
+.hpfc-ws-body { fill: rgba(127, 127, 127, 0.14); stroke: var(--hpfc-stroke); }
+.hpfc-flame-outer, .hpfc-flame-inner { fill: var(--hpfc-muted); transition: fill 0.5s ease; }
+.hpfc-woodstove.hpfc-on .hpfc-flame-outer { fill: #fb923c; }
+.hpfc-woodstove.hpfc-on .hpfc-flame-inner { fill: #fde68a; animation: hpfc-glow 1.6s ease-in-out infinite; }
 @keyframes hpfc-glow { 0%, 100% { opacity: 0.65; } 50% { opacity: 1; } }
 
 /* electric element in a tank */
@@ -3843,8 +3989,10 @@ const EDITOR_TEXTS = {
     show_dhw: "Show domestic hot water",
     show_pv: "Show photovoltaics",
     show_solar: "Show solar thermal",
+    show_wood_stove: "Show wood stove",
     circuit_count: "Heating circuits",
     heatpump: "Heat pump",
+    wood_stove: "Wood stove",
     buffer: "Buffer tank",
     dhw: "Domestic hot water",
     pv: "Photovoltaics",
@@ -3930,8 +4078,10 @@ const EDITOR_TEXTS = {
     show_dhw: "Warmwasser anzeigen",
     show_pv: "Photovoltaik anzeigen",
     show_solar: "Solarthermie anzeigen",
+    show_wood_stove: "Holzofen anzeigen",
     circuit_count: "Heizkreise",
     heatpump: "Wärmepumpe",
+    wood_stove: "Holzofen",
     buffer: "Pufferspeicher",
     dhw: "Warmwasser",
     pv: "Photovoltaik",
@@ -4038,6 +4188,7 @@ const EDITOR_SECTIONS = {
   ],
   pv: ["power", "battery", "battery_power", "grid_power", "wallbox", "house", "grid"],
   solar: ["collector_temp", "pump", "yield", "return_temp", "flow_temp"],
+  wood_stove: ["state_entity", "status", "flow_temp", "return_temp"],
 };
 const EDITOR_CIRCUIT_FIELDS = [
   "flow_temp",
@@ -4056,6 +4207,7 @@ const SECTION_ICONS = {
   pv: "mdi:solar-power-variant",
   solar: "mdi:solar-panel",
   circuit: "mdi:radiator",
+  wood_stove: "mdi:fireplace",
 };
 
 class HeatpumpFlowCardEditor extends HTMLElement {
@@ -4162,7 +4314,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       },
     ];
 
-    for (const key of ["buffer", "dhw", "pv", "solar"]) {
+    for (const key of ["buffer", "dhw", "pv", "solar", "wood_stove"]) {
       schema.push({ name: `show_${key}`, selector: { boolean: {} } });
       if (data[`show_${key}`]) {
         schema.push({
@@ -4238,7 +4390,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     };
 
     data.heatpump = simplify(config.heatpump, "heatpump");
-    for (const key of ["buffer", "dhw", "pv", "solar"]) {
+    for (const key of ["buffer", "dhw", "pv", "solar", "wood_stove"]) {
       const raw = config[key];
       data[`show_${key}`] =
         raw === false || raw === null ? false : raw !== undefined ? true : preset.sections.includes(key);
@@ -4291,7 +4443,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     };
 
     config.heatpump = clean(data.heatpump, "heatpump");
-    for (const key of ["buffer", "dhw", "pv", "solar"]) {
+    for (const key of ["buffer", "dhw", "pv", "solar", "wood_stove"]) {
       if (!data[`show_${key}`]) {
         if (preset.sections.includes(key)) config[key] = false;
         continue;

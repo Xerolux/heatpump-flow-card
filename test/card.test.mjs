@@ -741,6 +741,51 @@ test("the second heat generator shows up when it engages", async () => {
   assert.equal(after, false);
 });
 
+test("a wood stove plumbs into the buffer alongside the heat pump", async () => {
+  await page.goto(`${previewUrl}?layout=wood-stove`);
+  const state = await page.evaluate(() => {
+    const root = document.getElementById("card-wood-stove").shadowRoot;
+    const stove = root.querySelector(".hpfc-woodstove");
+    const pipes = root.querySelectorAll(".hpfc-pipe-group");
+    return {
+      present: Boolean(stove),
+      running: stove.classList.contains("hpfc-on"),
+      title: stove.querySelector(".hpfc-title").textContent,
+      badgeText: Array.from(root.querySelectorAll(".hpfc-badge text")).map((node) => node.textContent),
+      pipeCount: pipes.length,
+    };
+  });
+  assert.equal(state.present, true);
+  assert.equal(state.running, true);
+  assert.equal(state.title, "Wood stove");
+  // its own flow/return badges, distinct from the heat pump's
+  assert.ok(state.badgeText.some((text) => text.includes("68.4")));
+  assert.ok(state.badgeText.some((text) => text.includes("52.1")));
+  // heat pump flow+return, wood stove flow+return, buffer->circuit distributor
+  // pipes: enough pipe groups to confirm a second, independent pipe pair was
+  // actually drawn rather than the wood stove silently sharing the heat
+  // pump's.
+  assert.ok(state.pipeCount >= 4);
+
+  // switch it off: the panel and its pipes go quiet, the heat pump is untouched
+  const after = await page.evaluate(() => {
+    const card = document.getElementById("card-wood-stove");
+    window.demoStates["binary_sensor.wood_stove"] = {
+      entity_id: "binary_sensor.wood_stove",
+      state: "off",
+      attributes: {},
+    };
+    card.hass = window.makeHass("en");
+    const root = card.shadowRoot;
+    return {
+      stoveOn: root.querySelector(".hpfc-woodstove").classList.contains("hpfc-on"),
+      heatpumpOn: root.querySelector(".hpfc-heatpump").classList.contains("hpfc-running"),
+    };
+  });
+  assert.equal(after.stoveOn, false);
+  assert.equal(after.heatpumpOn, true);
+});
+
 test("a defrost cycle is visible on the heat pump", async () => {
   await page.goto(`${previewUrl}?layout=extras`);
   const state = await page.evaluate(() => {
