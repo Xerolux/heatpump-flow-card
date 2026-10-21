@@ -196,7 +196,7 @@ single element with its own `tap_action`.
 
 ![Defrosting, with the element in the tank running](docs/images/extras.png)
 
-Three things a heat pump does that are easy to miss, and hard to explain
+Four things a heat pump does that are easy to miss, and hard to explain
 afterwards:
 
 * **The second heat generator.** `aux_heat` and `aux_heat_power` add a row to
@@ -205,6 +205,14 @@ afterwards:
 * **Defrosting.** When the heat pump reports a defrost cycle, vapour rises off
   the unit and the fan ring turns icy. Detected from `status` (or `mode`), or
   from an explicit `defrost` binary sensor.
+* **The refrigerant circuit.** `ref_discharge_temp`, `ref_condenser_temp`,
+  `ref_liquid_temp` and `ref_suction_temp` draw the refrigerant loop inside the
+  heat pump panel — compressor, condenser, expansion valve and evaporator — with
+  the four measuring points numbered on the loop and listed underneath. The
+  compressor turns and the loop flows while the compressor runs — by
+  `compressor` when it is set, otherwise by the state of the heat pump. Set any
+  one of them to show it, leave out the ones you do not have, or switch it off
+  again with `ref_circuit: false`.
 * **An electric element in the tank.** `heater` and `heater_power` on `buffer`
   or `dhw` draw a heating element inside the tank — a my-PV AC-Thor, a booster,
   a backup heater — glowing while it draws power, captioned with its name, its
@@ -217,6 +225,10 @@ heatpump:
   status: sensor.operating_state  # what it is doing right now
   aux_heat: binary_sensor.second_heat_generator
   aux_heat_power: sensor.heating_element_power
+  ref_discharge_temp: sensor.hp_ref_discharge_gas
+  ref_condenser_temp: sensor.hp_ref_condenser
+  ref_liquid_temp: sensor.hp_ref_liquid_line
+  ref_suction_temp: sensor.hp_ref_suction_gas
 buffer:
   heater: switch.ac_thor
   heater_power: sensor.ac_thor_power

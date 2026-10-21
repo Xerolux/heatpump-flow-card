@@ -21,6 +21,18 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+### Added
+
+- **The refrigerant circuit can be drawn inside the heat pump panel.** Set any
+  of `ref_discharge_temp`, `ref_condenser_temp`, `ref_liquid_temp` and
+  `ref_suction_temp` and the panel shows the loop — compressor, condenser,
+  expansion valve, evaporator — with the four measuring points numbered on it
+  and listed underneath. The compressor turns and the loop flows while the
+  compressor runs — by `compressor` when it is set, otherwise by the state of
+  the heat pump. Readings stay neutral rather than temperature-coloured, since
+  discharge gas runs well past the colour scale. `ref_circuit: false` hides it
+  again, and the editor offers that switch once a sensor is set.
+
 ### Fixed
 
 - The live IDM examples now wire circuit D to its real flow and room

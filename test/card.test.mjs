@@ -741,6 +741,187 @@ test("the second heat generator shows up when it engages", async () => {
   assert.equal(after, false);
 });
 
+const REF_CIRCUIT_SENSORS = {
+  ref_discharge_temp: ["sensor.hp_ref_discharge", "69.2"],
+  ref_condenser_temp: ["sensor.hp_ref_condenser", "52.8"],
+  ref_liquid_temp: ["sensor.hp_ref_liquid", "43.2"],
+  ref_suction_temp: ["sensor.hp_ref_suction", "30.7"],
+};
+
+/** Renders a single card with the given heatpump options and reports its refrigerant circuit. */
+function renderRefCircuit(heatpump, sensors = REF_CIRCUIT_SENSORS) {
+  return page.evaluate(
+    ({ heatpump, sensors }) => {
+      for (const [entity, state] of Object.values(sensors)) {
+        window.demoStates[entity] = {
+          entity_id: entity,
+          state,
+          attributes: { unit_of_measurement: "°C", device_class: "temperature" },
+        };
+      }
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({ type: "custom:heatpump-flow-card", layout: "single", heatpump });
+      card.hass = window.makeHass("en");
+      document.body.appendChild(card);
+      const hp = card.shadowRoot.querySelector(".hpfc-heatpump");
+      const circuit = hp.querySelector(".hpfc-ref-circuit");
+      const result = {
+        panelHeight: Number(hp.querySelector(".hpfc-panel").getAttribute("height")),
+        present: Boolean(circuit),
+        readouts: circuit
+          ? [...circuit.querySelectorAll(".hpfc-readout")].map((readout) => ({
+              label: readout.querySelector(".hpfc-label").textContent,
+              value: readout.querySelector(".hpfc-value").textContent,
+              unset: readout.classList.contains("hpfc-unset"),
+              colored: readout.querySelector(".hpfc-value").style.fill !== "",
+            }))
+          : [],
+        dots: circuit ? circuit.querySelectorAll(".hpfc-ref-dot").length : 0,
+        spinners: circuit ? circuit.querySelectorAll(".hpfc-spin").length : 0,
+      };
+      card.remove();
+      return result;
+    },
+    { heatpump, sensors }
+  );
+}
+
+const refCircuitFields = Object.fromEntries(
+  Object.entries(REF_CIRCUIT_SENSORS).map(([key, [entity]]) => [key, entity])
+);
+
+test("the refrigerant circuit lists the four loop temperatures in loop order", async () => {
+  const result = await renderRefCircuit({ ...refCircuitFields });
+  assert.equal(result.present, true);
+  assert.equal(result.readouts.length, 4);
+  assert.deepEqual(
+    result.readouts.map((readout) => readout.value.replace(",", ".")),
+    ["69.2 °C", "52.8 °C", "43.2 °C", "30.7 °C"]
+  );
+  assert.equal(result.dots, 4);
+  assert.equal(result.spinners, 1);
+  // refrigerant temperatures run past the card's colour scale, so they stay neutral
+  assert.ok(result.readouts.every((readout) => !readout.colored));
+});
+
+test("suction gas stays suction coloured up to the compressor", async () => {
+  const top = await page.evaluate((heatpump) => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({ type: "custom:heatpump-flow-card", layout: "single", heatpump });
+    card.hass = window.makeHass("en");
+    document.body.appendChild(card);
+    const segments = [...card.shadowRoot.querySelectorAll(".hpfc-ref-loop .hpfc-pipe")].map((path) => {
+      const [x0, y0, x1, y1] = path.getAttribute("d").match(/-?[\d.]+/g).map(Number);
+      return { x0, y0, x1, y1, stroke: path.getAttribute("stroke") };
+    });
+    card.remove();
+    const leftLeg = segments.filter((s) => s.x0 === s.x1).sort((a, b) => a.x0 - b.x0)[0];
+    const topEdge = segments
+      .filter((s) => s.y0 === s.y1 && s.y0 === leftLeg.y1)
+      .sort((a, b) => a.x0 - b.x0);
+    return { leg: leftLeg.stroke, edge: topEdge.map((s) => s.stroke) };
+  }, refCircuitFields);
+  assert.equal(top.edge[0], top.leg, "the pipe from the corner to the compressor carries suction gas");
+  assert.notEqual(top.edge[top.edge.length - 1], top.leg, "after the compressor the gas is hot");
+});
+
+test("the refrigerant circuit stands still while the compressor reports zero", async () => {
+  const report = (load) =>
+    page.evaluate(
+      ({ heatpump, load }) => {
+        window.demoStates["sensor.compressor_load"].state = load;
+        const card = document.createElement("heatpump-flow-card");
+        card.setConfig({
+          type: "custom:heatpump-flow-card",
+          layout: "single",
+          heatpump: { ...heatpump, state_entity: "binary_sensor.compressor", compressor: "sensor.compressor_load" },
+        });
+        card.hass = window.makeHass("en");
+        document.body.appendChild(card);
+        const root = card.shadowRoot;
+        const result = {
+          loopStopped: root.querySelector(".hpfc-ref-loop").classList.contains("hpfc-stopped"),
+          gear: getComputedStyle(root.querySelector(".hpfc-ref-spin")).animationPlayState,
+          fan: getComputedStyle(root.querySelector(".hpfc-fan")).animationPlayState,
+        };
+        card.remove();
+        return result;
+      },
+      { heatpump: refCircuitFields, load }
+    );
+  const idle = await report("0");
+  assert.equal(idle.loopStopped, true);
+  assert.equal(idle.gear, "paused");
+  const busy = await report("72");
+  assert.equal(busy.loopStopped, false);
+  assert.equal(busy.gear, "running");
+  // the rest of the card keeps going by the heat pump's own state entity
+  assert.equal(idle.fan, "running");
+});
+
+test("the refrigerant circuit grows the heat pump panel", async () => {
+  const plain = await renderRefCircuit({});
+  const withLoop = await renderRefCircuit({ ...refCircuitFields });
+  assert.ok(withLoop.panelHeight > plain.panelHeight);
+});
+
+test("the refrigerant circuit is absent unless a sensor is configured", async () => {
+  const result = await renderRefCircuit({});
+  assert.equal(result.present, false);
+});
+
+test("the refrigerant circuit can be switched off", async () => {
+  const result = await renderRefCircuit({ ...refCircuitFields, ref_circuit: false });
+  assert.equal(result.present, false);
+  const plain = await renderRefCircuit({});
+  assert.equal(result.panelHeight, plain.panelHeight);
+});
+
+test("a refrigerant sensor left out leaves its slot empty", async () => {
+  const { ref_liquid_temp, ...partial } = refCircuitFields;
+  const result = await renderRefCircuit(partial);
+  assert.equal(result.present, true);
+  assert.equal(result.readouts.length, 4);
+  assert.deepEqual(
+    result.readouts.map((readout) => readout.unset),
+    [false, false, true, false]
+  );
+});
+
+test("the editor offers the refrigerant circuit switch only once a sensor is set", async () => {
+  const result = await page.evaluate(() => {
+    const editor = document.createElement("heatpump-flow-card-editor");
+    const names = (config) => {
+      editor.setConfig(config);
+      const data = editor._toData(config);
+      const section = editor._schema(data, editor._texts).find((row) => row.name === "heatpump");
+      return {
+        names: section.schema.flatMap((row) =>
+          row.type === "grid" ? row.schema.map((field) => field.name) : [row.name]
+        ),
+        roundTrip: editor._toConfig(data).heatpump,
+      };
+    };
+    return {
+      bare: names({ type: "custom:heatpump-flow-card", layout: "dual" }),
+      configured: names({
+        type: "custom:heatpump-flow-card",
+        layout: "dual",
+        heatpump: { ref_discharge_temp: "sensor.hp_ref_discharge", ref_circuit: false },
+      }),
+    };
+  });
+  for (const field of ["ref_discharge_temp", "ref_condenser_temp", "ref_liquid_temp", "ref_suction_temp"]) {
+    assert.ok(result.bare.names.includes(field), `heat pump editor is missing ${field}`);
+  }
+  assert.equal(result.bare.names.includes("ref_circuit"), false);
+  assert.ok(result.configured.names.includes("ref_circuit"));
+  assert.deepEqual(result.configured.roundTrip, {
+    ref_discharge_temp: "sensor.hp_ref_discharge",
+    ref_circuit: false,
+  });
+});
+
 test("a defrost cycle is visible on the heat pump", async () => {
   await page.goto(`${previewUrl}?layout=extras`);
   const state = await page.evaluate(() => {

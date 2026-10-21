@@ -201,7 +201,7 @@ lassen sich weiterhin per `tap_action` überschreiben.
 
 ![Abtauen, mit laufendem Heizstab im Speicher](docs/images/extras.png)
 
-Drei Dinge, die eine Wärmepumpe tut, die man leicht übersieht und hinterher
+Vier Dinge, die eine Wärmepumpe tut, die man leicht übersieht und hinterher
 schlecht erklären kann:
 
 * **Der zweite Wärmeerzeuger.** `aux_heat` und `aux_heat_power` ergänzen im
@@ -211,6 +211,14 @@ schlecht erklären kann:
 * **Abtauen.** Meldet die Wärmepumpe einen Abtauvorgang, steigt Dampf vom
   Außengerät auf und der Ventilatorring wird eisblau. Erkannt aus `status`
   (oder `mode`), oder aus einem eigenen `defrost`-Binärsensor.
+* **Der Kältekreis.** `ref_discharge_temp`, `ref_condenser_temp`,
+  `ref_liquid_temp` und `ref_suction_temp` zeichnen den Kältekreis ins
+  Wärmepumpen-Panel – Verdichter, Verflüssiger, Expansionsventil und Verdampfer
+  – mit den vier Messpunkten nummeriert im Kreis und darunter aufgelistet. Der
+  Verdichter dreht und der Kreis fließt, solange der Verdichter läuft – nach
+  `compressor`, wenn gesetzt, sonst nach dem Zustand der Wärmepumpe. Ein Sensor
+  genügt, um ihn anzuzeigen; fehlende bleiben leer, und mit `ref_circuit: false`
+  ist er wieder aus.
 * **Ein Heizstab im Speicher.** `heater` und `heater_power` bei `buffer` oder
   `dhw` zeichnen einen Heizstab in den Speicher – ein my-PV AC-Thor, ein
   Booster, eine Notheizung –, der glüht, solange er Leistung zieht,
@@ -223,6 +231,10 @@ heatpump:
   status: sensor.operating_state  # was sie gerade tatsächlich tut
   aux_heat: binary_sensor.second_heat_generator
   aux_heat_power: sensor.heating_element_power
+  ref_discharge_temp: sensor.hp_ref_discharge_gas
+  ref_condenser_temp: sensor.hp_ref_condenser
+  ref_liquid_temp: sensor.hp_ref_liquid_line
+  ref_suction_temp: sensor.hp_ref_suction_gas
 buffer:
   heater: switch.ac_thor
   heater_power: sensor.ac_thor_power
