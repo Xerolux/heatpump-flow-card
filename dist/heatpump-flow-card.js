@@ -2572,10 +2572,17 @@ function drawElectricsHub(scene, box, nodes) {
       const x2 = sink.cx - dx * inset, y2 = sink.cy - dy * inset;
       const bow = source.key === "pv" ? -35 : source.key === "battery" ? 35 : 0;
       const lane = sink.isDevice ? (sink.cy < middle ? middle - 70 : middle + 70) : null;
+      // Take top-row grid feeds above the PV caption, rather than through it.
+      const gridTopRoute = source.key === "grid" && sink.isDevice && sink.cy < middle;
+      const topRail = box.y + 38;
+      const gate = source.cx + source.radius + 40;
+      const d = gridTopRoute
+        ? `M ${x1} ${y1} C ${gate} ${y1}, ${gate - 20} ${topRail}, ${gate + 8} ${topRail} L ${x2 - 24} ${topRail} Q ${x2} ${topRail}, ${x2} ${y2}`
+        : `M ${x1} ${y1} C ${x1 + dx * 0.35} ${lane ?? y1 + bow}, ${x2 - dx * 0.35} ${lane ?? y2 + bow}, ${x2} ${y2}`;
       const flow = (hass) => routePower(hass, source.key, sink.key);
       const group = drawPipe(scene, {
         points: [[x1, y1], [x2, y2]],
-        d: `M ${x1} ${y1} C ${x1 + dx * 0.35} ${lane ?? y1 + bow}, ${x2 - dx * 0.35} ${lane ?? y2 + bow}, ${x2} ${y2}`,
+        d,
         role: "pv", className: "hpfc-energy hpfc-flow-seg hpfc-hub-route",
         part: `power-route-${source.key}-${sink.key}`,
         fallbackColor: ELECTRIC_COLORS[source.key], active: (hass) => flow(hass) > 0,

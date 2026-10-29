@@ -41,6 +41,22 @@ for (const layout of layouts) {
       Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
     const found = [];
 
+    // Source routes must not cross the readable captions under the hub nodes.
+    const hubLabels = boxes.filter((box) => box.node.closest(".hpfc-hub-node") && box.node.classList.contains("hpfc-label"));
+    for (const route of root.querySelectorAll(".hpfc-hub-route:not(.hpfc-stopped) .hpfc-pipe")) {
+      const length = route.getTotalLength();
+      const matrix = route.getScreenCTM();
+      for (const box of hubLabels) {
+        for (let at = 0; at <= length; at += 2) {
+          const point = route.getPointAtLength(at).matrixTransform(matrix);
+          if (point.x >= box.rect.left - 1 && point.x <= box.rect.right + 1 && point.y >= box.rect.top - 1 && point.y <= box.rect.bottom + 1) {
+            found.push(`route through "${box.text}"`);
+            break;
+          }
+        }
+      }
+    }
+
     // label on label
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) {
