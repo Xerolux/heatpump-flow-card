@@ -12,7 +12,7 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `layout` | string | `dual` | `compact`, `single`, `dual`, `full` |
 | `title` | string | — | Überschrift über der Zeichnung |
 | `animation` | boolean | `true` | Punkte durch die Rohre bewegen |
-| `flow_speed` | number | `1` | Geschwindigkeit, `0.2`–`3` |
+| `flow_speed` | number | `1` | Geschwindigkeit, `0.1`–`5` |
 | `temperature_colors` | boolean | `true` | `false` = Vorlauf rot, Rücklauf blau |
 | `controls` | boolean | `true` | `false` = jeder Klick öffnet nur more-info |
 | `zoom` | boolean | `true` | Die Lupe, die die Karte bildschirmfüllend öffnet |
@@ -21,7 +21,9 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `dhw` | object \| `false` | nur `full` | Warmwasser |
 | `pv` | object \| `false` | nur `full` | Photovoltaik |
 | `solar` | object \| `false` | nur `full` | Solarthermie |
-| `circuits` | Liste | 1–2 | Heizkreise, bis zu **sieben** (A–G) |
+| `electrics_style` | string | `tiles` | `flow` zeichnet den Strombus als runde Knoten auf einer dünnen Linie |
+| `wood_stove` | object \| `false` | aus | Zweiter, von Hand beschickter Wärmeerzeuger — siehe unten |
+| `circuits` | Liste \| number | 1–2 | Heizkreise, bis zu **sieben** (A–G); eine nackte Zahl erzeugt so viele Platzhalter-Kreise |
 
 ## heatpump
 
@@ -47,7 +49,14 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `compressor` | Verdichterlast in Prozent – bestimmt auch die Drehzahl des Ventilators |
 | `flow_temp` | Vorlauf: Pille und Rohrfarbe Richtung Speicher |
 | `return_temp` | Rücklauf: Pille und Rohrfarbe zurück |
+| `fan` | `false` für Sole/Wasser- oder Wasser/Wasser-Geräte: kein Außengerät-Ventilator — stattdessen zwei Sole-Anschlüsse — und kein Abtau-Dampf |
 | `power_threshold` | Watt, ab denen die Wärmepumpe als laufend gilt (Standard `20`) |
+
+`cop` kennt auch die Langform: `{ calculate: true, thermal_power: sensor.heizleistung, power: sensor.wp_leistung }`
+teilt die Heizleistung durch die elektrische Aufnahme, beide vorher einheitlich
+in Watt umgerechnet, sodass kW gegen W aufgeht. Läuft die Wärmepumpe nicht,
+bleibt der Wert leer. `decimals` wird beachtet (Standard 2); ein einfacher
+COP-Sensor bleibt unterstützt.
 
 Von `power`, `cop`, `outside_temp` und `compressor` werden die ersten drei
 gezeichnet.
@@ -239,3 +248,55 @@ Hausverbrauch als Netto-Wechselrichterleistung plus normalisierten Netzwert,
 abzüglich der separat gezeigten Wallbox. Eine normale Entität funktioniert
 weiterhin, wenn die Anlage anders aufgebaut ist oder der Wert auch außerhalb
 der Karte gebraucht wird – siehe [Vorlagen-Sensoren](Template-Sensors-de).
+
+**Enthält der Hauszähler einige der großen Verbraucher selbst**, zählt der Bus
+sie doppelt. Man nennt, was er schon enthält, und die Karte lässt sie aus der
+Hausanzeige heraus:
+
+```yaml
+  house:
+    entity: sensor.hausverbrauch
+    subtract: [heatpump, wallbox, consumers]   # beliebig aus diesen drei
+```
+
+Ein Verbrauch ohne eigenen Zähler wird übersprungen, statt den Hauswert ganz
+leer zu machen.
+
+**Eigene große Verbraucher** — Klimaanlage, Trockner, Serverschrank — bekommen
+eigene Knoten, statt sich im `house`-Wert zu verstecken:
+
+```yaml
+  consumers:
+    - entity: sensor.klima_leistung
+      name: Klima
+    - entity: sensor.trockner_leistung
+```
+
+Bis zu vier Verbraucher; jeder animiert nur, während er Leistung zieht, und
+entscheidet seine Richtung wie jeder andere Knoten selbst.
+
+**Der Look der Schiene** folgt `electrics_style` auf der Karte. `tiles`
+(Standard) zeichnet rechteckige Kacheln unter einer kräftigen Energielinie;
+`flow` zeichnet runde Knoten auf einer dünnen, durchgehenden Linie — wie die
+Tesla-App oder power-flow-card-plus: einspeisende Knoten in ihrer eigenen
+Farbe, Punkte, deren Tempo der Leistung folgt, und Leitungsstücke, die nur
+Strom führen, wenn die Bilanz der Anlage wirklich durch sie fließt.
+
+## wood_stove
+
+Ein zweiter, von Hand beschickter Wärmeerzeuger — Holzofen, Pelletofen, alles,
+was man selbst füllt und entzündet statt einen Kompressor laufen zu lassen —
+hängt neben der Wärmepumpe an eigenen Rohren am Pufferspeicher. Bewusst
+schlicht: keine Leistung, keine Arbeitszahl, kein Betriebsart-Chip, weil es
+das für etwas, das man mit Scheiten lädt, nicht gibt. Er ist aus, solange er
+nicht genannt wird — jede bestehende Konfiguration behält ihr Aussehen. Er
+speist nur den Pufferspeicher, so wie der Solarthermie-Kreis.
+
+```yaml
+wood_stove:
+  entity: binary_sensor.holzofen         # Klick schaltet; sein Zustand sagt auch „brennt“
+  state_entity: binary_sensor.holzofen_brennt
+  status: sensor.holzofen_status         # gemeldeter Zustand, falls vorhanden
+  flow_temp: sensor.holzofen_vorlauf
+  return_temp: sensor.holzofen_ruecklauf
+```

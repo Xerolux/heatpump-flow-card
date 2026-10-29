@@ -47,7 +47,14 @@ empty, a section you set to `false` is not drawn at all.
 | `compressor` | Compressor load in percent — also sets the fan speed |
 | `flow_temp` | Flow temperature: badge and pipe colour towards the tank |
 | `return_temp` | Return temperature: badge and pipe colour back from the tank |
+| `fan` | `false` for a brine-to-water or water-to-water unit: no outdoor fan is drawn — two brine ports instead — and defrost vapour stays hidden |
 | `power_threshold` | Watts above which the heat pump counts as running (default `20`) |
+
+`cop` takes the long form too: `{ calculate: true, thermal_power: sensor.heat_output, power: sensor.hp_power }`
+divides the thermal output by the electrical draw, both normalized to watts, so
+a kW meter against a W meter comes out right. The readout stays empty while the
+heat pump is off. `decimals` is honoured (default 2); a plain COP sensor still
+works.
 
 Only the first three of `power`, `cop`, `outside_temp`, `compressor` are drawn —
 the rest is available through more-info.
@@ -159,6 +166,56 @@ separately shown wallbox. A normal entity still works when you need another
 topology or want the value elsewhere in Home Assistant — see
 [Template sensors](Template-Sensors), which also carries the check for which
 direction your meter counts as positive.
+
+**A house meter that already contains some of the loads** counts them twice on
+the bus. Name what it includes and the card leaves them out of the house
+reading:
+
+```yaml
+  house:
+    entity: sensor.house_power
+    subtract: [heatpump, wallbox, consumers]   # any of the three
+```
+
+A load without its own meter is skipped rather than blanking the house value.
+
+**Big loads of your own** — air conditioning, a dryer, a server rack — get
+their own nodes instead of hiding inside `house`:
+
+```yaml
+  consumers:
+    - entity: sensor.airco_power
+      name: Airco
+    - entity: sensor.dryer_power
+```
+
+Up to four consumers; each animates only while it draws power, and each
+decides its own direction like every other node.
+
+**The look of the bus** follows `electrics_style` on the card. `tiles` (the
+default) draws rectangular tiles under a thick energy line; `flow` draws round
+nodes on one thin solid line, in the manner of the Tesla app or
+power-flow-card-plus — producing nodes in their own colour, dots whose speed
+follows the watts, and segments that only carry current when the balance of
+the plant actually flows through them.
+
+## wood_stove
+
+A second, hand-fed heat source — a wood stove, a pellet boiler, anything fed
+and lit by hand rather than run from a compressor — plumbed into the buffer
+tank alongside the heat pump, on its own pair of pipes. Deliberately minimal:
+no power, COP or mode chip, because none of that exists for something you load
+with logs. Off unless named, so every existing configuration keeps its look;
+it feeds only the buffer, like the solar thermal circuit.
+
+```yaml
+wood_stove:
+  entity: binary_sensor.wood_stove      # taps toggle this; its state also says "burning"
+  state_entity: binary_sensor.wood_stove_burning
+  status: sensor.wood_stove_status      # reported state, if there is one
+  flow_temp: sensor.wood_stove_flow
+  return_temp: sensor.wood_stove_return
+```
 
 ## circuits
 

@@ -130,6 +130,12 @@ which way its own energy is travelling.
    * URL: `/local/heatpump-flow-card.js`
    * Type: **JavaScript module**
 
+**Another card with the same name?** Element names are global to the
+dashboard, and one other hydraulic scheme card uses the same tag. If that card
+loaded first, this one registers as `heatpump-flow-card-xerolux` — the browser
+console says so — and your dashboard addresses it with
+`type: custom:heatpump-flow-card-xerolux`. Both cards keep working.
+
 ## Quick start
 
 Add a card, search for **Heat Pump Flow Card**, and pick your entities in the
@@ -300,16 +306,18 @@ readable, so on a 4K or 8K panel it stops there and centres instead.
 | `layout` | string | `dual` | `compact`, `single`, `dual` or `full` |
 | `title` | string | — | Card heading |
 | `animation` | boolean | `true` | Move the dots through the pipes |
-| `flow_speed` | number | `1` | Speed multiplier, `0.2` – `3` |
+| `flow_speed` | number | `1` | Speed multiplier, `0.1` – `5` |
 | `temperature_colors` | boolean | `true` | `false` keeps flow red / return blue |
 | `controls` | boolean | `true` | `false` makes every tap open more-info |
 | `zoom` | boolean | `true` | The magnifier that opens the card full screen |
+| `electrics_style` | string | `tiles` | `flow` draws the energy bus as round nodes on one thin line |
 | `heatpump` | object | `{}` | see below |
 | `buffer` | object \| `false` | shown | Buffer tank |
 | `dhw` | object \| `false` | `full` only | Domestic hot water |
 | `pv` | object \| `false` | `full` only | Photovoltaics |
 | `solar` | object \| `false` | `full` only | Solar thermal |
-| `circuits` | list | 1–2 circuits | Heating circuits, up to 7 (A–G) |
+| `wood_stove` | object \| `false` | off | A second, hand-fed heat source — see below |
+| `circuits` | list \| number | 1–2 circuits | Heating circuits, up to 7 (A–G); a plain count builds that many placeholder circuits |
 
 ### `heatpump`
 
@@ -320,6 +328,8 @@ readable, so on a 4K or 8K panel it stops there and centres instead.
 | `state_entity` | Decides whether the heat pump counts as running |
 | `mode` | Operating mode; `heat`/`cool`/`water`/`defrost`/`idle` are detected from the state text, and `hvac_action` of a `climate` entity is used automatically |
 | `power`, `cop`, `outside_temp`, `compressor` | Values shown next to the unit (the first three are displayed, the compressor also sets the fan speed) |
+| `cop` (long form) | `{ calculate: true, thermal_power: sensor.heat_output, power: sensor.hp_power }` computes the COP in the card from two meters; `decimals` optional (default 2). A plain COP sensor still works |
+| `fan` | `false` for a brine-to-water or water-to-water unit: no outdoor fan is drawn — two brine ports instead — and defrost vapour stays hidden |
 | `flow_temp`, `return_temp` | Colour and label the pipes to the tank |
 | `power_threshold` | Watts above which the heat pump counts as running (default `20`) |
 
@@ -388,6 +398,56 @@ photovoltaics to the heat pump.
 the card calculates the residual building consumption from the net inverter
 power plus the normalized grid value, minus the separately shown wallbox. The
 calculation uses watts even when one of the source entities reports kW.
+
+**A house meter that already contains some of the loads** counts them twice on
+the bus. Name what it includes and the card leaves them out of the house
+reading:
+
+```yaml
+  house:
+    entity: sensor.house_power
+    subtract: [heatpump, wallbox, consumers]   # any of the three
+```
+
+**Big loads of your own** — air conditioning, a dryer, a server rack — get
+their own nodes instead of hiding inside `house`:
+
+```yaml
+  consumers:
+    - entity: sensor.airco_power
+      name: Airco
+    - entity: sensor.dryer_power
+```
+
+Up to four consumers; each animates only while it draws power.
+
+**The look of the bus** follows `electrics_style` on the card. `tiles` (the
+default) draws rectangular tiles under a thick energy line; `flow` draws round
+nodes on one thin solid line, in the manner of the Tesla app or
+power-flow-card-plus — producing nodes in their own colour, dots whose speed
+follows the watts, and segments that only carry current when the balance of
+the plant actually flows through them.
+
+### `wood_stove`
+
+A second, hand-fed heat source — a wood stove, a pellet boiler, anything fed
+and lit by hand rather than run from a compressor — plumbed into the buffer
+tank alongside the heat pump, on its own pair of pipes. Deliberately minimal:
+no power, COP or mode chip, because none of that exists for something you load
+with logs.
+
+```yaml
+wood_stove:
+  entity: binary_sensor.wood_stove      # taps toggle this; its state also says "burning"
+  state_entity: binary_sensor.wood_stove_burning
+  status: sensor.wood_stove_status      # reported state, if there is one
+  flow_temp: sensor.wood_stove_flow
+  return_temp: sensor.wood_stove_return
+```
+
+It is off unless named, so every existing configuration keeps its look. It
+only feeds the buffer — like the solar thermal circuit, it does not wire
+itself to circuits directly.
 
 ### `circuits[]`
 

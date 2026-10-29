@@ -59,9 +59,34 @@ changes shipped with the next tagged release.
   with logs. Opt-in via `wood_stove: {...}` in YAML, or the "Show wood stove"
   toggle in the visual editor; absent by default, so every existing
   configuration and layout preset is unaffected.
+- **The energy bus can wear the light look.** `electrics_style: flow` draws
+  round nodes on one thin solid line — in the manner of the Tesla app or
+  power-flow-card-plus — instead of rectangular tiles under a thick dashed
+  line. Producing nodes read in their own colour, the dots' speed follows the
+  watts, and a segment only carries current when the plant's balance actually
+  flows through it. The heat pump sits on the line as one of the round nodes.
+- **Custom consumers on the energy bus.** `pv.consumers` gives big loads of
+  their own — air conditioning, a dryer, a server rack — their own nodes,
+  instead of hiding them inside the house reading. Up to four, each animating
+  only while it draws power.
+- **The house reading can leave out what it already contains.**
+  `pv.house.subtract: [heatpump, wallbox, consumers]` stops the bus from
+  counting a load twice. A load without its own meter is skipped rather than
+  blanking the house value.
+- **Brine and water heat pumps can drop the fan.** `heatpump.fan: false`
+  removes the outdoor fan and draws two brine ports instead — and defrost
+  vapour, an air-side symptom, stays hidden. For a Vitocal 333G and its
+  siblings.
 
 ### Fixed
 
+- **Another card with the same element name no longer breaks this one.** A
+  hydraulic scheme card from another author registers the same
+  `<heatpump-flow-card>` tag; whichever script loaded first won and the other
+  card silently vanished. When the name is taken, this card now registers as
+  `heatpump-flow-card-xerolux` and says so in the console — a dashboard then
+  addresses it as `type: custom:heatpump-flow-card-xerolux`, and both cards
+  keep working.
 - **Circuits and pumps follow what Home Assistant reports, not what was
   asked.** A climate entity set to `heat` that answers with
   `hvac_action: idle` was drawn as running. The card now believes

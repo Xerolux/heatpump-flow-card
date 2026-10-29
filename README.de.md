@@ -133,6 +133,12 @@ zeigt, in welche Richtung sein Strom fließt.
    * URL: `/local/heatpump-flow-card.js`
    * Typ: **JavaScript-Modul**
 
+**Eine andere Karte mit demselben Namen?** Element-Namen gelten dashboardweit,
+und eine andere hydraulische Karte nutzt denselben Tag. Lädt jene Karte
+zuerst, registriert sich diese als `heatpump-flow-card-xerolux` — die
+Browser-Konsole sagt es — und das Dashboard spricht sie mit
+`type: custom:heatpump-flow-card-xerolux` an. Beide Karten funktionieren.
+
 ## Schnellstart
 
 Karte hinzufügen, nach **Heat Pump Flow Card** suchen und im Editor die
@@ -309,16 +315,18 @@ Designgröße würde die Zeichnung nur größer, nicht lesbarer – auf einem 4K
 | `layout` | string | `dual` | `compact`, `single`, `dual` oder `full` |
 | `title` | string | — | Überschrift der Karte |
 | `animation` | boolean | `true` | Punkte durch die Rohre bewegen |
-| `flow_speed` | number | `1` | Geschwindigkeit, `0.2` – `3` |
+| `flow_speed` | number | `1` | Geschwindigkeit, `0.1` – `5` |
 | `temperature_colors` | boolean | `true` | `false` = Vorlauf rot, Rücklauf blau |
 | `controls` | boolean | `true` | `false` = jeder Klick öffnet nur more-info |
 | `zoom` | boolean | `true` | Die Lupe, die die Karte bildschirmfüllend öffnet |
+| `electrics_style` | string | `tiles` | `flow` zeichnet den Strombus als runde Knoten auf einer dünnen Linie |
 | `heatpump` | object | `{}` | siehe unten |
 | `buffer` | object \| `false` | sichtbar | Pufferspeicher |
 | `dhw` | object \| `false` | nur `full` | Warmwasser |
 | `pv` | object \| `false` | nur `full` | Photovoltaik |
 | `solar` | object \| `false` | nur `full` | Solarthermie |
-| `circuits` | Liste | 1–2 Kreise | Heizkreise, bis zu 7 (A–G) |
+| `wood_stove` | object \| `false` | aus | Zweiter, von Hand beschickter Wärmeerzeuger — siehe unten |
+| `circuits` | Liste \| number | 1–2 Kreise | Heizkreise, bis zu 7 (A–G); eine nackte Zahl erzeugt so viele Platzhalter-Kreise |
 
 ### `heatpump`
 
@@ -329,6 +337,8 @@ Designgröße würde die Zeichnung nur größer, nicht lesbarer – auf einem 4K
 | `state_entity` | Entscheidet, ob die Wärmepumpe als laufend gilt |
 | `mode` | Betriebsart; `Heizen`/`Kühlen`/`Warmwasser`/`Abtauen`/`Bereitschaft` werden aus dem Statustext erkannt, bei `climate`-Entitäten wird `hvac_action` automatisch verwendet |
 | `power`, `cop`, `outside_temp`, `compressor` | Werte neben dem Außengerät (die ersten drei werden angezeigt, die Verdichterlast bestimmt zusätzlich die Drehzahl des Ventilators) |
+| `cop` (Langform) | `{ calculate: true, thermal_power: sensor.heizleistung, power: sensor.wp_leistung }` rechnet die Arbeitszahl direkt in der Karte aus zwei Zählern; `decimals` optional (Standard 2). Ein einfacher COP-Sensor bleibt unterstützt |
+| `fan` | `false` für Sole/Wasser- oder Wasser/Wasser-Geräte: kein Außengerät-Ventilator — stattdessen zwei Sole-Anschlüsse — und kein Abtau-Dampf |
 | `flow_temp`, `return_temp` | Färben und beschriften die Rohre zum Speicher |
 | `power_threshold` | Watt, ab denen die Wärmepumpe als laufend gilt (Standard `20`) |
 
@@ -396,6 +406,56 @@ Speicher über `heater_power` – beides muss man nicht doppelt eintragen.
 Netto-Wechselrichterleistung plus dem normalisierten Netzwert, abzüglich der
 separat gezeigten Wallbox. Dabei rechnet sie auch gemischte W- und kW-Sensoren
 korrekt in Watt um.
+
+**Enthält der Hauszähler einige der großen Verbraucher selbst**, zählt der Bus
+sie doppelt. Man nennt, was er schon enthält, und die Karte lässt sie aus der
+Hausanzeige heraus:
+
+```yaml
+  house:
+    entity: sensor.hausverbrauch
+    subtract: [heatpump, wallbox, consumers]   # beliebig aus diesen drei
+```
+
+**Eigene große Verbraucher** — Klimaanlage, Trockner, Serverschrank — bekommen
+eigene Knoten, statt sich im `house`-Wert zu verstecken:
+
+```yaml
+  consumers:
+    - entity: sensor.klima_leistung
+      name: Klima
+    - entity: sensor.trockner_leistung
+```
+
+Bis zu vier Verbraucher; jeder animiert nur, während er Leistung zieht.
+
+**Der Look der Schiene** folgt `electrics_style` auf der Karte. `tiles`
+(Standard) zeichnet rechteckige Kacheln unter einer kräftigen Energielinie;
+`flow` zeichnet runde Knoten auf einer dünnen, durchgehenden Linie — wie die
+Tesla-App oder power-flow-card-plus: einspeisende Knoten in ihrer eigenen
+Farbe, Punkte, deren Tempo der Leistung folgt, und Leitungsstücke, die nur
+Strom führen, wenn die Bilanz der Anlage wirklich durch sie fließt.
+
+### `wood_stove`
+
+Ein zweiter, von Hand beschickter Wärmeerzeuger — Holzofen, Pelletofen,
+alles, was man selbst füllt und entzündet statt einen Kompressor laufen zu
+lassen — hängt neben der Wärmepumpe an eigenen Rohren am Pufferspeicher.
+Bewusst schlicht: keine Leistung, keine Arbeitszahl, kein Betriebsart-Chip,
+weil es das für etwas, das man mit Scheiten lädt, nicht gibt.
+
+```yaml
+wood_stove:
+  entity: binary_sensor.holzofen         # Klick schaltet; sein Zustand sagt auch „brennt“
+  state_entity: binary_sensor.holzofen_brennt
+  status: sensor.holzofen_status         # gemeldeter Zustand, falls vorhanden
+  flow_temp: sensor.holzofen_vorlauf
+  return_temp: sensor.holzofen_ruecklauf
+```
+
+Er ist aus, solange er nicht genannt wird — jede bestehende Konfiguration
+behält ihr Aussehen. Er speist nur den Pufferspeicher, so wie der
+Solarthermie-Kreis, nicht aber direkt die Heizkreise.
 
 ### `circuits[]`
 
