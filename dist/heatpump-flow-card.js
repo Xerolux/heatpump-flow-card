@@ -323,6 +323,34 @@ function suffix(unit) {
   return unit === "%" || unit === "°" ? unit : ` ${unit}`;
 }
 
+/** Pump feedback is a running signal, independent of HA's device-class wording. */
+function pumpLabel(hass, field) {
+  if (isMissing(stateOf(hass, field))) return "–";
+  const raw = String(rawValue(hass, field) ?? "").trim().toLowerCase();
+  const texts = textsFor(hass);
+  const num = numberValue(hass, field);
+  if (num !== null) {
+    if (!unitOf(hass, field) && (num === 0 || num === 1)) return num ? texts.on : texts.off;
+    return displayValue(hass, field);
+  }
+  if (["off", "false", "aus", "stopped", "idle", "inactive"].includes(raw)) return texts.off;
+  if (ON_STATES.has(raw) || raw === "ein") return texts.on;
+  return displayValue(hass, field);
+}
+
+/** Textual mixer outputs report drive direction, never an absolute valve position. */
+function mixerState(hass, field) {
+  if (isMissing(stateOf(hass, field))) return { text: "–", moving: false };
+  const raw = String(rawValue(hass, field) ?? "").trim().toLowerCase();
+  const texts = textsFor(hass);
+  if (["auf", "opening"].includes(raw)) return { text: texts.opening, moving: true };
+  if (["zu", "closing"].includes(raw)) return { text: texts.closing, moving: true };
+  if (["aus", "off", "idle", "stop", "stopped"].includes(raw)) {
+    return { text: texts.holding, moving: false };
+  }
+  return { text: displayValue(hass, field), moving: isActive(hass, field) };
+}
+
 function formatNumber(hass, value, field) {
   const decimals =
     field && field.decimals !== undefined
@@ -1080,6 +1108,11 @@ const TEXTS = {
     target: "Target",
     pump: "Pump",
     mixer: "Mixer",
+    on: "On",
+    opening: "Opening",
+    closing: "Closing",
+    holding: "Holding",
+    mixer_output: "Drive signal, not valve position",
     circuit: "Heating circuit",
     radiators: "Radiators",
     underfloor: "Underfloor heating",
@@ -1131,6 +1164,11 @@ const TEXTS = {
     target: "Soll",
     pump: "Pumpe",
     mixer: "Mischer",
+    on: "Ein",
+    opening: "Öffnet",
+    closing: "Schließt",
+    holding: "Hält",
+    mixer_output: "Ansteuerung, keine Ventilposition",
     circuit: "Heizkreis",
     radiators: "Heizkörper",
     underfloor: "Fußbodenheizung",
@@ -1349,7 +1387,7 @@ function modeLabel(hass, field, fallback) {
   const raw = rawValue(hass, field);
   const text = displayValue(hass, field, "");
   if (raw === undefined || raw === null || text === "") return fallback;
-  const technical = /^[a-z][a-z0-9_]*$/.test(String(raw));
+  const technical = /^[a-z][a-z0-9_]*$/i.test(String(raw));
   return technical ? fallback : text;
 }
 
@@ -2812,6 +2850,16 @@ function drawEmitter(scene, group, area, type, options) {
     wrap.appendChild(base);
     wrap.appendChild(dots);
     parts.push({ node: base, kind: "stroke" }, { node: dots, kind: "dots" });
+    for (let i = 0; i < 3; i++) {
+      wrap.appendChild(
+        svgEl("path", {
+          class: "hpfc-heatwave",
+          style: `animation-delay:${i * 0.7}s`,
+          fill: "none",
+          d: `M ${area.x + 24 + i * (area.w / 3)} ${area.y + 12} q 5 -4 0 -8 q -5 -4 0 -8`,
+        })
+      );
+    }
   } else if (type === "fancoil") {
     wrap.appendChild(
       svgEl("rect", { x: area.x, y: area.y, width: area.w, height: area.h, rx: 8, class: "hpfc-emitter-box" })
@@ -3026,13 +3074,17 @@ function drawCircuit(scene, box, cfg) {
   });
 
   // Pump, mixer and emitter along the bottom
-  const baseY = box.y + box.h - 34;
+  const baseY = box.y + box.h - 42;
   let cursor = box.x + 30;
   drawPump(scene, group, cursor, baseY, cfg.pump, {
     label: `${cfg.name || fallbackName} – ${texts.pump}`,
     running,
   });
-  cursor += 34;
+  group.appendChild(svgText(cursor, baseY + 22, texts.pump, { "text-anchor": "middle", class: "hpfc-component-label" }));
+  const pumpText = svgText(cursor, baseY + 35, "", { "text-anchor": "middle", class: "hpfc-component-state" });
+  group.appendChild(pumpText);
+  scene.add(() => { pumpText.textContent = pumpLabel(scene.hass(), cfg.pump); });
+  cursor += 54;
 
   if (cfg.valve) {
     const valve = svgEl("g", { class: "hpfc-valve" });
@@ -3042,18 +3094,20 @@ function drawCircuit(scene, box, cfg) {
         d: `M ${cursor - 12} ${baseY - 11} L ${cursor} ${baseY} L ${cursor - 12} ${baseY + 11} Z M ${cursor + 12} ${baseY - 11} L ${cursor} ${baseY} L ${cursor + 12} ${baseY + 11} Z`,
       })
     );
-    const valveText = svgText(cursor, baseY + 26, "", { "text-anchor": "middle", class: "hpfc-label" });
+    valve.appendChild(svgText(cursor, baseY + 22, texts.mixer, { "text-anchor": "middle", class: "hpfc-component-label" }));
+    const valveText = svgText(cursor, baseY + 35, "", { "text-anchor": "middle", class: "hpfc-component-state" });
     valve.appendChild(valveText);
     group.appendChild(valve);
     attachAction(scene, valve, {
       entity: cfg.valve.entity,
       tap_action: cfg.valve.tap_action,
-      label: texts.mixer,
+      label: `${cfg.name || fallbackName} – ${texts.mixer}: ${texts.mixer_output}`,
     });
     scene.add(() => {
       const hass = scene.hass();
-      valveText.textContent = displayValue(hass, cfg.valve, "");
-      valve.classList.toggle("hpfc-running", isActive(hass, cfg.valve));
+      const state = mixerState(hass, cfg.valve);
+      valveText.textContent = state.text;
+      valve.classList.toggle("hpfc-running", state.moving);
     });
     cursor += 30;
   }
@@ -3156,13 +3210,14 @@ function drawDhw(scene, box, cfg) {
     { label: cfg.temp && cfg.temp.name ? cfg.temp.name : texts.current, field: cfg.temp, colorize: true },
     cfg.target_temp ? { label: texts.target, field: cfg.target_temp } : null,
     cfg.charge ? { label: cfg.charge.name || texts.charge, field: cfg.charge } : null,
-    cfg.pump ? { label: texts.pump, field: cfg.pump } : null,
+    cfg.pump ? { label: cfg.pump.name || texts.pump, field: cfg.pump } : null,
   ].filter(Boolean);
   const width = (box.w - 90) / Math.max(columns.length, 1);
   columns.slice(0, 3).forEach((column, index) => {
     drawReadout(scene, group, box.x + 76 + width * index, box.y + 50, column.label, column.field, {
       colorize: column.colorize,
       strong: index === 0,
+      compute: column.field === cfg.pump ? (hass) => pumpLabel(hass, cfg.pump) : undefined,
     });
   });
 
@@ -4365,6 +4420,8 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-pump.hpfc-running .hpfc-vane { fill: var(--info-color, #39b0e5); }
 .hpfc-pump.hpfc-running .hpfc-pump-body { stroke: var(--info-color, #39b0e5); }
 .hpfc-valve-body { fill: var(--hpfc-muted); transition: fill 0.5s ease; }
+.hpfc-component-label { font-size: 8px; fill: var(--hpfc-muted); }
+.hpfc-component-state { font-size: 9px; font-weight: 600; fill: var(--hpfc-text); }
 .hpfc-valve.hpfc-running .hpfc-valve-body { fill: var(--info-color, #39b0e5); }
 
 @media (prefers-reduced-motion: reduce) {

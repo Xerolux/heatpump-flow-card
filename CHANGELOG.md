@@ -33,6 +33,17 @@ changes shipped with the next tagged release.
 - Flow-style source rings and values retain amber PV, indigo grid and green
   battery colours. Power values scale to W/kW and labels use two complete lines.
 
+- Underfloor emitters now show rising heat waves while their circuit runs,
+  matching the radiator animation and stopping with the circuit pump signal.
+- Label circuit pumps and mixers separately. iDM mixer outputs `Auf`, `Zu`
+  and `Aus` now read `Opening`, `Closing` and `Holding` (localized), describing
+  drive commands rather than claiming a valve position or a stopped circuit.
+  Both opening and closing commands highlight the mixer. Pump on/off feedback
+  uses the same short labels in heating circuits and hot water; missing signals
+  remain unknown and speed/percentage readings retain their values.
+- Localize capitalized technical status tokens such as `Heating` as well as
+  lowercase tokens, so a German dashboard consistently reads `Heizen`.
+
 ### Added
 
 - `electrics_style: hub`: PV above, grid left, battery below, and home plus

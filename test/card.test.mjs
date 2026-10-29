@@ -34,6 +34,70 @@ after(async () => {
   await browser.close();
 });
 
+test("pump feedback stays independent of mixer drive commands with consistent localized labels", async () => {
+  for (const lang of ["de", "en"]) {
+    for (const mixer of ["Aus", "Auf", "Zu", "unavailable", "unknown", "64"]) {
+      const result = await page.evaluate(({ lang, mixer }) => {
+        const card = document.createElement("heatpump-flow-card");
+        card.setConfig({
+          type: "custom:heatpump-flow-card", layout: "dual",
+          heatpump: { state_entity: "binary_sensor.compressor", status: "sensor.hp_status" },
+          dhw: { temp: "sensor.dhw_temperature", pump: "binary_sensor.dhw_pump" },
+          circuits: [{ type: "underfloor", pump: "binary_sensor.circuit_a_pump", valve: "sensor.circuit_a_mixer" }],
+        });
+        document.body.appendChild(card);
+        const hass = window.makeHass(lang);
+        hass.states = { ...hass.states,
+          "sensor.hp_status": { state: "Heating", attributes: {} },
+          "binary_sensor.circuit_a_pump": { state: "on", attributes: {} },
+          "binary_sensor.dhw_pump": { state: "off", attributes: { device_class: "running" } },
+          "sensor.circuit_a_mixer": { state: mixer, attributes: mixer === "64" ? { unit_of_measurement: "%" } : {} },
+        };
+        // HA may localize running-class binary sensors as "Außer Betrieb".
+        const format = hass.formatEntityState;
+        hass.formatEntityState = (st) => st.state === "off" ? "Außer Betrieb" : format(st);
+        card.hass = hass;
+        const root = card.shadowRoot;
+        const read = () => ({
+          status: root.querySelector(".hpfc-heatpump .hpfc-chip text").textContent,
+          pump: root.querySelector(".hpfc-circuit .hpfc-component-state").textContent,
+          mixer: root.querySelector(".hpfc-valve .hpfc-component-state").textContent,
+          moving: root.querySelector(".hpfc-valve").classList.contains("hpfc-running"),
+          running: root.querySelector(".hpfc-circuit").classList.contains("hpfc-running"),
+          waves: root.querySelectorAll(".hpfc-emitter-underfloor .hpfc-heatwave").length,
+          waveAnimation: getComputedStyle(root.querySelector(".hpfc-emitter-underfloor .hpfc-heatwave")).animationName,
+          dhw: [...root.querySelectorAll(".hpfc-dhw .hpfc-readout .hpfc-value")].at(-1).textContent,
+        });
+        const initial = read();
+        for (const state of ["off", "unavailable", "unknown"]) {
+          hass.states = { ...hass.states, "binary_sensor.circuit_a_pump": { state, attributes: {} } };
+          card.hass = { ...hass };
+          initial[state] = read();
+        }
+        card.remove();
+        return initial;
+      }, { lang, mixer });
+      const labels = lang === "de" ? ["Hält", "Öffnet", "Schließt"] : ["Holding", "Opening", "Closing"];
+      assert.equal(result.pump, lang === "de" ? "Ein" : "On");
+      assert.equal(result.status, lang === "de" ? "Heizen" : "Heating");
+      assert.equal(result.dhw, lang === "de" ? "Aus" : "Off");
+      assert.equal(result.mixer.replace(/\s/g, ""), mixer === "64" ? "64%" : labels[["Aus", "Auf", "Zu"].indexOf(mixer)] || "–");
+      assert.equal(result.moving, ["Auf", "Zu", "64"].includes(mixer));
+      assert.equal(result.running, true);
+      assert.equal(result.waves, 3);
+      assert.equal(result.waveAnimation, "hpfc-rise");
+      assert.equal(result.off.pump, lang === "de" ? "Aus" : "Off");
+      assert.equal(result.off.running, false);
+      assert.equal(result.off.waveAnimation, "none");
+      for (const state of ["unavailable", "unknown"]) {
+        assert.equal(result[state].pump, "–");
+        assert.equal(result[state].running, false);
+        assert.equal(result[state].waveAnimation, "none");
+      }
+    }
+  }
+});
+
 test("renders every layout without errors", async () => {
   for (const layout of ["compact", "single", "dual", "full"]) {
     await page.goto(`${previewUrl}?layout=${layout}`);

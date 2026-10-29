@@ -136,7 +136,15 @@ circuits:
 | `flow_temp`, `return_temp` | Temperaturen und Rohrfarben |
 | `room_temp`, `target_temp`, `humidity` | Weitere Werte – vier Spalten werden gezeichnet |
 | `pump` | Umwälzpumpe, bestimmt auch, ob der Kreis durchströmt wird |
-| `valve` | Mischer, als Prozentwert unter dem Symbol |
+| `valve` | Mischer: Prozentwert oder Ansteuerung `Öffnet` / `Schließt` / `Hält` |
+
+Pumpe und Mischer sind getrennt beschriftet. Pumpen mit Ein/Aus-Signal zeigen
+einheitlich `Ein` / `Aus`; Drehzahl- und Prozentwerte bleiben erhalten.
+Beim iDM-Mischerausgang bedeutet `Auf` → `Öffnet`, `Zu` → `Schließt` und
+`Aus` → `Hält`: Der Antrieb verstellt den Mischer gerade nicht. Das ist keine
+Ventilpositionsrückmeldung und bedeutet nicht, dass der Heizkreis ausgeschaltet
+oder das Ventil geschlossen ist. Eine laufende Pumpe bei `Hält` ist möglich.
+Fehlende Rückmeldungen erscheinen als `–`.
 
 **Läuft der Kreis?** `pump` → `mode` auf „Aus“ parkt ihn → `valve` über 0 →
 `entity` → sonst folgt er der Wärmepumpe. Jeder Kreis beantwortet das für sich:

@@ -247,6 +247,13 @@ circuits:
 **Is the circuit running?** `pump` → `valve` above 0 → `entity` → the heat pump
 state.
 
+Pumps and mixers have separate captions. On/off pump feedback uses consistent
+`On` / `Off` labels in circuits and hot water; speed and percentage values are
+preserved. iDM mixer drive outputs `Auf`, `Zu` and `Aus` display `Opening`,
+`Closing` and `Holding`, localized to the dashboard language. These are drive
+commands, not valve positions: `Holding` does not mean closed or circuit off.
+A circuit pump can run while its mixer holds. Missing feedback displays `–`.
+
 Seven circuits are supported, which covers controllers that address their
 circuits A to G. An eighth entry is ignored rather than drawn off canvas.
 
