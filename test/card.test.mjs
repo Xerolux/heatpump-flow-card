@@ -2009,7 +2009,9 @@ test("changing flow speed keeps the animation object and playback position", asy
     push(4000); await animation.ready;
     const nextStep = { same: animation === dots.getAnimations()[0], time: animation.currentTime, rate: animation.playbackRate };
     const cssDuration = group.style.getPropertyValue("--hpfc-dash");
-    card.remove(); return { firstRate, sameStep, nextStep, cssDuration };
+    const dashPeriod = getComputedStyle(dots).strokeDasharray.split(/[ ,]+/).reduce((sum, value) => sum + parseFloat(value), 0);
+    const cycleOffset = Math.abs(parseFloat(animation.effect.getKeyframes().at(-1).strokeDashoffset));
+    card.remove(); return { firstRate, sameStep, nextStep, cssDuration, dashPeriod, cycleOffset };
   });
   assert.equal(result.sameStep.same, true);
   assert.equal(result.nextStep.same, true);
@@ -2018,6 +2020,7 @@ test("changing flow speed keeps the animation object and playback position", asy
   assert.equal(result.sameStep.rate, result.firstRate);
   assert.ok(result.nextStep.rate > result.firstRate);
   assert.equal(result.cssDuration, "4s");
+  assert.equal(result.cycleOffset % result.dashPeriod, 0, "the dash pattern also loops without jumping");
 });
 
 test("hub routes stay bounded by meters, keep source colours, scale watts and preserve full names", async () => {

@@ -4330,7 +4330,7 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-flow-node.hpfc-idle { opacity: 0.5; }
 .hpfc-flow-node .hpfc-battery-fill { fill: #22c55e; opacity: 0.85; transition: height 0.6s ease, y 0.6s ease; }
 .hpfc-flow-seg .hpfc-pipe { stroke-width: 2.5; stroke-dasharray: none; }
-.hpfc-flow-seg .hpfc-dots { stroke-width: 4; stroke-dasharray: 0.1 13.9; }
+.hpfc-flow-seg .hpfc-dots { stroke-width: 4; }
 .hpfc-plug { fill: none; stroke: var(--hpfc-muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .hpfc-pv-cell { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
 .hpfc-sun-core { fill: #fbbf24; }
