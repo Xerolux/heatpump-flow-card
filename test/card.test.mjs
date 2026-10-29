@@ -1808,3 +1808,155 @@ test("the drawing is an image only when nothing on it can be operated", async ()
   assert.equal(result.operable, "group");
   assert.equal(result.static, "img");
 });
+
+test("a heat pump without an outdoor fan draws brine ports instead", async () => {
+  const result = await page.evaluate(() => {
+    const draw = (fan) => {
+      const card = document.createElement("heatpump-flow-card");
+      const heatpump = { entity: "switch.heat_pump", power: "sensor.hp_power" };
+      if (fan !== undefined) heatpump.fan = fan;
+      card.setConfig({ type: "custom:heatpump-flow-card", layout: "single", heatpump });
+      document.body.appendChild(card);
+      card.hass = window.makeHass("en");
+      const hp = card.shadowRoot.querySelector(".hpfc-heatpump");
+      const state = {
+        fanRing: hp.querySelectorAll(".hpfc-fan-ring").length,
+        blades: hp.querySelectorAll(".hpfc-blade").length,
+        ports: hp.querySelectorAll(".hpfc-brine-port").length,
+        steam: hp.querySelectorAll(".hpfc-steam").length,
+      };
+      card.remove();
+      return state;
+    };
+    return { air: draw(), brine: draw(false), explicit: draw(true) };
+  });
+  assert.equal(result.air.blades, 3, "the default is the air-source unit");
+  assert.equal(result.brine.fanRing, 0, "fan: false draws no fan ring");
+  assert.equal(result.brine.blades, 0);
+  assert.equal(result.brine.ports, 4, "two ports with two stubs");
+  assert.equal(result.brine.steam, 0, "no defrost vapour without an air side");
+  assert.equal(result.explicit.fanRing, 1, "fan: true is the same as the default");
+});
+
+test("the energy bus can draw as round nodes on a line", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "pv-single",
+      electrics_style: "flow",
+      pv: { power: "sensor.pv_power", battery_power: "sensor.battery_power", grid_power: "sensor.grid_power" },
+      circuits: [],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const root = card.shadowRoot;
+    const nodes = root.querySelectorAll(".hpfc-flow-node");
+    const segments = root.querySelectorAll(".hpfc-flow-seg");
+    const speed = segments.length
+      ? segments[0].style.getPropertyValue("--hpfc-dash")
+      : "";
+    const state = {
+      round: nodes.length,
+      tiles: root.querySelectorAll(".hpfc-enode:not(.hpfc-flow-node)").length,
+      segments: segments.length,
+      solid: segments.length
+        ? getComputedStyle(segments[0].querySelector(".hpfc-pipe")).strokeDasharray
+        : "",
+      speed,
+    };
+    card.remove();
+    return state;
+  });
+  assert.equal(result.round, 3, "pv, battery and grid as round nodes");
+  assert.equal(result.tiles, 0);
+  assert.equal(result.segments, 2, "a segment between each pair of neighbours");
+  assert.equal(result.solid, "none", "segments are solid, not dashed");
+  assert.ok(/^\d+(\.\d+)?s$/.test(result.speed), "the dot speed is set per segment");
+});
+
+test("custom consumers get their own nodes on the bus", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "pv-single",
+      pv: {
+        power: "sensor.pv_power",
+        house: "sensor.house_power",
+        consumers: [
+          { entity: "sensor.airco_power", name: "Airco" },
+          "sensor.dryer_power",
+        ],
+      },
+      circuits: [],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const root = card.shadowRoot;
+    const labels = [...root.querySelectorAll(".hpfc-enode .hpfc-label")].map((n) => n.textContent);
+    const plugs = root.querySelectorAll(".hpfc-plug").length;
+    const state = { labels, plugs, count: root.querySelectorAll(".hpfc-enode").length };
+    card.remove();
+    return state;
+  });
+  assert.ok(result.labels.includes("Airco"), "a named consumer shows its name");
+  assert.ok(result.labels.includes("Dryer"), "a plain string gets the entity's own name");
+  assert.ok(result.plugs >= 2, "consumers draw the plug glyph");
+  assert.equal(result.count, 4, "pv, house and two consumers");
+});
+
+test("the house reading can subtract loads it already contains", async () => {
+  const result = await page.evaluate(() => {
+    // the house meter reads 410 W and includes the heat pump; the card has to
+    // know the pump's meter to leave it out again
+    window.demoStates["sensor.hp_power"] = {
+      entity_id: "sensor.hp_power",
+      state: "2140",
+      attributes: { unit_of_measurement: "W", device_class: "power" },
+    };
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "pv-single",
+      heatpump: { power: "sensor.hp_power" },
+      pv: {
+        power: "sensor.pv_power",
+        house: { entity: "sensor.house_power", subtract: ["heatpump"] },
+      },
+      circuits: [],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const house = card.shadowRoot.querySelector(".hpfc-enode-house .hpfc-value").textContent;
+    card.remove();
+    return house;
+  });
+  assert.equal(result, "-1,730 W", "410 W house less 2,140 W heat pump");
+});
+
+test("a taken element name gets a fallback instead of a broken card", async () => {
+  const conflicts = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  await conflicts.goto(previewUrl);
+  // another card claims the name before this card's script loads
+  await conflicts.addScriptTag({
+    content:
+      'customElements.define("heatpump-flow-card", class OtherCard extends HTMLElement {});',
+  });
+  await conflicts.addScriptTag({ path: resolve(here, "..", "dist", "heatpump-flow-card.js") });
+  const result = await conflicts.evaluate(() => {
+    const entries = window.customCards.filter((card) => card.type.includes("heatpump-flow-card"));
+    const ours = customElements.get("heatpump-flow-card-xerolux");
+    const card = document.createElement("heatpump-flow-card-xerolux");
+    card.setConfig({ type: "custom:heatpump-flow-card-xerolux", layout: "compact", heatpump: { entity: "switch.heat_pump" }, buffer: {}, circuits: [{ type: "radiator" }] });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const drawn = Boolean(card.shadowRoot.querySelector("svg"));
+    card.remove();
+    return { entries: entries.map((e) => e.type), registered: Boolean(ours), drawn };
+  });
+  await conflicts.close();
+  assert.deepEqual(result.entries, ["heatpump-flow-card", "heatpump-flow-card-xerolux"]);
+  assert.equal(result.registered, true);
+  assert.equal(result.drawn, true, "the aliased card renders");
+});

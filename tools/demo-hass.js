@@ -255,3 +255,16 @@ window.demoStates["water_heater.dhw"] = {
     operation_mode: "heat_pump",
   },
 };
+
+// Custom consumers on the energy bus, plus a house reading that includes the
+// heat pump - the flow-bus preview subtracts it again.
+window.demoStates["sensor.airco_power"] = {
+  entity_id: "sensor.airco_power",
+  state: "640",
+  attributes: { friendly_name: "Air conditioning", unit_of_measurement: "W", device_class: "power" },
+};
+window.demoStates["sensor.dryer_power"] = {
+  entity_id: "sensor.dryer_power",
+  state: "0",
+  attributes: { friendly_name: "Dryer", unit_of_measurement: "W", device_class: "power" },
+};

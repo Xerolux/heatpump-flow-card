@@ -283,4 +283,51 @@ window.previewConfigs = {
     },
     circuits: [radiators, underfloor],
   },
+
+  // The same plant with the light energy bus: round nodes on one line,
+  // custom consumers, and a house reading that no longer counts the heat
+  // pump twice.
+  "energy-flow": {
+    type: "custom:heatpump-flow-card",
+    layout: "full",
+    title: "Energy bus, round nodes",
+    electrics_style: "flow",
+    heatpump: { ...heatpump, power: "sensor.hp_power_idle" },
+    buffer,
+    dhw: {
+      name: "Hot water",
+      entity: "switch.hot_water",
+      temp: "sensor.dhw_temperature",
+      target_temp: "number.dhw_setpoint",
+      pump: "binary_sensor.dhw_pump",
+      boost: "button.dhw_boost",
+    },
+    pv: {
+      name: "Photovoltaics",
+      power: [
+        "sensor.pv_inverter_1",
+        "sensor.pv_inverter_2",
+        "sensor.pv_inverter_3",
+        "sensor.pv_inverter_4",
+      ],
+      battery: ["sensor.battery_1_soc", "sensor.battery_2_soc"],
+      battery_power: "sensor.battery_power",
+      grid_power: "sensor.grid_power",
+      wallbox: "sensor.wallbox_power",
+      house: { entity: "sensor.house_power", subtract: ["heatpump"] },
+      consumers: [
+        { entity: "sensor.airco_power", name: "Airco" },
+        { entity: "sensor.dryer_power", name: "Dryer" },
+      ],
+    },
+    solar: {
+      name: "Solar thermal",
+      collector_temp: "sensor.collector_temperature",
+      flow_temp: "sensor.solar_flow_temperature",
+      pump: "binary_sensor.solar_pump",
+      yield: "sensor.solar_yield",
+      return_temp: "sensor.solar_return_temperature",
+    },
+    circuits: [radiators, underfloor],
+  },
 };

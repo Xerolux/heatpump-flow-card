@@ -18,6 +18,30 @@ console.info(
   "color:#0369a1;background:#e0f2fe;font-weight:700;border-radius:0 3px 3px 0;padding:2px 4px"
 );
 
+/* Element names are global to the page, and this card's tag is generic enough
+ * that another custom card can claim it first (a hydraulic scheme card from
+ * another author uses the same idea, and the same name). Whichever script
+ * loads first owns the name; a second definition would throw, or with a guard
+ * silently lose. If the tag is taken when this file loads, the card registers
+ * under a fallback name instead, so both cards keep working - such a setup
+ * addresses this card as `type: custom:heatpump-flow-card-xerolux`.
+ */
+const CARD_ELEMENT_TAKEN = Boolean(window.customElements && customElements.get("heatpump-flow-card"));
+const EDITOR_ELEMENT_TAKEN = Boolean(
+  window.customElements && customElements.get("heatpump-flow-card-editor")
+);
+const CARD_TAG = CARD_ELEMENT_TAKEN ? "heatpump-flow-card-xerolux" : "heatpump-flow-card";
+const EDITOR_TAG = EDITOR_ELEMENT_TAKEN
+  ? "heatpump-flow-card-xerolux-editor"
+  : "heatpump-flow-card-editor";
+if (CARD_ELEMENT_TAKEN) {
+  console.warn(
+    "[heatpump-flow-card] the element <heatpump-flow-card> is already registered by another " +
+      "card. This card is available as <heatpump-flow-card-xerolux> - use " +
+      "`type: custom:heatpump-flow-card-xerolux` in your dashboard."
+  );
+}
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /* =========================================================================
@@ -1000,13 +1024,14 @@ function drawPipe(scene, options) {
   scene.pipeLayer.appendChild(group);
 
   const fallback =
-    options.role === "return"
+    options.fallbackColor ||
+    (options.role === "return"
       ? COLOR_RETURN
       : options.role === "solar"
         ? COLOR_SOLAR
         : options.role === "pv"
           ? COLOR_PV
-          : COLOR_FLOW;
+          : COLOR_FLOW);
 
   scene.add(() => {
     const hass = scene.hass();
@@ -1545,7 +1570,10 @@ function drawHeatPump(scene, box, cfg) {
     return heatPumpRunning(hass, cfg) ? "on" : "off";
   });
 
-  // Outdoor unit with fan
+  // Outdoor unit with fan. A brine-to-water or water-to-water heat pump has
+  // no air-side at all: `fan: false` leaves the cabinet with its grille and
+  // draws the primary circuit's brine ports instead of blades that would
+  // never turn.
   const unit = { x: box.x + 14, y: box.y + 52, w: 80, h: 80 };
   group.appendChild(
     svgEl("rect", { ...{ x: unit.x, y: unit.y, width: unit.w, height: unit.h }, rx: 12, class: "hpfc-hp-body" })
@@ -1562,25 +1590,58 @@ function drawHeatPump(scene, box, cfg) {
     );
   }
   const fanCenter = { x: unit.x + unit.w / 2, y: unit.y + 32 };
-  group.appendChild(
-    svgEl("circle", { cx: fanCenter.x, cy: fanCenter.y, r: 27, class: "hpfc-fan-ring" })
-  );
-  const fan = spinner(fanCenter.x, fanCenter.y, 26, fanBlades(24), "hpfc-fan");
-  group.appendChild(fan.outer);
-  group.appendChild(svgEl("circle", { cx: fanCenter.x, cy: fanCenter.y, r: 5, class: "hpfc-hub" }));
-
-  // Vapour off the coil while the heat pump defrosts
-  const steam = svgEl("g", { class: "hpfc-steam" });
-  for (let i = 0; i < 3; i++) {
-    steam.appendChild(
-      svgEl("path", {
-        style: `animation-delay:${i * 0.8}s`,
-        fill: "none",
-        d: `M ${unit.x + 16 + i * 24} ${unit.y - 3} c -6 -6 6 -10 0 -16`,
+  let fan = null;
+  if (cfg.fan === false) {
+    // two brine ports, fed by the primary loop
+    const portY = fanCenter.y + 6;
+    group.appendChild(
+      svgEl("line", {
+        x1: unit.x + 8,
+        y1: portY,
+        x2: unit.x + 30,
+        y2: portY,
+        class: "hpfc-brine-port hpfc-brine-in",
       })
     );
+    group.appendChild(
+      svgEl("line", {
+        x1: unit.x + unit.w - 30,
+        y1: portY,
+        x2: unit.x + unit.w - 8,
+        y2: portY,
+        class: "hpfc-brine-port hpfc-brine-out",
+      })
+    );
+    group.appendChild(
+      svgEl("circle", { cx: unit.x + 32, cy: portY, r: 4.5, class: "hpfc-brine-port" })
+    );
+    group.appendChild(
+      svgEl("circle", { cx: unit.x + unit.w - 32, cy: portY, r: 4.5, class: "hpfc-brine-port" })
+    );
+  } else {
+    group.appendChild(
+      svgEl("circle", { cx: fanCenter.x, cy: fanCenter.y, r: 27, class: "hpfc-fan-ring" })
+    );
+    fan = spinner(fanCenter.x, fanCenter.y, 26, fanBlades(24), "hpfc-fan");
+    group.appendChild(fan.outer);
+    group.appendChild(svgEl("circle", { cx: fanCenter.x, cy: fanCenter.y, r: 5, class: "hpfc-hub" }));
   }
-  group.appendChild(steam);
+
+  // Vapour off the coil while the heat pump defrosts - an air-side symptom,
+  // so it stays hidden on a unit without a fan.
+  if (fan) {
+    const steam = svgEl("g", { class: "hpfc-steam" });
+    for (let i = 0; i < 3; i++) {
+      steam.appendChild(
+        svgEl("path", {
+          style: `animation-delay:${i * 0.8}s`,
+          fill: "none",
+          d: `M ${unit.x + 16 + i * 24} ${unit.y - 3} c -6 -6 6 -10 0 -16`,
+        })
+      );
+    }
+    group.appendChild(steam);
+  }
 
   // Readouts on the right
   const copCompute = computedCop(cfg.cop);
@@ -1673,10 +1734,10 @@ function drawHeatPump(scene, box, cfg) {
   scene.add(() => {
     const hass = scene.hass();
     group.classList.toggle("hpfc-running", heatPumpRunning(hass, cfg));
-    group.classList.toggle("hpfc-defrost", heatPumpMode(hass, cfg) === "defrost");
+    group.classList.toggle("hpfc-defrost", fan !== null && heatPumpMode(hass, cfg) === "defrost");
     const load = numberValue(hass, cfg.compressor);
     const duration = load !== null ? clamp(3.2 - (load / 100) * 2.4, 0.6, 3.2) : 1.5;
-    fan.inner.style.animationDuration = `${duration}s`;
+    if (fan) fan.inner.style.animationDuration = `${duration}s`;
   });
 
   return { group, running: (hass) => heatPumpRunning(hass, cfg) };
@@ -2082,8 +2143,8 @@ function electricNodes(config) {
       field: pv.house,
       text: "house",
       calculate:
-        pv.house && pv.house.calculate === true
-          ? (hass) => calculatedHousePower(hass, config)
+        pv.house && (pv.house.calculate === true || houseSubtractions(config).length)
+          ? (hass) => houseNodePower(hass, config)
           : null,
     },
     {
@@ -2094,8 +2155,72 @@ function electricNodes(config) {
       name: config.heatpump.name,
     },
     { key: "heater", kind: "sink", field: tankHeater, text: "heater" },
+    ...(pv.consumers || []).map((consumer, index) => ({
+      key: `consumer-${index}`,
+      kind: "sink",
+      field: { entity: consumer.entity, threshold: consumer.threshold, unit: consumer.unit, invert: consumer.invert },
+      text: null,
+      name: consumer.name,
+    })),
   ];
   return nodes.filter((node) => node.field && (node.field.entity || node.calculate));
+}
+
+/**
+ * Which of the bus's own consumers a `house` reading already contains, so the
+ * card can subtract them instead of counting the same load twice.
+ */
+function houseSubtractions(config) {
+  const house = config.pv && config.pv.house;
+  if (!house || !Array.isArray(house.subtract)) return [];
+  return house.subtract.filter((key) =>
+    key === "heatpump" || key === "wallbox" || key === "consumers"
+  );
+}
+
+/** The watts of one named subtraction on the house reading. */
+function subtractionPower(hass, config, key) {
+  const pv = config.pv || {};
+  if (key === "heatpump") return signedPower(hass, config.heatpump.power);
+  if (key === "wallbox") return signedPower(hass, pv.wallbox);
+  if (key === "consumers") {
+    const consumers = pv.consumers || [];
+    if (!consumers.length) return 0;
+    let total = 0;
+    for (const consumer of consumers) {
+      const value = signedPower(hass, consumer);
+      if (value === null) return null;
+      total += value;
+    }
+    return total;
+  }
+  return null;
+}
+
+/**
+ * The house consumption the bus shows: the sensor's own reading, less every
+ * load the configuration says it already includes. With `calculate: true` the
+ * reading comes from the plant balance instead of a sensor.
+ */
+function houseNodePower(hass, config) {
+  const pv = config.pv || {};
+  const house = pv.house;
+  const base =
+    house && house.calculate === true
+      ? calculatedHousePower(hass, config)
+      : signedPower(hass, house);
+  if (base === null) return null;
+  const subtractions = houseSubtractions(config);
+  if (!subtractions.length) return base;
+  let result = base;
+  for (const key of subtractions) {
+    const value = subtractionPower(hass, config, key);
+    // a load without its own meter cannot be subtracted - skipping it keeps
+    // the house reading alive instead of blanking it
+    if (value === null) continue;
+    result -= Math.max(0, value);
+  }
+  return result;
 }
 
 /**
@@ -2106,7 +2231,9 @@ function electricNodes(config) {
 function hasElectrics(config) {
   const pv = config.pv;
   if (!pv || config.electrics === false) return false;
-  return Boolean(pv.battery_power || pv.grid_power || pv.wallbox || pv.house);
+  return Boolean(
+    pv.battery_power || pv.grid_power || pv.wallbox || pv.house || (pv.consumers && pv.consumers.length)
+  );
 }
 
 /**
@@ -2119,12 +2246,15 @@ function calculatedHousePower(hass, config) {
   const production = signedPower(hass, pv.power);
   const grid = signedPower(hass, pv.grid_power || pv.grid);
   if (production === null || grid === null) return null;
-  const wallbox = signedPower(hass, pv.wallbox);
-  return production + grid - Math.max(0, wallbox === null ? 0 : wallbox);
-}
-
-function electricNodePower(hass, node) {
-  return node.calculate ? node.calculate(hass) : signedPower(hass, node.field);
+  // The wallbox has a node of its own, so it leaves the house balance - but
+  // only while the balance is on its own; an explicit `subtract` list replaces
+  // this default bookkeeping entirely.
+  let wallbox = 0;
+  if (!houseSubtractions(config).length) {
+    const reading = signedPower(hass, pv.wallbox);
+    wallbox = reading === null ? 0 : Math.max(0, reading);
+  }
+  return production + grid - wallbox;
 }
 
 /**
@@ -2189,6 +2319,17 @@ function electricGlyph(node, x, y) {
     g.appendChild(
       svgEl("path", { class: "hpfc-eheater", d: `M ${x} ${y - 6} L ${x + 6} ${y - 6} L ${x + 3} ${y} L ${x + 9} ${y} L ${x + 6} ${y + 6} L ${x + 16} ${y + 6}` })
     );
+  } else if (node.key.startsWith("consumer-")) {
+    // a plug with its cable, for a consumer of the user's own choosing
+    g.appendChild(
+      svgEl("path", {
+        class: "hpfc-plug",
+        d:
+          `M ${x + 3} ${y - 8} L ${x + 3} ${y - 4} M ${x + 9} ${y - 8} L ${x + 9} ${y - 4} ` +
+          `M ${x + 1} ${y - 4} L ${x + 11} ${y - 4} L ${x + 11} ${y - 1} A 5 5 0 0 1 ${x + 6} ${y + 4} ` +
+          `L ${x + 6} ${y + 9}`,
+      })
+    );
   } else {
     g.appendChild(svgEl("circle", { class: "hpfc-fan-ring", cx: x + 9, cy: y, r: 9 }));
     g.appendChild(svgEl("circle", { class: "hpfc-hub", cx: x + 9, cy: y, r: 2.5 }));
@@ -2208,7 +2349,75 @@ function electricGlyph(node, x, y) {
   return g;
 }
 
+/** Watts rendered in the unit the field declares - a kW meter reads in kW. */
+function formatWatts(hass, field, watts) {
+  const unit = field && field.unit !== undefined ? field.unit : "W";
+  const factor = POWER_UNIT_FACTORS[unit];
+  const value = factor ? watts / factor : watts;
+  return formatNumber(hass, value, field) + suffix(factor ? unit : "W");
+}
+
+/** The text a bus node shows: its reading, or its computed balance. */
+function electricNodeValue(hass, node) {
+  if (node.calculate) {
+    const watts = node.calculate(hass);
+    return watts === null ? "–" : formatWatts(hass, node.field, watts);
+  }
+  return displayValue(hass, node.field);
+}
+
+/** What the bus can work with for one node: signed watts, or null. */
+function electricNodePower(hass, node) {
+  return node.calculate ? node.calculate(hass) : signedPower(hass, node.field);
+}
+
+/**
+ * Keeps a bus node's label, value and direction classes current. Both bus
+ * styles lay their nodes out differently, but what a node *says* is the same.
+ * `parts.socInLabel` decides where a battery's state of charge goes: appended
+ * to the label on the tiles, on its own line inside a round node.
+ */
+function watchElectricNode(scene, group, node, parts) {
+  const fill = group.querySelector(".hpfc-battery-fill");
+  scene.add(() => {
+    const hass = scene.hass();
+    const t = textsFor(hass);
+    const own =
+      node.field.entity && hass.states[node.field.entity] && hass.states[node.field.entity].attributes
+        ? hass.states[node.field.entity].attributes.friendly_name
+        : undefined;
+    let title = node.name || node.field.name || own || t[node.text] || node.key;
+    if (parts.socInLabel !== false && node.soc && node.soc.entity) {
+      const soc = displayValue(hass, node.soc, "");
+      if (soc && soc !== "–") title += ` · ${soc}`;
+    }
+    if (parts.socText) {
+      const soc = node.soc && node.soc.entity ? displayValue(hass, node.soc, "") : "";
+      parts.socText.textContent = soc && soc !== "–" ? soc : "";
+    }
+    parts.label.textContent = title;
+    fitText(scene, parts.label, title, parts.titleWidth);
+    parts.value.textContent = electricNodeValue(hass, node);
+    const direction = node.direction(hass);
+    group.classList.toggle("hpfc-running", direction !== null);
+    group.classList.toggle("hpfc-feeding", direction === "in");
+    group.classList.toggle("hpfc-idle", direction === null && scene.config.dim_inactive !== false);
+    if (fill) {
+      const soc = node.soc ? numberValue(hass, node.soc) : null;
+      const level = soc === null ? 100 : Math.max(0, Math.min(100, soc));
+      const filled = Math.max(1, (12 * level) / 100);
+      fill.setAttribute("height", filled);
+      fill.setAttribute("y", parts.glyphY + 6 - filled);
+    }
+  });
+}
+
 function drawElectrics(scene, box, nodes) {
+  if (scene.config.electrics_style === "flow") drawElectricsFlow(scene, box, nodes);
+  else drawElectricsTiles(scene, box, nodes);
+}
+
+function drawElectricsTiles(scene, box, nodes) {
   const texts = textsFor(scene.hass());
   const busY = box.y + 10;
   const tileY = box.y + 40;
@@ -2269,33 +2478,116 @@ function drawElectrics(scene, box, nodes) {
       });
     }
 
-    const fill = group.querySelector(".hpfc-battery-fill");
+    watchElectricNode(scene, group, node, {
+      label,
+      value,
+      titleWidth: tileW - 52,
+      glyphY: tileY + tileH / 2,
+    });
+  }
+}
+
+/**
+ * The lighter bus: round nodes on one line, thin solid segments between them,
+ * dots whose speed follows the watts. A segment carries current when the nodes
+ * to its left put energy on the bus or take some off, and its dots run
+ * against the line when the balance flows right to left.
+ */
+function drawElectricsFlow(scene, box, nodes) {
+  const texts = textsFor(scene.hass());
+  const R = 26;
+  const cy = box.y + R + 16;
+  const gap = 24;
+  const span = R * 2 * nodes.length + gap * (nodes.length - 1);
+  const startX = box.x + Math.max(0, (box.w - span) / 2);
+
+  const placed = nodes.map((node, index) => {
+    const cx = startX + index * (R * 2 + gap) + R;
+    return { ...node, cx, direction: electricDirection(node) };
+  });
+
+  // Watts one node puts on the bus (positive) or draws from it (negative),
+  // null while it carries nothing at all.
+  const intoBus = (node) => (hass) => {
+    const value = electricNodePower(hass, node);
+    if (value === null) return null;
+    const threshold = node.field.threshold === undefined ? 5 : node.field.threshold;
+    if (Math.abs(value) <= threshold) return null;
+    const magnitude = Math.abs(value);
+    if (node.kind === "source") return magnitude;
+    if (node.kind === "sink") return -magnitude;
+    // a battery charging draws, discharging feeds; a meter importing feeds,
+    // exporting draws - `invert: true` settles a plant that disagrees
+    if (node.kind === "battery") return value > 0 ? -magnitude : magnitude;
+    if (node.kind === "grid") return value > 0 ? magnitude : -magnitude;
+    return null;
+  };
+
+  for (let i = 0; i < placed.length - 1; i++) {
+    const a = placed[i];
+    const b = placed[i + 1];
+    const flow = (hass) => {
+      let sum = 0;
+      let known = false;
+      for (let j = 0; j <= i; j++) {
+        const watts = intoBus(placed[j])(hass);
+        if (watts !== null) {
+          sum += watts;
+          known = true;
+        }
+      }
+      return known ? sum : null;
+    };
+    const group = drawPipe(scene, {
+      points: [
+        [a.cx + R + 3, cy],
+        [b.cx - R - 3, cy],
+      ],
+      role: "pv",
+      className: "hpfc-energy hpfc-flow-seg",
+      part: `power-seg-${i}`,
+      fallbackColor: "var(--hpfc-stroke, #d5d5d5)",
+      active: (hass) => Math.abs(flow(hass) || 0) > 5,
+      reverse: (hass) => (flow(hass) || 0) < 0,
+    });
     scene.add(() => {
-      const hass = scene.hass();
-      const t = textsFor(hass);
-      let title = node.name || node.field.name || t[node.text] || node.key;
-      if (node.soc && node.soc.entity) {
-        const soc = displayValue(hass, node.soc, "");
-        if (soc && soc !== "–") title += ` · ${soc}`;
-      }
-      label.textContent = title;
-      fitText(scene, label, title, tileW - 52);
-      const calculated = node.calculate ? node.calculate(hass) : null;
-      value.textContent = node.calculate
-        ? calculated === null
-          ? "–"
-          : formatNumber(hass, calculated, node.field) + suffix(node.field.unit || "W")
-        : displayValue(hass, node.field);
-      const direction = node.direction(hass);
-      group.classList.toggle("hpfc-running", direction !== null);
-      group.classList.toggle("hpfc-feeding", direction === "in");
-      if (fill) {
-        const soc = node.soc ? numberValue(hass, node.soc) : null;
-        const level = soc === null ? 100 : Math.max(0, Math.min(100, soc));
-        const filled = Math.max(1, (12 * level) / 100);
-        fill.setAttribute("height", filled);
-        fill.setAttribute("y", tileY + tileH / 2 - 6 + 12 - filled);
-      }
+      const watts = Math.abs(flow(scene.hass()) || 0);
+      group.style.setProperty("--hpfc-dash", `${clamp(6 - watts / 400, 1.2, 6).toFixed(2)}s`);
+    });
+  }
+
+  for (const node of placed) {
+    const group = svgEl("g", { class: `hpfc-node hpfc-enode hpfc-flow-node hpfc-enode-${node.key}` });
+    group.appendChild(svgEl("circle", { cx: node.cx, cy, r: R, class: "hpfc-flow-body" }));
+    group.appendChild(electricGlyph(node, node.cx - 8, cy - 14));
+    const socText = node.soc
+      ? svgText(node.cx, cy + 6, "", { "text-anchor": "middle", class: "hpfc-flow-soc" })
+      : null;
+    if (socText) group.appendChild(socText);
+    const value = svgText(node.cx, socText ? cy + 18 : cy + 14, "–", {
+      "text-anchor": "middle",
+      class: "hpfc-value hpfc-flow-value",
+    });
+    const label = svgText(node.cx, cy + R + 16, "", { "text-anchor": "middle", class: "hpfc-label" });
+    group.appendChild(value);
+    group.appendChild(label);
+    scene.root.appendChild(group);
+    if (node.field.entity) {
+      attachAction(scene, group, {
+        entity: node.field.entity,
+        tap_action: node.field.tap_action,
+        hold_action: node.field.hold_action,
+        label: node.name || texts[node.text],
+      });
+    }
+
+    watchElectricNode(scene, group, node, {
+      label,
+      value,
+      titleWidth: R * 2 + 34,
+      glyphY: cy - 14,
+      socInLabel: false,
+      socText,
     });
   }
 }
@@ -2824,7 +3116,7 @@ const SECTION_FIELDS = {
     "flow_rate",
     ...REF_CIRCUIT_FIELDS,
   ],
-  pv: ["power", "battery", "grid", "battery_power", "grid_power", "wallbox", "house"],
+  pv: ["power", "battery", "grid", "battery_power", "grid_power", "wallbox", "house", "consumers"],
   solar: ["collector_temp", "pump", "yield", "return_temp", "flow_temp"],
   wood_stove: ["state_entity", "status", "flow_temp", "return_temp"],
   buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power", "heater_temp", "heater_mode"],
@@ -2869,7 +3161,7 @@ const FIELD_ALIASES = {
   mixer: "valve",
 };
 
-const PASSTHROUGH_KEYS = ["name", "entity", "type", "tap_action", "hold_action", "power_threshold", "threshold"];
+const PASSTHROUGH_KEYS = ["name", "entity", "type", "tap_action", "hold_action", "power_threshold", "threshold", "fan"];
 
 /**
  * A climate or water_heater entity carries its temperatures in attributes, so
@@ -2914,6 +3206,20 @@ function normalizeSection(raw, fields) {
     }
     result[target] = field;
   }
+
+  // Custom consumers on the energy bus: each entry keeps its own entity,
+  // name and threshold rather than folding into one field.
+  if (fields.includes("consumers") && Array.isArray(raw.consumers)) {
+    const consumers = raw.consumers
+      .map((entry) => {
+        if (typeof entry === "string" && entry.includes(".")) return { entity: entry };
+        if (entry && typeof entry === "object" && typeof entry.entity === "string") return entry;
+        return null;
+      })
+      .filter(Boolean)
+      .slice(0, 4);
+    if (consumers.length) result.consumers = consumers;
+  }
   return result;
 }
 
@@ -2941,6 +3247,7 @@ function normalizeConfig(raw) {
     dim_inactive: raw.dim_inactive !== false,
     zoom: raw.zoom !== false,
     electrics: raw.electrics !== false,
+    electrics_style: raw.electrics_style === "flow" ? "flow" : "tiles",
     heatpump: normalizeSection(raw.heatpump || {}, SECTION_FIELDS.heatpump),
     pv: null,
     solar: null,
@@ -3767,6 +4074,11 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-blade { fill: var(--hpfc-muted); transition: fill 0.5s ease; }
 .hpfc-running .hpfc-blade { fill: var(--info-color, #39b0e5); }
 .hpfc-hub { fill: var(--hpfc-muted); }
+
+/* brine ports, where an air-source unit would have its fan */
+.hpfc-brine-port { stroke: var(--hpfc-stroke); stroke-width: 2; fill: var(--hpfc-surface); }
+.hpfc-brine-in { stroke: var(--return-color, #3b82f6); }
+.hpfc-brine-out { stroke: #ef4444; }
 .hpfc-ref-circuit .hpfc-spin { animation-play-state: paused; }
 .hpfc-ref-circuit.hpfc-running .hpfc-spin { animation-play-state: running; }
 .hpfc-ref-loop .hpfc-pipe { stroke-width: 5; }
@@ -3868,6 +4180,21 @@ ha-card.hpfc-has-title { padding-top: 4px; }
    exporting meter - reads its value in the success colour, so producing and
    consuming can be told apart at a glance */
 .hpfc-enode.hpfc-feeding .hpfc-value { fill: var(--success-color, #43a047); }
+
+/* the light bus: round nodes on a line, thin solid segments */
+.hpfc-flow-body { fill: var(--hpfc-surface); stroke: var(--hpfc-stroke); stroke-width: 1.5; transition: stroke 0.5s ease, opacity 0.5s ease; }
+.hpfc-flow-node.hpfc-running .hpfc-flow-body { stroke-width: 2; }
+.hpfc-flow-node.hpfc-enode-pv .hpfc-flow-body { stroke: #f59e0b; }
+.hpfc-flow-node.hpfc-enode-battery .hpfc-flow-body { stroke: #22c55e; }
+.hpfc-flow-node.hpfc-enode-grid .hpfc-flow-body { stroke: #818cf8; }
+.hpfc-flow-node.hpfc-feeding .hpfc-flow-body { stroke: var(--success-color, #43a047); }
+.hpfc-flow-node .hpfc-label { text-transform: none; letter-spacing: 0; font-size: 10.5px; }
+.hpfc-flow-value { font-size: 11px; }
+.hpfc-flow-soc { font-size: 8.5px; font-weight: 600; fill: var(--hpfc-muted); }
+.hpfc-flow-node.hpfc-idle { opacity: 0.5; }
+.hpfc-flow-node .hpfc-battery-fill { fill: #22c55e; opacity: 0.85; transition: height 0.6s ease, y 0.6s ease; }
+.hpfc-flow-seg .hpfc-pipe { stroke-width: 2.5; stroke-dasharray: none; }
+.hpfc-plug { fill: none; stroke: var(--hpfc-muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .hpfc-pv-cell { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
 .hpfc-sun-core { fill: #fbbf24; }
 .hpfc-rays line { stroke: #fbbf24; stroke-width: 2; stroke-linecap: round; }
@@ -3914,12 +4241,12 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 
 class HeatpumpFlowCard extends HTMLElement {
   static getConfigElement() {
-    return document.createElement("heatpump-flow-card-editor");
+    return document.createElement(EDITOR_TAG);
   }
 
   static getStubConfig() {
     return {
-      type: "custom:heatpump-flow-card",
+      type: `custom:${CARD_TAG}`,
       layout: "dual",
       heatpump: {},
       buffer: {},
@@ -4346,8 +4673,8 @@ class HeatpumpFlowCard extends HTMLElement {
   }
 }
 
-if (!customElements.get("heatpump-flow-card")) {
-  customElements.define("heatpump-flow-card", HeatpumpFlowCard);
+if (!customElements.get(CARD_TAG)) {
+  customElements.define(CARD_TAG, HeatpumpFlowCard);
 }
 
 /* =========================================================================
@@ -4363,6 +4690,9 @@ const EDITOR_TEXTS = {
     controls: "Operate entities from the card",
     zoom: "Button to enlarge the card",
     flow_speed: "Flow speed",
+    electrics_style: "Energy bus style",
+    style_tiles: "Tiles (classic)",
+    style_flow: "Round nodes on a line",
     show_buffer: "Show buffer tank",
     show_dhw: "Show domestic hot water",
     show_pv: "Show photovoltaics",
@@ -4389,6 +4719,7 @@ const EDITOR_TEXTS = {
     ref_liquid_temp: "Refrigerant, liquid line temperature",
     ref_suction_temp: "Refrigerant, suction gas temperature",
     ref_circuit: "Show the refrigerant circuit",
+    fan: "Outdoor unit fan (off for brine or water)",
     defrost: "Defrosting (binary sensor)",
     heater: "Element in the tank",
     heater_power: "Element power",
@@ -4457,6 +4788,9 @@ const EDITOR_TEXTS = {
     controls: "Entitäten direkt in der Karte bedienen",
     zoom: "Schaltfläche zum Vergrößern",
     flow_speed: "Fließgeschwindigkeit",
+    electrics_style: "Stil des Strombusses",
+    style_tiles: "Kacheln (klassisch)",
+    style_flow: "Runde Knoten auf einer Linie",
     show_buffer: "Pufferspeicher anzeigen",
     show_dhw: "Warmwasser anzeigen",
     show_pv: "Photovoltaik anzeigen",
@@ -4483,6 +4817,7 @@ const EDITOR_TEXTS = {
     ref_liquid_temp: "Kältekreis, Flüssigkeitsleitung",
     ref_suction_temp: "Kältekreis, Sauggastemperatur",
     ref_circuit: "Kältekreis anzeigen",
+    fan: "Ventilator des Außengeräts (aus für Sole oder Wasser)",
     defrost: "Abtauen (Binärsensor)",
     heater: "Heizstab im Speicher",
     heater_power: "Leistung des Heizstabs",
@@ -4658,6 +4993,11 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       if (key === "heatpump" && REF_CIRCUIT_FIELDS.some((field) => data.heatpump && data.heatpump[field])) {
         rows.push({ name: "ref_circuit", selector: { boolean: {} } });
       }
+      // The fan switch only appears once the configuration says something
+      // about it, so an untouched card keeps its untouched round-trip.
+      if (key === "heatpump" && data.heatpump && data.heatpump.fan !== undefined) {
+        rows.splice(2, 0, { name: "fan", selector: { boolean: {} } });
+      }
       const preserved = Object.keys(this._preserved)
         .filter((path) => path.startsWith(`${key}.`))
         .map((path) => path.split(".")[1]);
@@ -4697,6 +5037,18 @@ class HeatpumpFlowCardEditor extends HTMLElement {
         ],
       },
       { name: "flow_speed", selector: { number: { min: 0.1, max: 5, step: 0.1, mode: "slider" } } },
+      {
+        name: "electrics_style",
+        selector: {
+          select: {
+            mode: "dropdown",
+            options: [
+              { value: "tiles", label: texts.style_tiles },
+              { value: "flow", label: texts.style_flow },
+            ],
+          },
+        },
+      },
       {
         name: "heatpump",
         type: "expandable",
@@ -4765,6 +5117,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       controls: config.controls !== false,
       zoom: config.zoom !== false,
       flow_speed: config.flow_speed === undefined ? 1 : config.flow_speed,
+      electrics_style: config.electrics_style === "flow" ? "flow" : "tiles",
     };
 
     const simplify = (raw, path) => {
@@ -4785,6 +5138,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     if (REF_CIRCUIT_FIELDS.some((field) => data.heatpump[field])) {
       data.heatpump.ref_circuit = data.heatpump.ref_circuit !== false;
     }
+    if (data.heatpump.fan !== undefined) data.heatpump.fan = data.heatpump.fan !== false;
     for (const key of ["buffer", "dhw", "pv", "solar", "wood_stove"]) {
       const raw = config[key];
       data[`show_${key}`] =
@@ -4827,6 +5181,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     if (data.flow_speed !== undefined && Number(data.flow_speed) !== 1) {
       config.flow_speed = Number(data.flow_speed);
     }
+    if (data.electrics_style === "flow") config.electrics_style = "flow";
 
     const preset = LAYOUT_PRESETS[config.layout];
     const clean = (raw, path) => {
@@ -4846,6 +5201,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
 
     config.heatpump = clean(data.heatpump, "heatpump");
     if (config.heatpump.ref_circuit !== false) delete config.heatpump.ref_circuit;
+    if (config.heatpump.fan !== false) delete config.heatpump.fan;
     for (const key of ["buffer", "dhw", "pv", "solar", "wood_stove"]) {
       if (!data[`show_${key}`]) {
         if (preset.sections.includes(key)) config[key] = false;
@@ -4875,8 +5231,8 @@ class HeatpumpFlowCardEditor extends HTMLElement {
   }
 }
 
-if (!customElements.get("heatpump-flow-card-editor")) {
-  customElements.define("heatpump-flow-card-editor", HeatpumpFlowCardEditor);
+if (!customElements.get(EDITOR_TAG)) {
+  customElements.define(EDITOR_TAG, HeatpumpFlowCardEditor);
 }
 
 /* =========================================================================
@@ -4884,10 +5240,10 @@ if (!customElements.get("heatpump-flow-card-editor")) {
  * ========================================================================= */
 
 window.customCards = window.customCards || [];
-if (!window.customCards.some((card) => card.type === "heatpump-flow-card")) {
+if (!window.customCards.some((card) => card.type === CARD_TAG)) {
   window.customCards.push({
-    type: "heatpump-flow-card",
-    name: "Heat Pump Flow Card",
+    type: CARD_TAG,
+    name: CARD_ELEMENT_TAKEN ? "Heat Pump Flow Card (Xerolux)" : "Heat Pump Flow Card",
     description:
       "Animated hydraulic scheme for a heat pump with buffer tank, hot water, PV, solar thermal and up to seven heating circuits.",
     preview: true,
