@@ -34,6 +34,11 @@ empty, a section you set to `false` is not drawn at all.
 | `status` | What the heat pump reports it is doing. Beats `mode` for the chip and for the animation, so the chip can read “Defrosting” while the plant stays set to “Automatic” |
 | `aux_heat` | Second heat generator — an extra row on the panel, lit while it carries load |
 | `aux_heat_power` | Its power, printed in that row |
+| `ref_discharge_temp` | Refrigerant discharge gas temperature, measuring point 1 of the refrigerant circuit |
+| `ref_condenser_temp` | Refrigerant condenser temperature, point 2 |
+| `ref_liquid_temp` | Refrigerant liquid line temperature, point 3 |
+| `ref_suction_temp` | Refrigerant suction gas temperature, point 4 |
+| `ref_circuit` | `false` hides the refrigerant circuit. It is drawn by default as soon as one of the four sensors above is set |
 | `defrost` | Binary sensor that forces the defrost look, if the status text does not say it |
 | `flow_rate` | Flow rate through the heat pump, as a badge under the flow temperature |
 | `power` | Electrical or thermal power, shown next to the unit |
@@ -247,6 +252,10 @@ heatpump:
   status: sensor.operating_state  # what it is doing right now
   aux_heat: binary_sensor.second_heat_generator
   aux_heat_power: sensor.heating_element_power
+  ref_discharge_temp: sensor.hp_ref_discharge_gas
+  ref_condenser_temp: sensor.hp_ref_condenser
+  ref_liquid_temp: sensor.hp_ref_liquid_line
+  ref_suction_temp: sensor.hp_ref_suction_gas
 buffer:
   heater: switch.ac_thor          # element in the tank
   heater_power: sensor.ac_thor_power
@@ -258,6 +267,14 @@ buffer:
 * **Defrost** — vapour rises off the unit and the fan ring turns icy whenever
   the mode resolves to defrosting. The card recognises *defrost*, *abtau* and
   *enteis* in the state text of `status` or `mode`; `defrost` forces it.
+* **Refrigerant circuit** — a loop of compressor, condenser, expansion valve and
+  evaporator inside the heat pump panel. The four sensors sit on the loop as
+  numbered points and are listed underneath in the same order. A sensor you do
+  not set leaves its point and its slot dimmed. The values stay neutral instead
+  of using the temperature colours, because discharge gas runs well past the
+  colour scale. The compressor turns and the loop flows while the compressor
+  runs — judged by `compressor` when it is set (zero means standing still),
+  otherwise by the heat pump's own state.
 * **Element in the tank** — drawn inside the tank at about two thirds height,
   glowing while it runs, with its power underneath. Works on `buffer` and on
   `dhw`, so a my-PV AC-Thor on the buffer and a booster in the hot water tank

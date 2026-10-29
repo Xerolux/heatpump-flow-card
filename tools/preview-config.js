@@ -56,6 +56,10 @@ window.previewConfigs = {
       status: "sensor.hp_status",
       aux_heat: "binary_sensor.aux_heat",
       aux_heat_power: "sensor.aux_heat_power",
+      ref_discharge_temp: "sensor.hp_ref_discharge_temperature",
+      ref_condenser_temp: "sensor.hp_ref_condenser_temperature",
+      ref_liquid_temp: "sensor.hp_ref_liquid_line_temperature",
+      ref_suction_temp: "sensor.hp_ref_suction_gas_temperature",
     },
     buffer: {
       ...buffer,

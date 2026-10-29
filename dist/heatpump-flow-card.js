@@ -1075,6 +1075,10 @@ const TEXTS = {
     boost: "Boost",
     details: "Details",
     aux_heat: "Aux heat",
+    discharge: "Discharge",
+    condenser: "Condenser",
+    liquid_line: "Liquid line",
+    suction: "Suction gas",
     heater: "Element",
     defrosting: "Defrosting",
     heat: "Heating",
@@ -1121,6 +1125,10 @@ const TEXTS = {
     boost: "Boost",
     details: "Details",
     aux_heat: "Zusatzheizung",
+    discharge: "Heißgas",
+    condenser: "Verflüssiger",
+    liquid_line: "Flüssigkeit",
+    suction: "Sauggas",
     heater: "Heizstab",
     defrosting: "Abtauen",
     heat: "Heizen",
@@ -1381,8 +1389,146 @@ function computedCop(cop) {
   };
 }
 
+const REF_CIRCUIT_FIELDS = ["ref_discharge_temp", "ref_condenser_temp", "ref_liquid_temp", "ref_suction_temp"];
+const REF_CIRCUIT_HEIGHT = 190;
+// Loop order, which is also the numbering on the drawing.
+const REF_CIRCUIT_POINTS = [
+  { field: "ref_discharge_temp", text: "discharge" },
+  { field: "ref_condenser_temp", text: "condenser" },
+  { field: "ref_liquid_temp", text: "liquid_line" },
+  { field: "ref_suction_temp", text: "suction" },
+];
+const REF_CIRCUIT_COLORS = {
+  discharge: "#dc2626",
+  condenser: "#f97316",
+  liquid: "#a855f7",
+  suction: "#3b82f6",
+};
+
+/** The refrigerant circuit is drawn when a sensor for it is set and it is not switched off. */
+function refCircuitShown(cfg) {
+  return cfg.ref_circuit !== false && REF_CIRCUIT_FIELDS.some((key) => cfg[key]);
+}
+
+/**
+ * Refrigerant loop inside the heat pump panel: compressor, condenser, expansion
+ * valve and evaporator, with the four measuring points numbered on the loop and
+ * listed underneath.
+ */
+function drawRefCircuit(scene, parent, box, cfg, running) {
+  const texts = textsFor(scene.hass());
+  const group = svgEl("g", { class: "hpfc-ref-circuit" });
+  parent.appendChild(group);
+  const x0 = box.x + 44;
+  const x1 = box.x + 156;
+  const y0 = box.y + 14;
+  const y1 = box.y + 98;
+  const mid = (a, b) => (a + b) / 2;
+  const at = (a, b, f) => a + (b - a) * f;
+  const surface = { fill: "var(--hpfc-surface)" };
+
+  const gearX = at(x0, x1, 0.3);
+
+  const loop = svgEl("g", { class: "hpfc-pipe-group hpfc-ref-loop" });
+  const dotLayer = [];
+  [
+    ["M", [x0, y0], [gearX, y0], REF_CIRCUIT_COLORS.suction],
+    ["M", [gearX, y0], [x1, y0], REF_CIRCUIT_COLORS.discharge],
+    ["M", [x1, y0], [x1, y1], REF_CIRCUIT_COLORS.condenser],
+    ["M", [x1, y1], [x0, y1], REF_CIRCUIT_COLORS.liquid],
+    ["M", [x0, y1], [x0, y0], REF_CIRCUIT_COLORS.suction],
+  ].forEach(([, from, to, color]) => {
+    const d = `M ${from[0]} ${from[1]} L ${to[0]} ${to[1]}`;
+    loop.appendChild(svgEl("path", { d, class: "hpfc-pipe", stroke: color, fill: "none" }));
+    const dots = svgEl("path", { d, class: "hpfc-dots", fill: "none" });
+    dotLayer.push(dots);
+    loop.appendChild(dots);
+  });
+  group.appendChild(loop);
+
+  // condenser and evaporator coils, expansion valve
+  const coil = (x, color) =>
+    svgEl("rect", {
+      x: x - 7,
+      y: at(y0, y1, 0.4),
+      width: 14,
+      height: (y1 - y0) * 0.4,
+      rx: 3,
+      class: "hpfc-ref-part",
+      stroke: color,
+      ...surface,
+    });
+  group.appendChild(coil(x1, REF_CIRCUIT_COLORS.condenser));
+  group.appendChild(coil(x0, REF_CIRCUIT_COLORS.suction));
+  const valveX = mid(x0, x1) - 8;
+  group.appendChild(
+    svgEl("polygon", {
+      points: `${valveX - 8},${y1 - 6} ${valveX + 8},${y1 + 6} ${valveX + 8},${y1 - 6} ${valveX - 8},${y1 + 6}`,
+      class: "hpfc-ref-part",
+      ...surface,
+    })
+  );
+
+  // compressor on the top edge, between the suction corner and the discharge point
+  const spokes = [0, 45, 90, 135].map((angle) =>
+    svgEl("rect", { x: -2, y: -13, width: 4, height: 26, rx: 1.5, transform: `rotate(${angle})`, class: "hpfc-ref-gear" })
+  );
+  const gear = spinner(gearX, y0, 13, [svgEl("circle", { r: 9, class: "hpfc-ref-gear" }), ...spokes], "hpfc-ref-spin");
+  group.appendChild(svgEl("circle", { cx: gearX, cy: y0, r: 15, class: "hpfc-ref-part", ...surface }));
+  group.appendChild(gear.outer);
+  group.appendChild(svgEl("circle", { cx: gearX, cy: y0, r: 4, ...surface }));
+
+  // measuring points on the loop, numbered the way the readings below are
+  const spots = [
+    [at(x0, x1, 0.74), y0],
+    [x1, at(y0, y1, 0.62)],
+    [at(x0, x1, 0.8), y1],
+    [x0, at(y0, y1, 0.25)],
+  ];
+  const dots = REF_CIRCUIT_POINTS.map((point, index) => {
+    const dot = svgEl("g", { class: "hpfc-ref-dot", "data-point": index + 1 });
+    dot.appendChild(svgEl("circle", { cx: spots[index][0], cy: spots[index][1], r: 7.5 }));
+    dot.appendChild(
+      svgText(spots[index][0], spots[index][1] + 3.2, String(index + 1), { "text-anchor": "middle" })
+    );
+    group.appendChild(dot);
+    return dot;
+  });
+
+  // readings, two by two
+  const gridY = box.y + 122;
+  REF_CIRCUIT_POINTS.forEach((point, index) => {
+    const x = box.x + 14 + (index % 2) * 92;
+    const y = gridY + Math.floor(index / 2) * 38;
+    drawReadout(scene, group, x, y, `${index + 1} ${texts[point.text]}`, cfg[point.field], {});
+  });
+
+  scene.add(() => {
+    const hass = scene.hass();
+    const on = running(hass);
+    group.classList.toggle("hpfc-running", on);
+    loop.classList.toggle("hpfc-idle", !on && scene.config.dim_inactive !== false);
+    loop.classList.toggle("hpfc-stopped", !on);
+    for (const dotPath of dotLayer) {
+      dotPath.style.display = on && scene.config.animation !== false ? "" : "none";
+    }
+    REF_CIRCUIT_POINTS.forEach((point, index) => {
+      const field = cfg[point.field];
+      dots[index].classList.toggle("hpfc-unset", !field || isMissing(stateOf(hass, field)));
+    });
+  });
+}
+
+/** The refrigerant loop follows the compressor itself when it reports a value, otherwise the heat pump. */
+function compressorRunning(hass, cfg) {
+  const load = cfg.compressor ? numberValue(hass, cfg.compressor) : null;
+  return load !== null ? load > 0 : heatPumpRunning(hass, cfg);
+}
+
 function drawHeatPump(scene, box, cfg) {
   const texts = textsFor(scene.hass());
+  // The refrigerant circuit sits below the mode chip; everything above keeps its place.
+  const baseH = box.h - (refCircuitShown(cfg) ? REF_CIRCUIT_HEIGHT : 0);
   const group = drawPanel(scene, box, cfg.name || texts.heatpump, {
     entity: cfg.entity,
     tap_action: cfg.tap_action,
@@ -1452,7 +1598,7 @@ function drawHeatPump(scene, box, cfg) {
 
   // Second heat generator: the bit that quietly switches in on cold days
   if (cfg.aux_heat || cfg.aux_heat_power) {
-    const auxY = box.y + box.h - 58;
+    const auxY = box.y + baseH - 58;
     const aux = svgEl("g", { class: "hpfc-aux" });
     aux.appendChild(
       svgEl("rect", { x: box.x + 14, y: auxY - 13, width: box.w - 28, height: 26, rx: 9, class: "hpfc-aux-plate" })
@@ -1499,7 +1645,7 @@ function drawHeatPump(scene, box, cfg) {
   drawChip(
     scene,
     group,
-    { x: box.x + 14, y: box.y + box.h - 36, w: box.w - 28, h: 24 },
+    { x: box.x + 14, y: box.y + baseH - 36, w: box.w - 28, h: 24 },
     cfg.mode,
     {
       label: cfg.name || texts.heatpump,
@@ -1514,6 +1660,12 @@ function drawHeatPump(scene, box, cfg) {
       },
     }
   );
+
+  if (refCircuitShown(cfg)) {
+    drawRefCircuit(scene, group, { x: box.x, y: box.y + baseH, w: box.w }, cfg, (hass) =>
+      compressorRunning(hass, cfg)
+    );
+  }
 
   scene.add(() => {
     const hass = scene.hass();
@@ -2589,6 +2741,7 @@ const SECTION_FIELDS = {
     "aux_heat_power",
     "defrost",
     "flow_rate",
+    ...REF_CIRCUIT_FIELDS,
   ],
   pv: ["power", "battery", "grid", "battery_power", "grid_power", "wallbox", "house"],
   solar: ["collector_temp", "pump", "yield", "return_temp", "flow_temp"],
@@ -2716,6 +2869,9 @@ function normalizeConfig(raw) {
 
   if (raw.heatpump && raw.heatpump.power_threshold !== undefined) {
     config.heatpump.power_threshold = raw.heatpump.power_threshold;
+  }
+  if (raw.heatpump && raw.heatpump.ref_circuit === false) {
+    config.heatpump.ref_circuit = false;
   }
 
   for (const key of ["pv", "solar", "buffer", "dhw"]) {
@@ -2876,7 +3032,9 @@ function buildScene(card) {
   const dhwHeight = 118;
   const showSources = Boolean(config.pv || config.solar);
   const hpHeight =
-    config.heatpump.aux_heat || config.heatpump.aux_heat_power ? G.hp.h + 34 : G.hp.h;
+    G.hp.h +
+    (config.heatpump.aux_heat || config.heatpump.aux_heat_power ? 34 : 0) +
+    (refCircuitShown(config.heatpump) ? REF_CIRCUIT_HEIGHT : 0);
 
   // ---- horizontal placement -------------------------------------------
   let x = G.pad;
@@ -3465,6 +3623,14 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-blade { fill: var(--hpfc-muted); transition: fill 0.5s ease; }
 .hpfc-running .hpfc-blade { fill: var(--info-color, #39b0e5); }
 .hpfc-hub { fill: var(--hpfc-muted); }
+.hpfc-ref-circuit .hpfc-spin { animation-play-state: paused; }
+.hpfc-ref-circuit.hpfc-running .hpfc-spin { animation-play-state: running; }
+.hpfc-ref-loop .hpfc-pipe { stroke-width: 5; }
+.hpfc-ref-loop .hpfc-dots { stroke-width: 2.4; stroke-dasharray: 0.1 11.9; }
+.hpfc-ref-part { stroke: var(--hpfc-muted); stroke-width: 1.6; }
+.hpfc-ref-gear { fill: var(--hpfc-text); }
+.hpfc-ref-dot circle { fill: var(--hpfc-text); }
+.hpfc-ref-dot text { fill: var(--hpfc-surface); font-size: 9px; font-weight: 700; }
 
 /* defrost vapour */
 .hpfc-steam path {
@@ -4068,6 +4234,11 @@ const EDITOR_TEXTS = {
     boost: "Boost (button / switch)",
     aux_heat: "Second heat generator",
     aux_heat_power: "Second heat generator, power",
+    ref_discharge_temp: "Refrigerant, discharge gas temperature",
+    ref_condenser_temp: "Refrigerant, condenser temperature",
+    ref_liquid_temp: "Refrigerant, liquid line temperature",
+    ref_suction_temp: "Refrigerant, suction gas temperature",
+    ref_circuit: "Show the refrigerant circuit",
     defrost: "Defrosting (binary sensor)",
     heater: "Element in the tank",
     heater_power: "Element power",
@@ -4155,6 +4326,11 @@ const EDITOR_TEXTS = {
     boost: "Boost (button / switch)",
     aux_heat: "Zweiter Wärmeerzeuger",
     aux_heat_power: "Zweiter Wärmeerzeuger, Leistung",
+    ref_discharge_temp: "Kältekreis, Heißgastemperatur",
+    ref_condenser_temp: "Kältekreis, Verflüssigertemperatur",
+    ref_liquid_temp: "Kältekreis, Flüssigkeitsleitung",
+    ref_suction_temp: "Kältekreis, Sauggastemperatur",
+    ref_circuit: "Kältekreis anzeigen",
     defrost: "Abtauen (Binärsensor)",
     heater: "Heizstab im Speicher",
     heater_power: "Leistung des Heizstabs",
@@ -4232,6 +4408,7 @@ const EDITOR_SECTIONS = {
     "aux_heat_power",
     "defrost",
     "flow_rate",
+    ...REF_CIRCUIT_FIELDS,
   ],
   buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power", "heater_temp", "heater_mode"],
   dhw: [
@@ -4324,6 +4501,9 @@ class HeatpumpFlowCardEditor extends HTMLElement {
         { name: "entity", selector: entitySelector },
         { name: "", type: "grid", schema: fields.map((field) => ({ name: field, selector: entitySelector })) },
       ];
+      if (key === "heatpump" && REF_CIRCUIT_FIELDS.some((field) => data.heatpump && data.heatpump[field])) {
+        rows.push({ name: "ref_circuit", selector: { boolean: {} } });
+      }
       const preserved = Object.keys(this._preserved)
         .filter((path) => path.startsWith(`${key}.`))
         .map((path) => path.split(".")[1]);
@@ -4438,7 +4618,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       if (!raw || typeof raw !== "object") return result;
       for (const key of Object.keys(raw)) {
         const value = raw[key];
-        if (typeof value === "string" || typeof value === "number") {
+        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
           result[key] = value;
         } else if (value && typeof value === "object") {
           this._preserved[`${path}.${key}`] = value;
@@ -4448,6 +4628,9 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     };
 
     data.heatpump = simplify(config.heatpump, "heatpump");
+    if (REF_CIRCUIT_FIELDS.some((field) => data.heatpump[field])) {
+      data.heatpump.ref_circuit = data.heatpump.ref_circuit !== false;
+    }
     for (const key of ["buffer", "dhw", "pv", "solar"]) {
       const raw = config[key];
       data[`show_${key}`] =
@@ -4508,6 +4691,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     };
 
     config.heatpump = clean(data.heatpump, "heatpump");
+    if (config.heatpump.ref_circuit !== false) delete config.heatpump.ref_circuit;
     for (const key of ["buffer", "dhw", "pv", "solar"]) {
       if (!data[`show_${key}`]) {
         if (preset.sections.includes(key)) config[key] = false;

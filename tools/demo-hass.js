@@ -124,6 +124,18 @@ window.demoStates["sensor.aux_heat_power"] = {
   state: "3000",
   attributes: { friendly_name: "Element power", unit_of_measurement: "W", device_class: "power" },
 };
+for (const [entity, state] of Object.entries({
+  "sensor.hp_ref_discharge_temperature": "96.4",
+  "sensor.hp_ref_condenser_temperature": "52.8",
+  "sensor.hp_ref_liquid_line_temperature": "43.2",
+  "sensor.hp_ref_suction_gas_temperature": "30.7",
+})) {
+  window.demoStates[entity] = {
+    entity_id: entity,
+    state,
+    attributes: { unit_of_measurement: "°C", device_class: "temperature" },
+  };
+}
 window.demoStates["switch.tank_heater"] = {
   entity_id: "switch.tank_heater",
   state: "on",

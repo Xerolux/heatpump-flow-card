@@ -34,6 +34,11 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `status` | Was die Wärmepumpe gerade meldet. Sticht `mode` für Chip und Animation – der Chip kann also „Abtauen“ zeigen, während die Anlage auf „Automatik“ steht |
 | `aux_heat` | Zweiter Wärmeerzeuger – eigene Zeile im Panel, leuchtet unter Last |
 | `aux_heat_power` | Dessen Leistung, in derselben Zeile |
+| `ref_discharge_temp` | Heißgastemperatur des Kältemittels, Messpunkt 1 des Kältekreises |
+| `ref_condenser_temp` | Verflüssigertemperatur, Punkt 2 |
+| `ref_liquid_temp` | Temperatur der Flüssigkeitsleitung, Punkt 3 |
+| `ref_suction_temp` | Sauggastemperatur, Punkt 4 |
+| `ref_circuit` | `false` blendet den Kältekreis aus. Standardmäßig wird er gezeichnet, sobald einer der vier Sensoren gesetzt ist |
 | `defrost` | Binärsensor, der die Abtau-Darstellung erzwingt, wenn der Statustext sie nicht hergibt |
 | `flow_rate` | Durchfluss durch die Wärmepumpe, als Pille unter der Vorlauftemperatur |
 | `power` | Leistung, neben dem Außengerät |
@@ -158,6 +163,10 @@ heatpump:
   status: sensor.operating_state  # was sie gerade tatsächlich tut
   aux_heat: binary_sensor.second_heat_generator
   aux_heat_power: sensor.heating_element_power
+  ref_discharge_temp: sensor.hp_ref_discharge_gas
+  ref_condenser_temp: sensor.hp_ref_condenser
+  ref_liquid_temp: sensor.hp_ref_liquid_line
+  ref_suction_temp: sensor.hp_ref_suction_gas
 buffer:
   heater: switch.ac_thor          # Heizstab im Speicher
   heater_power: sensor.ac_thor_power
@@ -166,6 +175,14 @@ buffer:
 * **Zweiter Wärmeerzeuger** – die Zeile leuchtet und die Wendel glüht, solange
   die bivalente Stufe Last übernimmt. Als laufend gilt sie, wenn `aux_heat` an
   ist oder – ohne diese Entität – `aux_heat_power` über null liegt.
+* **Kältekreis** – ein Kreis aus Verdichter, Verflüssiger, Expansionsventil und
+  Verdampfer im Wärmepumpen-Panel. Die vier Sensoren sitzen als nummerierte
+  Punkte im Kreis und stehen in gleicher Reihenfolge darunter. Ein nicht
+  gesetzter Sensor lässt Punkt und Platz abgedunkelt. Die Werte bleiben neutral
+  statt in Temperaturfarben, weil das Heißgas weit über die Farbskala
+  hinausgeht. Der Verdichter dreht und der Kreis fließt, solange der Verdichter
+  läuft – nach `compressor`, wenn gesetzt (null heißt Stillstand), sonst nach
+  dem Zustand der Wärmepumpe.
 * **Abtauen** – vom Außengerät steigt Dampf auf und der Ventilatorring wird
   eisblau, sobald die Betriebsart auf Abtauen hinausläuft. Erkannt werden
   *defrost*, *abtau* und *enteis* im Zustandstext von `status` oder `mode`;
