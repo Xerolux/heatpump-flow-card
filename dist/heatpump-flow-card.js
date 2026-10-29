@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.8.3";
+const CARD_VERSION = "1.10.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -206,6 +206,8 @@ function signedPower(hass, field) {
 }
 
 /** Truthiness of a field: on-ish states, or a number above the threshold. */
+const IDLE_ACTIONS = new Set(["off", "idle"]);
+
 function isActive(hass, field) {
   if (!field) return false;
   const entities = fieldEntities(field);
@@ -213,6 +215,16 @@ function isActive(hass, field) {
     return entities.some((entity) =>
       isActive(hass, { ...field, entity, entities: undefined })
     );
+  }
+  // An entity that reports what it is actually doing beats what it was told:
+  // a climate set to "heat" that answers with hvac_action "idle" is not
+  // heating, and drawing it as running would be a lie.
+  if (hass && field.entity) {
+    const st = hass.states[field.entity];
+    const action = st && st.attributes ? st.attributes.hvac_action : undefined;
+    if (action !== undefined && action !== null && action !== "") {
+      return !IDLE_ACTIONS.has(String(action).toLowerCase());
+    }
   }
   const raw = rawValue(hass, field);
   if (raw === undefined || raw === null) return false;
@@ -853,9 +865,20 @@ function drawReadout(scene, group, x, y, label, field, options) {
 
   scene.add(() => {
     const hass = scene.hass();
-    value.textContent = displayValue(hass, field);
-    const st = stateOf(hass, field);
-    block.classList.toggle("hpfc-unset", !field || !field.entity || isMissing(st));
+    let text;
+    let unset;
+    if (opts.compute) {
+      // A computed readout (a calculated COP) has no entity behind it: its
+      // helper returns the finished text, or null for "nothing to show".
+      const computed = opts.compute(hass);
+      text = computed === null || computed === undefined ? "–" : computed;
+      unset = computed === null || computed === undefined;
+    } else {
+      text = displayValue(hass, field);
+      unset = !field || !field.entity || isMissing(stateOf(hass, field));
+    }
+    value.textContent = text;
+    block.classList.toggle("hpfc-unset", unset);
     if (opts.colorize) {
       const num = numberValue(hass, field);
       const colored =
@@ -1339,6 +1362,25 @@ function heatPumpRunning(hass, cfg) {
   return false;
 }
 
+/**
+ * The COP the plant achieves right now, from two meters the card already
+ * knows: thermal output over electrical draw. Both are normalized to watts
+ * first, so a kW meter against a W meter comes out right. Null while either
+ * side is missing or the heat pump is switched off - division by zero is not
+ * a working number.
+ */
+function computedCop(cop) {
+  if (!cop || cop.calculate !== true) return null;
+  const thermal = cop.thermal_power;
+  const power = cop.power;
+  return (hass) => {
+    const heat = powerWatts(hass, thermal);
+    const electric = powerWatts(hass, power);
+    if (heat === null || electric === null || electric <= 0) return null;
+    return formatNumber(hass, heat / electric, { decimals: cop.decimals });
+  };
+}
+
 function drawHeatPump(scene, box, cfg) {
   const texts = textsFor(scene.hass());
   const group = drawPanel(scene, box, cfg.name || texts.heatpump, {
@@ -1393,9 +1435,10 @@ function drawHeatPump(scene, box, cfg) {
   group.appendChild(steam);
 
   // Readouts on the right
+  const copCompute = computedCop(cfg.cop);
   const rows = [
     cfg.power ? { label: texts.power, field: cfg.power } : null,
-    cfg.cop ? { label: texts.cop, field: cfg.cop } : null,
+    cfg.cop ? { label: texts.cop, field: cfg.cop, compute: copCompute } : null,
     cfg.outside_temp ? { label: texts.outside, field: cfg.outside_temp, colorize: true } : null,
     cfg.compressor ? { label: cfg.compressor.name || "Kompressor", field: cfg.compressor } : null,
   ].filter(Boolean);
@@ -2159,6 +2202,31 @@ function drawEmitter(scene, group, area, type, options) {
         })
       );
     }
+  } else if (type === "generic") {
+    // A neutral emitter: a box the flow temperature tints, with heat rising
+    // off it while the circuit runs. For anything that is not a radiator,
+    // floor coils, a fan coil or a pool.
+    const box = svgEl("rect", {
+      x: area.x,
+      y: area.y + 6,
+      width: area.w,
+      height: area.h - 6,
+      rx: 10,
+      class: "hpfc-emitter-box",
+    });
+    wrap.appendChild(box);
+    parts.push({ node: box, kind: "fill" });
+    const rise = area.y + area.h - 12;
+    for (let i = 0; i < 3; i++) {
+      wrap.appendChild(
+        svgEl("path", {
+          class: "hpfc-heatwave",
+          style: `animation-delay:${i * 0.7}s`,
+          fill: "none",
+          d: `M ${area.x + area.w / 2 + (i - 1) * 20} ${rise} q 6 -6 0 -12 q -6 -6 0 -12`,
+        })
+      );
+    }
   } else {
     // radiator (default) - vertical fins between two rails
     const top = area.y + 14;
@@ -2587,8 +2655,23 @@ function normalizeSection(raw, fields) {
   for (const key of Object.keys(raw)) {
     const target = FIELD_ALIASES[key] || key;
     if (!fields.includes(target)) continue;
-    const field = asField(raw[key]);
+    let field = asField(raw[key]);
     if (!field) continue;
+    // A calculated COP is not a sensor reading: it divides the thermal output
+    // by the electrical power, both given as fields of their own.
+    if (target === "cop" && field.calculate === true) {
+      const thermal = asField(field.thermal_power || field.heat_output);
+      const electric = asField(field.power);
+      if (thermal && electric) {
+        result[target] = {
+          calculate: true,
+          thermal_power: thermal,
+          power: electric,
+          decimals: field.decimals !== undefined ? field.decimals : 2,
+        };
+        continue;
+      }
+    }
     const auto = AUTO_ATTRIBUTES[target];
     if (auto && !field.attribute && field.entity) {
       const attribute = auto[domainOf(field.entity)];
@@ -2647,6 +2730,13 @@ function normalizeConfig(raw) {
     for (let i = 0; i < preset.circuits; i++) {
       circuits.push({ type: i % 2 === 0 ? "radiator" : "underfloor" });
     }
+  } else if (typeof circuits === "number" && Number.isFinite(circuits)) {
+    // `circuits: 3` — count shorthand, alternating radiator and underfloor
+    const count = clamp(Math.floor(circuits), 0, MAX_CIRCUITS);
+    circuits = [];
+    for (let i = 0; i < count; i++) {
+      circuits.push({ type: i % 2 === 0 ? "radiator" : "underfloor" });
+    }
   } else if (circuits === false) {
     circuits = [];
   } else if (!Array.isArray(circuits)) {
@@ -2662,6 +2752,104 @@ function normalizeConfig(raw) {
     });
 
   return config;
+}
+
+/* =========================================================================
+ * Change detection
+ * =========================================================================
+ * A busy dashboard pushes a fresh hass object onto every card whenever *any*
+ * entity on the instance changes. Redrawing the whole scheme for that is
+ * wasted work, so the card remembers which entities it reads and compares a
+ * cheap signature over them: only a change in a state or one of the attributes
+ * that shape the drawing or the controls triggers an update pass.
+ */
+
+const WATCHED_ATTRIBUTES = [
+  "unit_of_measurement",
+  "friendly_name",
+  "temperature",
+  "current_temperature",
+  "target_temp_step",
+  "min_temp",
+  "max_temp",
+  "min",
+  "max",
+  "step",
+  "hvac_action",
+  "hvac_modes",
+  "operation_mode",
+  "operation_list",
+  "options",
+  "supported_features",
+];
+
+/** Every entity a field (or a calculated field) reads. */
+function collectFieldEntities(field, out) {
+  if (!field) return;
+  if (typeof field === "string") {
+    if (field.includes(".")) out.add(field);
+    return;
+  }
+  if (Array.isArray(field)) {
+    for (const entry of field) collectFieldEntities(entry, out);
+    return;
+  }
+  if (typeof field !== "object") return;
+  if (typeof field.entity === "string") out.add(field.entity);
+  if (Array.isArray(field.entities)) {
+    for (const entity of field.entities) {
+      if (typeof entity === "string") out.add(entity);
+    }
+  }
+  // A calculated COP names its meters under other keys.
+  if (field.calculate === true) {
+    collectFieldEntities(field.thermal_power, out);
+    collectFieldEntities(field.heat_output, out);
+    collectFieldEntities(field.power, out);
+  }
+}
+
+/** Every entity the card reads anywhere in its normalized config. */
+function collectWatchedEntities(config) {
+  const out = new Set();
+  const sections = [
+    config.heatpump,
+    config.pv,
+    config.solar,
+    config.buffer,
+    config.dhw,
+    ...config.circuits,
+  ];
+  for (const section of sections) {
+    if (!section || typeof section !== "object") continue;
+    for (const key of Object.keys(section)) {
+      collectFieldEntities(section[key], out);
+    }
+  }
+  return out;
+}
+
+/** What the card sees of its entities, folded into one comparable string. */
+function entitySignature(hass, entities) {
+  let signature = "";
+  const states = hass && hass.states ? hass.states : {};
+  for (const entityId of entities) {
+    const st = states[entityId];
+    if (!st) {
+      signature += `${entityId}=?;`;
+      continue;
+    }
+    signature += `${entityId}=${st.state}`;
+    const attrs = st.attributes;
+    if (attrs) {
+      for (const attr of WATCHED_ATTRIBUTES) {
+        const value = attrs[attr];
+        if (value !== undefined) signature += `|${attr}=${String(value)}`;
+      }
+    }
+    signature += ";";
+  }
+  return signature;
 }
 
 /* =========================================================================
@@ -2744,7 +2932,9 @@ function buildScene(card) {
     viewBox: `0 0 ${Math.round(width)} ${Math.round(height)}`,
     preserveAspectRatio: "xMidYMid meet",
     class: "hpfc-svg",
-    role: "img",
+    // role="img" would hide the operable parts from assistive technology;
+    // the drawing only *is* an image when nothing on it can be operated.
+    role: config.controls === false ? "img" : "group",
   });
   const defs = svgEl("defs");
   const pipeLayer = svgEl("g", { class: "hpfc-pipes" });
@@ -3360,6 +3550,10 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-eheater { fill: none; stroke: #ef4444; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .hpfc-enode .hpfc-panel { transition: stroke 0.5s ease; }
 .hpfc-enode.hpfc-running .hpfc-panel { stroke: var(--hpfc-accent, #f59e0b); }
+/* a node that is feeding the bus - the PV, a discharging battery, an
+   exporting meter - reads its value in the success colour, so producing and
+   consuming can be told apart at a glance */
+.hpfc-enode.hpfc-feeding .hpfc-value { fill: var(--success-color, #43a047); }
 .hpfc-pv-cell { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
 .hpfc-sun-core { fill: #fbbf24; }
 .hpfc-rays line { stroke: #fbbf24; stroke-width: 2; stroke-linecap: round; }
@@ -3425,6 +3619,8 @@ class HeatpumpFlowCard extends HTMLElement {
     this._scene = null;
     this._hass = undefined;
     this._language = undefined;
+    this._entities = new Set();
+    this._signature = null;
     this._control = null;
     this._popover = null;
     this._backdrop = null;
@@ -3436,6 +3632,8 @@ class HeatpumpFlowCard extends HTMLElement {
   setConfig(config) {
     this._rawConfig = config;
     this._config = normalizeConfig(config);
+    this._entities = collectWatchedEntities(this._config);
+    this._signature = null;
     this._scene = null;
     if (this._hass) this._render();
   }
@@ -3449,6 +3647,11 @@ class HeatpumpFlowCard extends HTMLElement {
       this._render();
       return;
     }
+    // A push that changes none of the entities this card reads would redraw
+    // the same drawing; the pass is skipped instead.
+    const signature = entitySignature(hass, this._entities);
+    if (signature === this._signature) return;
+    this._signature = signature;
     this._update();
   }
 
@@ -3514,6 +3717,7 @@ class HeatpumpFlowCard extends HTMLElement {
 
   _update() {
     if (!this._scene || !this._hass) return;
+    this._signature = entitySignature(this._hass, this._entities);
     for (const updater of this._scene.updaters) {
       try {
         updater();
@@ -3726,6 +3930,12 @@ class HeatpumpFlowCard extends HTMLElement {
     const host = document.createElement("div");
     host.className = "heatpump-flow-card-zoom";
     host.style.cssText = "position:fixed;inset:0;z-index:9999";
+    host.setAttribute("role", "dialog");
+    host.setAttribute("aria-modal", "true");
+    host.setAttribute(
+      "aria-label",
+      (this._config && this._config.title) || textsFor(this._hass).heatpump
+    );
     const root = host.attachShadow({ mode: "open" });
     const style = document.createElement("style");
     style.textContent = CARD_STYLES;
@@ -4152,7 +4362,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
           { name: "zoom", selector: { boolean: {} } },
         ],
       },
-      { name: "flow_speed", selector: { number: { min: 0.2, max: 3, step: 0.1, mode: "slider" } } },
+      { name: "flow_speed", selector: { number: { min: 0.1, max: 5, step: 0.1, mode: "slider" } } },
       {
         name: "heatpump",
         type: "expandable",
@@ -4246,6 +4456,13 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     }
 
     let circuits = config.circuits;
+    if (typeof circuits === "number" && Number.isFinite(circuits)) {
+      const count = clamp(Math.floor(circuits), 0, MAX_CIRCUITS);
+      circuits = [];
+      for (let i = 0; i < count; i++) {
+        circuits.push({ type: i % 2 === 0 ? "radiator" : "underfloor" });
+      }
+    }
     if (circuits && !Array.isArray(circuits)) circuits = [circuits];
     if (!circuits) {
       circuits = [];

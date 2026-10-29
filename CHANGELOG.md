@@ -21,8 +21,45 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-29
+
+### Added
+
+- **The card can calculate the COP itself.** Give it the thermal output meter
+  and the electrical meter and it divides one by the other, live:
+  `cop: { calculate: true, thermal_power: sensor.heat_output, power: sensor.hp_power }`.
+  Both sides are normalized to watts first, so a kW meter against a W meter
+  comes out right, and the readout stays empty while the heat pump is off
+  instead of showing a division by zero. `decimals` is honoured (default 2).
+  A plain COP sensor remains supported as before.
+- **`circuits` accepts a count.** `circuits: 3` now builds three placeholder
+  circuits (alternating radiator and underfloor) for a quick start, exactly
+  what the layout presets do. It previously rendered a single circuit and
+  dropped the rest silently.
+- **A real `generic` emitter.** `type: generic` used to be a radiator wearing
+  a false name; it now draws its own shape — a box tinted by the flow
+  temperature with heat rising off it while the circuit runs.
+- **Producing and consuming can be told apart at a glance.** An electrical
+  node that is feeding the bus — the photovoltaics, a discharging battery, an
+  exporting meter — now shows its value in the success colour.
+
 ### Fixed
 
+- **Circuits and pumps follow what Home Assistant reports, not what was
+  asked.** A climate entity set to `heat` that answers with
+  `hvac_action: idle` was drawn as running. The card now believes
+  `hvac_action` when an entity reports one, so a circuit without a pump
+  sensor no longer animates while nothing is being served.
+- **Idle pushes no longer redraw the card.** A busy dashboard hands every card
+  a fresh `hass` object whenever *any* entity on the instance changes, and the
+  card re-ran its whole update pass each time. It now compares a signature
+  over the entities it actually reads — states plus the attributes that shape
+  drawing and controls — and skips the pass when nothing it shows has changed.
+- The scheme no longer hides its operable parts from assistive technology:
+  `role="img"` is only set when controls are disabled, and the enlarged view
+  is announced as a dialog.
+- The editor's flow-speed slider offered 0.2–3 while the card accepts 0.1–5;
+  the two now agree.
 - The live IDM examples now wire circuit D to its real flow and room
   temperatures, circulation pump and mixing valve. The previous full-plant
   example incorrectly used the active-mode enum as `room_temp`, while the
@@ -467,7 +504,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.3...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.3...v1.10.0
 [1.8.3]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.2...v1.8.3
 [1.8.2]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.1...v1.8.2
 [1.8.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.0...v1.8.1

@@ -1325,3 +1325,245 @@ test("a long label gives way to the value beside it", async () => {
   assert.equal(fits.en.clear, true, `English label runs into the value: "${fits.en.text}"`);
   assert.equal(fits.de.clear, true, `German label runs into the value: "${fits.de.text}"`);
 });
+
+test("a circuit follows hvac_action, not the mode it was set to", async () => {
+  const running = await page.evaluate((action) => {
+    window.demoStates["climate.idle_circuit"] = {
+      entity_id: "climate.idle_circuit",
+      state: "heat",
+      attributes: {
+        friendly_name: "Idle circuit",
+        hvac_modes: ["off", "heat"],
+        hvac_action: action,
+      },
+    };
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "single",
+      heatpump: { entity: "switch.heat_pump", power: "sensor.hp_power" },
+      circuits: [{ entity: "climate.idle_circuit" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const circuit = card.shadowRoot.querySelector(".hpfc-circuit");
+    const state = circuit.classList.contains("hpfc-running");
+    card.remove();
+    return state;
+  }, "idle");
+  assert.equal(running, false, "a climate reporting idle must not draw as running");
+
+  const heating = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "single",
+      heatpump: { entity: "switch.heat_pump", power: "sensor.hp_power" },
+      circuits: [{ entity: "climate.idle_circuit" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const state = card.shadowRoot
+      .querySelector(".hpfc-circuit")
+      .classList.contains("hpfc-running");
+    card.remove();
+    return state;
+  });
+  assert.equal(heating, true, "hvac_action heating draws as running");
+});
+
+test("the card calculates a COP from heat output over electrical power", async () => {
+  const result = await page.evaluate(() => {
+    window.demoStates["sensor.hp_thermal"] = {
+      entity_id: "sensor.hp_thermal",
+      state: "8560",
+      attributes: { unit_of_measurement: "W", device_class: "power" },
+    };
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "single",
+      heatpump: {
+        entity: "switch.heat_pump",
+        power: "sensor.hp_power",
+        cop: { calculate: true, thermal_power: "sensor.hp_thermal", power: "sensor.hp_power" },
+      },
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const readouts = [...card.shadowRoot.querySelectorAll(".hpfc-heatpump .hpfc-readout")];
+    const value = readouts[1].querySelector(".hpfc-value").textContent;
+    // 8.56 kW of heat over a W meter must come out the same
+    window.demoStates["sensor.hp_thermal"] = {
+      entity_id: "sensor.hp_thermal",
+      state: "8.56",
+      attributes: { unit_of_measurement: "kW", device_class: "power" },
+    };
+    card.hass = window.makeHass("en");
+    const mixed = readouts[1].querySelector(".hpfc-value").textContent;
+    card.remove();
+    return { value, mixed };
+  });
+  assert.equal(result.value, "4.00", "8560 W heat over 2140 W electrical is COP 4.00");
+  assert.equal(result.mixed, "4.00", "a kW meter against a W meter is normalized");
+});
+
+test("a push that changes nothing the card reads skips the redraw", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "single",
+      heatpump: { entity: "switch.heat_pump", power: "sensor.hp_power" },
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const value = () =>
+      card.shadowRoot.querySelector(".hpfc-heatpump .hpfc-readout .hpfc-value").textContent;
+    const before = value();
+    // an unrelated entity changes - the most common push on a busy instance
+    window.demoStates["sensor.bathroom_temperature"] = {
+      entity_id: "sensor.bathroom_temperature",
+      state: "19.5",
+      attributes: { unit_of_measurement: "°C" },
+    };
+    card.hass = window.makeHass("en");
+    const afterIdle = value();
+    // a watched entity changes - this one must get through
+    window.demoStates["sensor.hp_power"] = {
+      entity_id: "sensor.hp_power",
+      state: "3120",
+      attributes: { unit_of_measurement: "W", device_class: "power" },
+    };
+    card.hass = window.makeHass("en");
+    const afterChange = value();
+    card.remove();
+    return { before, afterIdle, afterChange };
+  });
+  assert.equal(result.afterIdle, result.before);
+  assert.equal(result.afterChange, "3120 W");
+});
+
+test("circuits accepts a count", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "single",
+      circuits: 3,
+    });
+    card.hass = window.makeHass("en");
+    document.body.appendChild(card);
+    const editor = document.createElement("heatpump-flow-card-editor");
+    const config = { type: "custom:heatpump-flow-card", layout: "single", circuits: 3 };
+    editor.setConfig(config);
+    const data = editor._toData(config);
+    const roundTrip = editor._toConfig(data);
+    const rendered = card.shadowRoot.querySelectorAll(".hpfc-circuit").length;
+    card.remove();
+    return { rendered, count: data.circuit_count, roundTrip: roundTrip.circuits.length };
+  });
+  assert.equal(result.rendered, 3);
+  assert.equal(result.count, 3);
+  assert.equal(result.roundTrip, 3);
+});
+
+test("a generic emitter draws as its own shape", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "single",
+      circuits: [
+        { type: "generic", name: "Air collector", flow_temp: "sensor.circuit_a_flow", pump: "binary_sensor.circuit_a_pump" },
+      ],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const emitter = card.shadowRoot.querySelector(".hpfc-emitter");
+    const state = {
+      generic: Boolean(emitter.classList.contains("hpfc-emitter-generic")),
+      fins: emitter.querySelectorAll(".hpfc-fin").length,
+      waves: emitter.querySelectorAll(".hpfc-heatwave").length,
+      box: emitter.querySelectorAll(".hpfc-emitter-box").length,
+    };
+    card.remove();
+    return state;
+  });
+  assert.equal(result.generic, true);
+  assert.equal(result.fins, 0, "generic must not fall back to the radiator fins");
+  assert.equal(result.box, 1);
+  assert.ok(result.waves >= 3);
+});
+
+test("an electrical node that feeds the bus reads in the success colour", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "pv-single",
+      pv: { power: "sensor.pv_power", grid_power: "sensor.grid_power" },
+      circuits: [],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const read = (key) => {
+      const node = card.shadowRoot.querySelector(`.hpfc-enode-${key}`);
+      return {
+        feeding: node.classList.contains("hpfc-feeding"),
+        colour: node.querySelector(".hpfc-value").style.fill,
+      };
+    };
+    const state = { pv: read("pv"), grid: read("grid") };
+    card.remove();
+    return state;
+  });
+  // the demo produces 3480 W and exports 740 W: the PV feeds the bus, the
+  // exporting meter draws from it
+  assert.equal(result.pv.feeding, true);
+  assert.match(result.pv.colour, /rgb|var\(/);
+  assert.equal(result.grid.feeding, false);
+});
+
+test("the enlarged view is announced as a dialog", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.getElementById("card-dual");
+    card.openZoom();
+    const host = document.querySelector(".heatpump-flow-card-zoom");
+    const state = {
+      role: host.getAttribute("role"),
+      modal: host.getAttribute("aria-modal"),
+      label: host.getAttribute("aria-label"),
+    };
+    card.closeZoom();
+    return state;
+  });
+  assert.equal(result.role, "dialog");
+  assert.equal(result.modal, "true");
+  assert.ok(result.label, "the dialog carries a label");
+});
+
+test("the drawing is an image only when nothing on it can be operated", async () => {
+  const result = await page.evaluate(() => {
+    const roles = {};
+    for (const [name, controls] of [["operable", undefined], ["static", false]]) {
+      const card = document.createElement("heatpump-flow-card");
+      const config = {
+        type: "custom:heatpump-flow-card",
+        layout: "single",
+        heatpump: { entity: "switch.heat_pump" },
+        circuits: [{ type: "radiator" }],
+      };
+      if (controls === false) config.controls = false;
+      card.setConfig(config);
+      card.hass = window.makeHass("en");
+      document.body.appendChild(card);
+      roles[name] = card.shadowRoot.querySelector("svg").getAttribute("role");
+      card.remove();
+    }
+    return roles;
+  });
+  assert.equal(result.operable, "group");
+  assert.equal(result.static, "img");
+});
