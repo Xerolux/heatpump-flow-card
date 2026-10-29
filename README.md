@@ -310,7 +310,7 @@ readable, so on a 4K or 8K panel it stops there and centres instead.
 | `temperature_colors` | boolean | `true` | `false` keeps flow red / return blue |
 | `controls` | boolean | `true` | `false` makes every tap open more-info |
 | `zoom` | boolean | `true` | The magnifier that opens the card full screen |
-| `electrics_style` | string | `tiles` | `flow` draws the energy bus as round nodes on one thin line |
+| `electrics_style` | string | `tiles` | `tiles`, `flow` (round nodes on a line), or `hub` (source-to-device routes) |
 | `heatpump` | object | `{}` | see below |
 | `buffer` | object \| `false` | shown | Buffer tank |
 | `dhw` | object \| `false` | `full` only | Domestic hot water |
@@ -423,10 +423,16 @@ Up to four consumers; each animates only while it draws power.
 
 **The look of the bus** follows `electrics_style` on the card. `tiles` (the
 default) draws rectangular tiles under a thick energy line; `flow` draws round
-nodes on one thin solid line, in the manner of the Tesla app or
-power-flow-card-plus — producing nodes in their own colour, dots whose speed
-follows the watts, and segments that only carry current when the balance of
-the plant actually flows through them.
+nodes on one thin solid line. `hub` places PV above, grid left, battery below,
+and home with individual devices to the right, linked by curved source-coloured
+routes. Both round-node styles keep complete labels and scale values to W/kW.
+
+`pv.flow_threshold` sets the deadband in watts (default 25). Flow segments need
+agreeing measurements on both sides, so meter noise cannot feed an idle end
+device. Hub routing is an **estimate from net meters**, labelled as such; it
+allocates PV, discharging battery, then grid import to measured demand, never
+exceeding either meter. See [the hub example](examples/12-energy-hub.yaml) and
+[configuration details](docs/wiki/Configuration.md#electrical-flow-styles).
 
 ### `wood_stove`
 

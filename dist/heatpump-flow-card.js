@@ -981,7 +981,7 @@ let gradientCounter = 0;
  */
 function drawPipe(scene, options) {
   const points = options.points;
-  const d = roundedPath(points, options.radius);
+  const d = options.d || roundedPath(points, options.radius);
   const group = svgEl("g", {
     class: `hpfc-pipe-group${options.className ? ` ${options.className}` : ""}`,
   });
@@ -2395,9 +2395,12 @@ function watchElectricNode(scene, group, node, parts) {
       const soc = node.soc && node.soc.entity ? displayValue(hass, node.soc, "") : "";
       parts.socText.textContent = soc && soc !== "–" ? soc : "";
     }
-    parts.label.textContent = title;
-    fitText(scene, parts.label, title, parts.titleWidth);
-    parts.value.textContent = electricNodeValue(hass, node);
+    if (parts.fullLabel) electricLabel(parts.label, title, parts.titleWidth);
+    else shrinkToFit(parts.label, title, parts.titleWidth);
+    const watts = electricNodePower(hass, node);
+    parts.value.textContent = parts.autoPower
+      ? watts === null ? "–" : formatWatts(hass, { unit: Math.abs(watts) >= 1000 ? "kW" : "W", decimals: Math.abs(watts) >= 1000 ? 1 : 0 }, watts)
+      : electricNodeValue(hass, node);
     const direction = node.direction(hass);
     group.classList.toggle("hpfc-running", direction !== null);
     group.classList.toggle("hpfc-feeding", direction === "in");
@@ -2412,8 +2415,149 @@ function watchElectricNode(scene, group, node, parts) {
   });
 }
 
+/** Keep full names in two lines rather than removing their distinguishing end. */
+function electricLabel(label, title, width) {
+  const words = String(title).split(/\s+/);
+  let split = 0;
+  let score = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const difference = Math.abs(words.slice(0, i).join(" ").length - words.slice(i).join(" ").length);
+    if (difference < score) { score = difference; split = i; }
+  }
+  const lines = title.length > 13 && split
+    ? [words.slice(0, split).join(" "), words.slice(split).join(" ")]
+    : [title];
+  label.replaceChildren();
+  lines.forEach((line, index) => {
+    const span = svgEl("tspan", { x: label.getAttribute("x"), dy: index ? 13 : 0 });
+    span.textContent = line;
+    label.appendChild(span);
+    if (textWidth(span) > width) {
+      span.setAttribute("textLength", width);
+      span.setAttribute("lengthAdjust", "spacingAndGlyphs");
+    }
+  });
+}
+
+const ELECTRIC_COLORS = { pv: "#f59e0b", grid: "#818cf8", battery: "#22c55e", house: "#94a3b8" };
+
+/** Signed, thresholded watts: positive feeds the drawing, negative consumes. */
+function electricIntoBus(hass, node, config) {
+  const value = electricNodePower(hass, node);
+  if (value === null) return null;
+  const threshold = node.field.threshold ?? config.pv.flow_threshold;
+  if (Math.abs(value) <= threshold) return 0;
+  if (node.kind === "source") return Math.max(0, value);
+  if (node.kind === "sink") return -Math.max(0, value);
+  return node.kind === "battery" ? -value : value;
+}
+
+/** Fixed CSS timing + playback-rate updates preserve the current dot position. */
+function watchElectricSpeed(scene, group, flow) {
+  group.style.setProperty("--hpfc-dash", "4s");
+  const dots = group.querySelector(".hpfc-dots");
+  let previousAnimation;
+  let previousRate;
+  scene.add(() => {
+    const watts = Math.abs(flow(scene.hass()) || 0);
+    const seconds = watts < 250 ? 6 : watts < 1000 ? 4 : watts < 3000 ? 2.4 : 1.2;
+    const rate = 4 / seconds * scene.config.flow_speed;
+    const animation = dots.getAnimations ? dots.getAnimations()[0] : null;
+    if (animation && (animation !== previousAnimation || rate !== previousRate)) {
+      animation.updatePlaybackRate(rate);
+      previousAnimation = animation;
+      previousRate = rate;
+    }
+  });
+}
+
+/** Deterministic estimate from net meters, not measured source attribution. */
+function electricHubRoutes(hass, nodes, config) {
+  const measured = nodes.map((node) => ({ node, watts: electricIntoBus(hass, node, config) }));
+  const sources = measured.filter((item) => item.watts > 0)
+    .sort((a, b) => ["pv", "battery", "grid"].indexOf(a.node.key) - ["pv", "battery", "grid"].indexOf(b.node.key));
+  const sinks = measured.filter((item) => item.watts < 0)
+    .sort((a, b) => (a.node.kind === "sink" ? 0 : a.node.kind === "battery" ? 1 : 2) - (b.node.kind === "sink" ? 0 : b.node.kind === "battery" ? 1 : 2));
+  const routes = new Map();
+  for (const source of sources) {
+    for (const sink of sinks) {
+      const watts = Math.min(source.watts, -sink.watts);
+      if (watts <= 0) continue;
+      source.watts -= watts;
+      sink.watts += watts;
+      if (watts > config.pv.flow_threshold) routes.set(`${source.node.key}-${sink.node.key}`, watts);
+    }
+  }
+  return routes;
+}
+
+function hubHeight(nodes) {
+  return Math.max(350, Math.ceil(nodes.filter((node) => node.kind === "sink" && node.key !== "house").length / 2) * 110 + 95);
+}
+
+function drawElectricsHub(scene, box, nodes) {
+  const R = 30;
+  const middle = box.y + box.h / 2;
+  let device = 0;
+  const placed = nodes.map((node) => {
+    let cx, cy;
+    if (node.key === "pv") { cx = box.x + box.w * 0.28; cy = box.y + 52; }
+    else if (node.key === "grid") { cx = box.x + box.w * 0.08; cy = middle; }
+    else if (node.key === "battery") { cx = box.x + box.w * 0.28; cy = box.y + box.h - 70; }
+    else if (node.key === "house") { cx = box.x + box.w * 0.49; cy = middle; }
+    else { cx = box.x + box.w * (0.71 + 0.19 * (device % 2)); cy = box.y + 52 + Math.floor(device++ / 2) * 110; }
+    return { ...node, cx, cy, direction: electricDirection({ ...node, field: { ...node.field, threshold: node.field.threshold ?? scene.config.pv.flow_threshold } }) };
+  });
+  let routes = new Map();
+  scene.add(() => { routes = electricHubRoutes(scene.hass(), nodes, scene.config); });
+  const routePower = (hass, from, to) => {
+    return routes.get(`${from}-${to}`) || 0;
+  };
+  for (const source of placed.filter((node) => node.kind !== "sink")) {
+    for (const sink of placed.filter((node) => node.kind !== "source" && node.key !== source.key)) {
+      const dx = sink.cx - source.cx, dy = sink.cy - source.cy;
+      const length = Math.hypot(dx, dy);
+      const x1 = source.cx + dx / length * (R + 3), y1 = source.cy + dy / length * (R + 3);
+      const x2 = sink.cx - dx / length * (R + 3), y2 = sink.cy - dy / length * (R + 3);
+      const bow = source.key === "pv" ? -35 : source.key === "battery" ? 35 : 0;
+      const flow = (hass) => routePower(hass, source.key, sink.key);
+      const group = drawPipe(scene, {
+        points: [[x1, y1], [x2, y2]],
+        d: `M ${x1} ${y1} C ${x1 + dx * 0.35} ${y1 + bow}, ${x2 - dx * 0.35} ${y2 + bow}, ${x2} ${y2}`,
+        role: "pv", className: "hpfc-energy hpfc-flow-seg hpfc-hub-route",
+        part: `power-route-${source.key}-${sink.key}`,
+        fallbackColor: ELECTRIC_COLORS[source.key], active: (hass) => flow(hass) > 0,
+      });
+      const title = svgEl("title");
+      group.appendChild(title);
+      scene.add(() => {
+        const watts = flow(scene.hass());
+        group.dataset.watts = String(watts);
+        title.textContent = `${source.name || textsFor(scene.hass())[source.text] || source.key} → ${sink.name || textsFor(scene.hass())[sink.text] || sink.key}: ${formatWatts(scene.hass(), { unit: watts >= 1000 ? "kW" : "W", decimals: watts >= 1000 ? 1 : 0 }, watts)}`;
+      });
+      watchElectricSpeed(scene, group, flow);
+    }
+  }
+  for (const node of placed) {
+    const group = svgEl("g", { class: `hpfc-node hpfc-enode hpfc-flow-node hpfc-hub-node hpfc-enode-${node.key}` });
+    group.appendChild(svgEl("circle", { cx: node.cx, cy: node.cy, r: R, class: "hpfc-flow-body" }));
+    group.appendChild(electricGlyph(node, node.cx - 8, node.cy - 14));
+    const socText = node.soc ? svgText(node.cx, node.cy + 6, "", { "text-anchor": "middle", class: "hpfc-flow-soc" }) : null;
+    if (socText) group.appendChild(socText);
+    const value = svgText(node.cx, node.cy + (socText ? 20 : 15), "", { "text-anchor": "middle", class: "hpfc-value hpfc-flow-value" });
+    const label = svgText(node.cx, node.cy + R + 16, "", { "text-anchor": "middle", class: "hpfc-label" });
+    group.appendChild(value); group.appendChild(label); scene.root.appendChild(group);
+    if (node.field.entity) attachAction(scene, group, { entity: node.field.entity, tap_action: node.field.tap_action, hold_action: node.field.hold_action, label: node.name || textsFor(scene.hass())[node.text] });
+    watchElectricNode(scene, group, node, { label, value, titleWidth: Math.min(140, box.w * 0.16), glyphY: node.cy - 14, socInLabel: false, socText, autoPower: true, fullLabel: true });
+  }
+  scene.root.appendChild(svgText(box.x + box.w / 2, box.y + box.h - 5,
+    scene.hass().locale?.language?.startsWith("de") ? "Geschätzte Verteilung aus den Leistungsmesswerten" : "Estimated distribution from power readings",
+    { "text-anchor": "middle", class: "hpfc-label" }));
+}
+
 function drawElectrics(scene, box, nodes) {
-  if (scene.config.electrics_style === "flow") drawElectricsFlow(scene, box, nodes);
+  if (scene.config.electrics_style === "hub") drawElectricsHub(scene, box, nodes);
+  else if (scene.config.electrics_style === "flow") drawElectricsFlow(scene, box, nodes);
   else drawElectricsTiles(scene, box, nodes);
 }
 
@@ -2503,40 +2647,21 @@ function drawElectricsFlow(scene, box, nodes) {
 
   const placed = nodes.map((node, index) => {
     const cx = startX + index * (R * 2 + gap) + R;
-    return { ...node, cx, direction: electricDirection(node) };
+    return { ...node, cx, direction: electricDirection({ ...node, field: { ...node.field, threshold: node.field.threshold ?? scene.config.pv.flow_threshold } }) };
   });
-
-  // Watts one node puts on the bus (positive) or draws from it (negative),
-  // null while it carries nothing at all.
-  const intoBus = (node) => (hass) => {
-    const value = electricNodePower(hass, node);
-    if (value === null) return null;
-    const threshold = node.field.threshold === undefined ? 5 : node.field.threshold;
-    if (Math.abs(value) <= threshold) return null;
-    const magnitude = Math.abs(value);
-    if (node.kind === "source") return magnitude;
-    if (node.kind === "sink") return -magnitude;
-    // a battery charging draws, discharging feeds; a meter importing feeds,
-    // exporting draws - `invert: true` settles a plant that disagrees
-    if (node.kind === "battery") return value > 0 ? -magnitude : magnitude;
-    if (node.kind === "grid") return value > 0 ? magnitude : -magnitude;
-    return null;
-  };
 
   for (let i = 0; i < placed.length - 1; i++) {
     const a = placed[i];
     const b = placed[i + 1];
     const flow = (hass) => {
-      let sum = 0;
-      let known = false;
-      for (let j = 0; j <= i; j++) {
-        const watts = intoBus(placed[j])(hass);
-        if (watts !== null) {
-          sum += watts;
-          known = true;
-        }
-      }
-      return known ? sum : null;
+      const values = placed.map((node) => electricIntoBus(hass, node, scene.config));
+      // Unknown meters must not silently become zero and manufacture a route.
+      if (values.some((value) => value === null)) return null;
+      const left = values.slice(0, i + 1).reduce((a, b) => a + b, 0);
+      const right = -values.slice(i + 1).reduce((a, b) => a + b, 0);
+      if (Math.sign(left) !== Math.sign(right)) return 0;
+      const watts = Math.min(Math.abs(left), Math.abs(right));
+      return watts > scene.config.pv.flow_threshold ? Math.sign(left) * watts : 0;
     };
     const group = drawPipe(scene, {
       points: [
@@ -2547,13 +2672,10 @@ function drawElectricsFlow(scene, box, nodes) {
       className: "hpfc-energy hpfc-flow-seg",
       part: `power-seg-${i}`,
       fallbackColor: "var(--hpfc-stroke, #d5d5d5)",
-      active: (hass) => Math.abs(flow(hass) || 0) > 5,
+      active: (hass) => Math.abs(flow(hass) || 0) > 0,
       reverse: (hass) => (flow(hass) || 0) < 0,
     });
-    scene.add(() => {
-      const watts = Math.abs(flow(scene.hass()) || 0);
-      group.style.setProperty("--hpfc-dash", `${clamp(6 - watts / 400, 1.2, 6).toFixed(2)}s`);
-    });
+    watchElectricSpeed(scene, group, flow);
   }
 
   for (const node of placed) {
@@ -2584,10 +2706,12 @@ function drawElectricsFlow(scene, box, nodes) {
     watchElectricNode(scene, group, node, {
       label,
       value,
-      titleWidth: R * 2 + 34,
+      titleWidth: R * 2 + gap - 8,
       glyphY: cy - 14,
       socInLabel: false,
       socText,
+      autoPower: true,
+      fullLabel: true,
     });
   }
 }
@@ -3247,7 +3371,7 @@ function normalizeConfig(raw) {
     dim_inactive: raw.dim_inactive !== false,
     zoom: raw.zoom !== false,
     electrics: raw.electrics !== false,
-    electrics_style: raw.electrics_style === "flow" ? "flow" : "tiles",
+    electrics_style: ["flow", "hub"].includes(raw.electrics_style) ? raw.electrics_style : "tiles",
     heatpump: normalizeSection(raw.heatpump || {}, SECTION_FIELDS.heatpump),
     pv: null,
     solar: null,
@@ -3268,6 +3392,10 @@ function normalizeConfig(raw) {
     if (!sectionEnabled(raw, key, preset)) continue;
     const source = typeof raw[key] === "object" && raw[key] !== null ? raw[key] : {};
     config[key] = normalizeSection(source, SECTION_FIELDS[key]);
+    if (key === "pv") {
+      const threshold = Number(source.flow_threshold ?? 25);
+      config.pv.flow_threshold = Number.isFinite(threshold) && threshold >= 0 ? threshold : 25;
+    }
   }
 
   let circuits = raw.circuits;
@@ -3477,7 +3605,8 @@ function buildScene(card) {
   const electrics = hasElectrics(config) ? electricNodes(config) : [];
   const showElectrics = electrics.length > 1;
   const stripY = G.pad + contentH + (solarLanes ? 88 : G.pad);
-  const height = stripY + (showElectrics ? 110 : 0);
+  const electricsHeight = config.electrics_style === "hub" ? hubHeight(electrics) : 110;
+  const height = stripY + (showElectrics ? electricsHeight : 0);
   const laneA = G.pad + contentH + 20;
   const laneB = G.pad + contentH + 54;
 
@@ -3860,7 +3989,7 @@ function buildScene(card) {
   // pump is not asking for any. Without them a single line to the heat pump
   // says enough - but only while the heat pump is actually drawing.
   if (showElectrics) {
-    drawElectrics(scene, { x: G.pad, y: stripY, w: width - G.pad * 2, h: 110 }, electrics);
+    drawElectrics(scene, { x: G.pad, y: stripY, w: width - G.pad * 2, h: electricsHeight }, electrics);
   } else if (pv) {
     drawPipe(scene, {
       points: [
@@ -4188,12 +4317,20 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-flow-node.hpfc-enode-battery .hpfc-flow-body { stroke: #22c55e; }
 .hpfc-flow-node.hpfc-enode-grid .hpfc-flow-body { stroke: #818cf8; }
 .hpfc-flow-node.hpfc-feeding .hpfc-flow-body { stroke: var(--success-color, #43a047); }
+.hpfc-flow-node.hpfc-enode-pv .hpfc-value { fill: #f59e0b; }
+.hpfc-flow-node.hpfc-enode-grid .hpfc-value { fill: #818cf8; }
+.hpfc-flow-node.hpfc-enode-battery .hpfc-value { fill: #22c55e; }
+.hpfc-flow-node.hpfc-feeding.hpfc-enode-pv .hpfc-flow-body { stroke: #f59e0b; }
+.hpfc-flow-node.hpfc-feeding.hpfc-enode-grid .hpfc-flow-body { stroke: #818cf8; }
+.hpfc-flow-node.hpfc-feeding.hpfc-enode-battery .hpfc-flow-body { stroke: #22c55e; }
+.hpfc-hub-route.hpfc-stopped { opacity: 0; }
 .hpfc-flow-node .hpfc-label { text-transform: none; letter-spacing: 0; font-size: 10.5px; }
 .hpfc-flow-value { font-size: 11px; }
 .hpfc-flow-soc { font-size: 8.5px; font-weight: 600; fill: var(--hpfc-muted); }
 .hpfc-flow-node.hpfc-idle { opacity: 0.5; }
 .hpfc-flow-node .hpfc-battery-fill { fill: #22c55e; opacity: 0.85; transition: height 0.6s ease, y 0.6s ease; }
 .hpfc-flow-seg .hpfc-pipe { stroke-width: 2.5; stroke-dasharray: none; }
+.hpfc-flow-seg .hpfc-dots { stroke-width: 4; stroke-dasharray: 0.1 13.9; }
 .hpfc-plug { fill: none; stroke: var(--hpfc-muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .hpfc-pv-cell { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
 .hpfc-sun-core { fill: #fbbf24; }
@@ -4692,6 +4829,7 @@ const EDITOR_TEXTS = {
     flow_speed: "Flow speed",
     electrics_style: "Energy bus style",
     style_tiles: "Tiles (classic)",
+    flow_threshold: "Power flow deadband (W)",
     style_flow: "Round nodes on a line",
     show_buffer: "Show buffer tank",
     show_dhw: "Show domestic hot water",
@@ -4790,6 +4928,7 @@ const EDITOR_TEXTS = {
     flow_speed: "Fließgeschwindigkeit",
     electrics_style: "Stil des Strombusses",
     style_tiles: "Kacheln (klassisch)",
+    flow_threshold: "Totzone für Leistungsflüsse (W)",
     style_flow: "Runde Knoten auf einer Linie",
     show_buffer: "Pufferspeicher anzeigen",
     show_dhw: "Warmwasser anzeigen",
@@ -4998,6 +5137,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       if (key === "heatpump" && data.heatpump && data.heatpump.fan !== undefined) {
         rows.splice(2, 0, { name: "fan", selector: { boolean: {} } });
       }
+      if (key === "pv") rows.push({ name: "flow_threshold", selector: { number: { min: 0, max: 1000, step: 1, mode: "box", unit_of_measurement: "W" } } });
       const preserved = Object.keys(this._preserved)
         .filter((path) => path.startsWith(`${key}.`))
         .map((path) => path.split(".")[1]);
@@ -5045,6 +5185,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
             options: [
               { value: "tiles", label: texts.style_tiles },
               { value: "flow", label: texts.style_flow },
+              { value: "hub", label: "Hub" },
             ],
           },
         },
@@ -5117,7 +5258,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       controls: config.controls !== false,
       zoom: config.zoom !== false,
       flow_speed: config.flow_speed === undefined ? 1 : config.flow_speed,
-      electrics_style: config.electrics_style === "flow" ? "flow" : "tiles",
+      electrics_style: ["flow", "hub"].includes(config.electrics_style) ? config.electrics_style : "tiles",
     };
 
     const simplify = (raw, path) => {
@@ -5181,7 +5322,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     if (data.flow_speed !== undefined && Number(data.flow_speed) !== 1) {
       config.flow_speed = Number(data.flow_speed);
     }
-    if (data.electrics_style === "flow") config.electrics_style = "flow";
+    if (["flow", "hub"].includes(data.electrics_style)) config.electrics_style = data.electrics_style;
 
     const preset = LAYOUT_PRESETS[config.layout];
     const clean = (raw, path) => {

@@ -268,3 +268,9 @@ window.demoStates["sensor.dryer_power"] = {
   state: "0",
   attributes: { friendly_name: "Dryer", unit_of_measurement: "W", device_class: "power" },
 };
+
+for (const [key, state] of Object.entries({ pv: 290, grid: 11403, battery: 10893, house: 782, hp: 10, airco: 0, wallbox: 0 })) {
+  window.demoStates[`sensor.hub_${key}`] = {
+    entity_id: `sensor.hub_${key}`, state: String(state), attributes: { unit_of_measurement: "W" },
+  };
+}
