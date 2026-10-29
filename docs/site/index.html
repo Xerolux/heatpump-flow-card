@@ -119,6 +119,8 @@
         <button type="button" data-layout="circuits">four circuits</button>
         <button type="button" data-layout="extras">defrost &amp; element</button>
         <button type="button" data-layout="electrics">battery, grid &amp; wallbox</button>
+        <button type="button" data-layout="energy-flow">energy line</button>
+        <button type="button" data-layout="energy-hub">energy hub</button>
         <span class="spacer"></span>
         <button type="button" id="language" title="The card follows the Home Assistant language">
           Deutsch
@@ -175,6 +177,8 @@
         circuits: "Four circuits, each with its own state",
         extras: "Defrosting, second heat generator, element in the tank",
         electrics: "The heat pump in standby: every watt goes to the battery and the grid",
+        "energy-flow": "Electrical flow on a line",
+        "energy-hub": "Electrical hub — estimated source-to-device distribution",
       };
       const stage = document.getElementById("stage");
       const title = document.getElementById("demo-title");

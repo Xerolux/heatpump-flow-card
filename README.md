@@ -434,6 +434,8 @@ allocates PV, discharging battery, then grid import to measured demand, never
 exceeding either meter. See [the hub example](examples/12-energy-hub.yaml) and
 [configuration details](docs/wiki/Configuration.md#electrical-flow-styles).
 
+![Optional energy hub, using demo readings](docs/images/energy-hub.png)
+
 ### `wood_stove`
 
 A second, hand-fed heat source — a wood stove, a pellet boiler, anything fed

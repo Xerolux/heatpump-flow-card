@@ -337,7 +337,7 @@ window.previewConfigs = {
 window.previewConfigs["energy-hub"] = {
   type: "custom:heatpump-flow-card", layout: "direct", title: "Energy hub · estimated distribution",
   electrics_style: "hub",
-  heatpump: { ...heatpump, name: "Xtend Warmtepomp", power: "sensor.hub_hp" },
+  heatpump: { ...heatpump, name: "Xtend Warmtepomp", power: "sensor.hub_hp", state_entity: "binary_sensor.hub_compressor", cop: null, compressor: null },
   pv: {
     power: "sensor.hub_pv", grid_power: "sensor.hub_grid",
     battery_power: "sensor.hub_battery", battery: "sensor.battery_soc",

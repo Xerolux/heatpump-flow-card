@@ -17,6 +17,10 @@ const read = (relative) => readFileSync(resolve(root, relative), "utf8");
 const source = read("dist/heatpump-flow-card.js");
 const cardVersion = source.match(/CARD_VERSION = "([^"]+)"/)[1];
 const packageVersion = JSON.parse(read("package.json")).version;
+const lock = JSON.parse(read("package-lock.json"));
+if (lock.version !== packageVersion || lock.packages?.[""]?.version !== packageVersion) {
+  problems.push("package-lock.json and package.json versions must match");
+}
 if (cardVersion !== packageVersion) {
   problems.push(`CARD_VERSION is ${cardVersion} but package.json says ${packageVersion}`);
 }

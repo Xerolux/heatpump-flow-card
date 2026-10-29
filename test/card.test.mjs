@@ -2017,7 +2017,7 @@ test("flow segments require agreeing measurements on both sides, including idle 
     const noise = [11403, 11360, 11440].map((grid) => push({ grid }).at(-1));
     const active = push({ grid: 11403, airco: 200 });
     const missing = push({ airco: "unavailable" });
-    const sourceOnly = push({ pv: 100, grid: 100, battery: -100, house: 0, hp: 0, airco: 0 });
+    const sourceOnly = push({ pv: 100, grid: 100, battery: -100, house: 0, hp: 0, airco: 0, wallbox: 0 });
     card.remove(); return { noise, active, missing, sourceOnly };
   });
   assert.ok(result.noise.every((segment) => segment.stopped && !segment.reverse));
@@ -2101,14 +2101,14 @@ test("hub routes stay bounded by meters, keep source colours, scale watts and pr
     const editor = document.createElement("heatpump-flow-card-editor");
     editor.setConfig(window.previewConfigs["energy-hub"]);
     const roundtrip = editor._toConfig(editor._toData(window.previewConfigs["energy-hub"]));
-    card.hass = { ...card.hass, states: { ...card.hass.states, "sensor.hub_grid": { state: "-4000", attributes: { unit_of_measurement: "W" } }, "sensor.hub_pv": { state: "6000", attributes: { unit_of_measurement: "W" } }, "sensor.hub_battery": { state: "-1000", attributes: { unit_of_measurement: "W" } } } };
+    card.hass = { ...card.hass, states: { ...card.hass.states, "sensor.hub_grid": { state: "-4000", attributes: { unit_of_measurement: "W" } }, "sensor.hub_pv": { state: "6000", attributes: { unit_of_measurement: "W" } }, "sensor.hub_battery": { state: "-1000", attributes: { unit_of_measurement: "W" } }, "sensor.hub_wallbox": { state: "0", attributes: { unit_of_measurement: "W" } } } };
     const exported = read();
     return { initial, exported, colours, names, values, style: roundtrip.electrics_style, threshold: roundtrip.pv.flow_threshold, subtract: roundtrip.pv.house.subtract };
   });
   assert.ok(result.initial.length > 0);
   assert.ok(result.initial.every((route) => !route.part.endsWith("consumer-0") && !route.part.endsWith("heatpump")));
   assert.ok(result.initial.filter((r) => r.part.startsWith("power-route-grid-")).reduce((sum, r) => sum + r.watts, 0) <= 11403);
-  assert.ok(result.initial.filter((r) => r.part.endsWith("-battery")).reduce((sum, r) => sum + r.watts, 0) <= 10893);
+  assert.ok(result.initial.filter((r) => r.part.endsWith("-wallbox")).reduce((sum, r) => sum + r.watts, 0) <= 10893);
   assert.ok(result.exported.some((r) => r.part === "power-route-pv-grid"));
   assert.ok(result.exported.every((r) => !r.part.startsWith("power-route-grid-")));
   assert.deepEqual(result.colours, ["rgb(245, 158, 11)", "rgb(129, 140, 248)", "rgb(34, 197, 94)"]);

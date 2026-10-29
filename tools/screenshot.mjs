@@ -8,12 +8,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(here, "..", "docs", "images");
 mkdirSync(out, { recursive: true });
 
-const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "advanced", "circuits", "extras", "electrics", "energy-flow"];
+const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "advanced", "circuits", "extras", "electrics", "energy-flow", "energy-hub"];
 const candidate = process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium";
 const browser = await chromium.launch(existsSync(candidate) ? { executablePath: candidate } : {});
 const errors = [];
 
-const darkLayouts = new Set(["dual"]);
+const darkLayouts = new Set(["dual", "energy-hub"]);
 
 for (const theme of ["light", "dark"]) {
   const page = await browser.newPage({ viewport: { width: 1140, height: 900 }, deviceScaleFactor: 1.5 });

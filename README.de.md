@@ -444,6 +444,8 @@ in dieser Reihenfolge den gemessenen Bedarf, begrenzt auf die Messwerte beider
 Enden. Siehe [Hub-Beispiel](examples/12-energy-hub.yaml) und
 [Konfigurationsdetails](docs/wiki/Configuration-de.md#stromfluss-als-linie-oder-hub).
 
+![Optionaler Energie-Hub mit Demowerten](docs/images/energy-hub.png)
+
 ### `wood_stove`
 
 Ein zweiter, von Hand beschickter Wärmeerzeuger — Holzofen, Pelletofen,

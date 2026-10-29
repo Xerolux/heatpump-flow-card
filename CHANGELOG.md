@@ -21,6 +21,11 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.11.0-beta.1] - 2026-10-29
+
+This is a prerelease for testing the electrical-flow fixes and the optional hub
+style. Existing dashboards retain their selected style; `hub` is opt-in.
+
 ### Fixed
 
 - Electrical flow dots keep their playback position when meter readings change.
@@ -51,6 +56,14 @@ changes shipped with the next tagged release.
   estimated source-to-destination routes with independent dot speeds. Net meters
   do not measure source attribution: the drawing explicitly labels this estimate.
   Existing `flow` and `tiles` styles remain selectable.
+- The hub groups device readings in a compact panel rather than scattering
+  idle circles across the drawing. Complete two-line names remain readable.
+
+### Maintenance
+
+- Resolve stale merge-conflict markers in the npm lockfile and keep lockfile,
+  package and card versions aligned. Prerelease tags publish as prereleases
+  without replacing the latest stable release.
 
 ## [1.10.0] - 2026-10-29
 
@@ -577,7 +590,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.0-beta.1...HEAD
+[1.11.0-beta.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.10.0...v1.11.0-beta.1
 [1.10.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.3...v1.10.0
 [1.8.3]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.2...v1.8.3
 [1.8.2]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.1...v1.8.2

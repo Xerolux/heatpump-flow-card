@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.10.0";
+const CARD_VERSION = "1.11.0-beta.1";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -2530,21 +2530,33 @@ function electricHubRoutes(hass, nodes, config) {
 }
 
 function hubHeight(nodes) {
-  return Math.max(350, Math.ceil(nodes.filter((node) => node.kind === "sink" && node.key !== "house").length / 2) * 110 + 95);
+  return Math.max(300, Math.ceil(nodes.filter((node) => node.kind === "sink" && node.key !== "house").length / 2) * 94 + 100);
 }
 
 function drawElectricsHub(scene, box, nodes) {
-  const R = 30;
+  const R = 27;
   const middle = box.y + box.h / 2;
+  const texts = textsFor(scene.hass());
+  scene.pipeLayer.appendChild(svgEl("rect", {
+    x: box.x, y: box.y + 4, width: box.w, height: box.h - 8, rx: 18, class: "hpfc-electric-panel",
+  }));
+  scene.pipeLayer.appendChild(svgEl("rect", {
+    x: box.x + box.w * 0.59, y: box.y + 36, width: box.w * 0.39 - 10, height: box.h - 66, rx: 12, class: "hpfc-electric-devices",
+  }));
+  scene.root.appendChild(svgText(box.x + 18, box.y + 27, texts.electrics, { class: "hpfc-title" }));
+  scene.root.appendChild(svgText(box.x + box.w * 0.785, box.y + 57,
+    scene.hass().locale?.language?.startsWith("de") ? "Verbraucher" : "Devices",
+    { "text-anchor": "middle", class: "hpfc-label" }));
   let device = 0;
   const placed = nodes.map((node) => {
     let cx, cy;
-    if (node.key === "pv") { cx = box.x + box.w * 0.28; cy = box.y + 52; }
-    else if (node.key === "grid") { cx = box.x + box.w * 0.08; cy = middle; }
-    else if (node.key === "battery") { cx = box.x + box.w * 0.28; cy = box.y + box.h - 70; }
+    if (node.key === "pv") { cx = box.x + box.w * 0.28; cy = box.y + 68; }
+    else if (node.key === "grid") { cx = box.x + box.w * 0.10; cy = middle; }
+    else if (node.key === "battery") { cx = box.x + box.w * 0.28; cy = box.y + box.h - 66; }
     else if (node.key === "house") { cx = box.x + box.w * 0.49; cy = middle; }
-    else { cx = box.x + box.w * (0.71 + 0.19 * (device % 2)); cy = box.y + 52 + Math.floor(device++ / 2) * 110; }
-    return { ...node, cx, cy, direction: electricDirection({ ...node, field: { ...node.field, threshold: node.field.threshold ?? scene.config.pv.flow_threshold } }) };
+    else { cx = box.x + box.w * (0.69 + 0.19 * (device % 2)); cy = box.y + 104 + Math.floor(device++ / 2) * 94; }
+    const isDevice = node.kind === "sink" && node.key !== "house";
+    return { ...node, cx, cy, isDevice, radius: node.key === "house" ? 32 : R, direction: electricDirection({ ...node, field: { ...node.field, threshold: node.field.threshold ?? scene.config.pv.flow_threshold } }) };
   });
   let routes = new Map();
   scene.add(() => { routes = electricHubRoutes(scene.hass(), nodes, scene.config); });
@@ -2555,13 +2567,15 @@ function drawElectricsHub(scene, box, nodes) {
     for (const sink of placed.filter((node) => node.kind !== "source" && node.key !== source.key)) {
       const dx = sink.cx - source.cx, dy = sink.cy - source.cy;
       const length = Math.hypot(dx, dy);
-      const x1 = source.cx + dx / length * (R + 3), y1 = source.cy + dy / length * (R + 3);
-      const x2 = sink.cx - dx / length * (R + 3), y2 = sink.cy - dy / length * (R + 3);
+      const x1 = source.cx + dx / length * (source.radius + 3), y1 = source.cy + dy / length * (source.radius + 3);
+      const inset = sink.isDevice ? Math.min((box.w * 0.085 + 3) / Math.abs(dx), 38 / Math.abs(dy || 1)) : (sink.radius + 3) / length;
+      const x2 = sink.cx - dx * inset, y2 = sink.cy - dy * inset;
       const bow = source.key === "pv" ? -35 : source.key === "battery" ? 35 : 0;
+      const lane = sink.isDevice ? (sink.cy < middle ? middle - 70 : middle + 70) : null;
       const flow = (hass) => routePower(hass, source.key, sink.key);
       const group = drawPipe(scene, {
         points: [[x1, y1], [x2, y2]],
-        d: `M ${x1} ${y1} C ${x1 + dx * 0.35} ${y1 + bow}, ${x2 - dx * 0.35} ${y2 + bow}, ${x2} ${y2}`,
+        d: `M ${x1} ${y1} C ${x1 + dx * 0.35} ${lane ?? y1 + bow}, ${x2 - dx * 0.35} ${lane ?? y2 + bow}, ${x2} ${y2}`,
         role: "pv", className: "hpfc-energy hpfc-flow-seg hpfc-hub-route",
         part: `power-route-${source.key}-${sink.key}`,
         fallbackColor: ELECTRIC_COLORS[source.key], active: (hass) => flow(hass) > 0,
@@ -2578,17 +2592,22 @@ function drawElectricsHub(scene, box, nodes) {
   }
   for (const node of placed) {
     const group = svgEl("g", { class: `hpfc-node hpfc-enode hpfc-flow-node hpfc-hub-node hpfc-enode-${node.key}` });
-    group.appendChild(svgEl("circle", { cx: node.cx, cy: node.cy, r: R, class: "hpfc-flow-body" }));
-    group.appendChild(electricGlyph(node, node.cx - 8, node.cy - 14));
+    if (node.isDevice) {
+      group.classList.add("hpfc-hub-device");
+      group.appendChild(svgEl("rect", { x: node.cx - box.w * 0.085, y: node.cy - 35, width: box.w * 0.17, height: 70, rx: 10, class: "hpfc-device-surface" }));
+    } else {
+      group.appendChild(svgEl("circle", { cx: node.cx, cy: node.cy, r: node.radius, class: "hpfc-flow-body" }));
+    }
+    group.appendChild(electricGlyph(node, node.isDevice ? node.cx - box.w * 0.085 + 9 : node.cx - 8, node.cy - 14));
     const socText = node.soc ? svgText(node.cx, node.cy + 6, "", { "text-anchor": "middle", class: "hpfc-flow-soc" }) : null;
     if (socText) group.appendChild(socText);
     const value = svgText(node.cx, node.cy + (socText ? 20 : 15), "", { "text-anchor": "middle", class: "hpfc-value hpfc-flow-value" });
-    const label = svgText(node.cx, node.cy + R + 16, "", { "text-anchor": "middle", class: "hpfc-label" });
+    const label = svgText(node.isDevice ? node.cx + 12 : node.cx, node.isDevice ? node.cy - 17 : node.cy + node.radius + 16, "", { "text-anchor": "middle", class: "hpfc-label" });
     group.appendChild(value); group.appendChild(label); scene.root.appendChild(group);
     if (node.field.entity) attachAction(scene, group, { entity: node.field.entity, tap_action: node.field.tap_action, hold_action: node.field.hold_action, label: node.name || textsFor(scene.hass())[node.text] });
-    watchElectricNode(scene, group, node, { label, value, titleWidth: Math.min(140, box.w * 0.16), glyphY: node.cy - 14, socInLabel: false, socText, autoPower: true, fullLabel: true });
+    watchElectricNode(scene, group, node, { label, value, titleWidth: node.isDevice ? box.w * 0.17 - 42 : Math.min(140, box.w * 0.16), glyphY: node.cy - 14, socInLabel: false, socText, autoPower: true, fullLabel: true });
   }
-  scene.root.appendChild(svgText(box.x + box.w / 2, box.y + box.h - 5,
+  scene.root.appendChild(svgText(box.x + box.w / 2, box.y + box.h - 14,
     scene.hass().locale?.language?.startsWith("de") ? "Geschätzte Verteilung aus den Leistungsmesswerten" : "Estimated distribution from power readings",
     { "text-anchor": "middle", class: "hpfc-label" }));
 }
@@ -4379,6 +4398,12 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-flow-node.hpfc-feeding.hpfc-enode-grid .hpfc-flow-body { stroke: #818cf8; }
 .hpfc-flow-node.hpfc-feeding.hpfc-enode-battery .hpfc-flow-body { stroke: #22c55e; }
 .hpfc-hub-route.hpfc-stopped { opacity: 0; }
+.hpfc-electric-panel { fill: var(--hpfc-surface); stroke: var(--hpfc-stroke); stroke-width: 1; }
+.hpfc-electric-devices { fill: rgba(127, 127, 127, 0.06); }
+.hpfc-device-surface { fill: var(--card-background-color, #fff); stroke: var(--hpfc-stroke); stroke-width: 1; }
+.hpfc-flow-node.hpfc-hub-node.hpfc-idle { opacity: 0.8; }
+.hpfc-hub-device .hpfc-label { font-size: 10px; }
+.hpfc-hub-device .hpfc-value { font-size: 13px; }
 .hpfc-flow-node .hpfc-label { text-transform: none; letter-spacing: 0; font-size: 10.5px; }
 .hpfc-flow-value { font-size: 11px; }
 .hpfc-flow-soc { font-size: 8.5px; font-weight: 600; fill: var(--hpfc-muted); }
