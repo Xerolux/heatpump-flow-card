@@ -14,6 +14,8 @@ const heatpump = {
   flow_rate: "sensor.hp_flow_rate",
 };
 
+
+
 const buffer = {
   name: "Buffer tank",
   top: "sensor.buffer_top",
@@ -330,4 +332,17 @@ window.previewConfigs = {
     },
     circuits: [radiators, underfloor],
   },
+};
+
+window.previewConfigs["energy-hub"] = {
+  type: "custom:heatpump-flow-card", layout: "direct", title: "Energy hub · estimated distribution",
+  electrics_style: "hub",
+  heatpump: { ...heatpump, name: "Xtend Warmtepomp", power: "sensor.hub_hp", state_entity: "binary_sensor.hub_compressor", cop: null, compressor: null },
+  pv: {
+    power: "sensor.hub_pv", grid_power: "sensor.hub_grid",
+    battery_power: "sensor.hub_battery", battery: "sensor.battery_soc",
+    wallbox: "sensor.hub_wallbox", house: { entity: "sensor.hub_house", subtract: ["heatpump", "consumers"] },
+    flow_threshold: 25, consumers: [{ entity: "sensor.hub_airco", name: "Airco" }],
+  },
+  circuits: [underfloor],
 };

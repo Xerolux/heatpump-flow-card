@@ -247,8 +247,42 @@ circuits:
 **Is the circuit running?** `pump` → `valve` above 0 → `entity` → the heat pump
 state.
 
+Pumps and mixers have separate captions. On/off pump feedback uses consistent
+`On` / `Off` labels in circuits and hot water; speed and percentage values are
+preserved. iDM mixer drive outputs `Auf`, `Zu` and `Aus` display `Opening`,
+`Closing` and `Holding`, localized to the dashboard language. These are drive
+commands, not valve positions: `Holding` does not mean closed or circuit off.
+A circuit pump can run while its mixer holds. Missing feedback displays `–`.
+
 Seven circuits are supported, which covers controllers that address their
 circuits A to G. An eighth entry is ignored rather than drawn off canvas.
+
+## Electrical flow styles
+
+`electrics_style: tiles` keeps the classic strip. `flow` uses round nodes on a
+line; `hub` places PV above, grid left, battery below, and home with individual
+devices to the right. Both `flow` and `hub` auto-scale power to W below 1 kW and
+kW with one decimal above, retain complete two-line labels, and use fixed amber
+PV, indigo grid and green battery colours.
+
+```yaml
+electrics_style: hub
+pv:
+  flow_threshold: 25
+```
+
+The deadband is in watts and defaults to 25. Values at or below it do not animate;
+`0` disables the deadband. A node's own `threshold` overrides its node deadband.
+Flow segments require known, agreeing net measurements on both sides and carry
+the smaller magnitude, so a balance residual cannot flow into an idle end node.
+
+Hub routes are **estimates**, not measured source attribution. PV is allocated
+to measured loads first, then battery charging, then grid export; discharging
+battery and grid import cover remaining demand in that order. Each allocation
+is bounded by the available source and destination readings. Unmatched surplus,
+unmet demand and unknown readings do not invent routes. Use `house.subtract` only
+for loads already included in your house meter, as with the other styles.
+See [the complete hub example](../../examples/12-energy-hub.yaml).
 
 ## Long form for any value
 

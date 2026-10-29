@@ -13,7 +13,7 @@ const candidate = process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium";
 const browser = await chromium.launch(existsSync(candidate) ? { executablePath: candidate } : {});
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
 
-const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "advanced", "circuits", "extras", "electrics", "energy-flow"];
+const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "advanced", "circuits", "extras", "electrics", "energy-flow", "energy-hub"];
 // German words are the longer ones - "Zusatzheizung" against "Aux heat" - so a
 // label that fits in English can still collide in the translation.
 const languages = ["en", "de"];
@@ -40,6 +40,22 @@ for (const layout of layouts) {
       Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
       Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
     const found = [];
+
+    // Source routes must not cross the readable captions under the hub nodes.
+    const hubLabels = boxes.filter((box) => box.node.closest(".hpfc-hub-node") && box.node.classList.contains("hpfc-label"));
+    for (const route of root.querySelectorAll(".hpfc-hub-route:not(.hpfc-stopped) .hpfc-pipe")) {
+      const length = route.getTotalLength();
+      const matrix = route.getScreenCTM();
+      for (const box of hubLabels) {
+        for (let at = 0; at <= length; at += 2) {
+          const point = route.getPointAtLength(at).matrixTransform(matrix);
+          if (point.x >= box.rect.left - 1 && point.x <= box.rect.right + 1 && point.y >= box.rect.top - 1 && point.y <= box.rect.bottom + 1) {
+            found.push(`route through "${box.text}"`);
+            break;
+          }
+        }
+      }
+    }
 
     // label on label
     for (let i = 0; i < boxes.length; i++) {

@@ -136,7 +136,15 @@ circuits:
 | `flow_temp`, `return_temp` | Temperaturen und Rohrfarben |
 | `room_temp`, `target_temp`, `humidity` | Weitere Werte – vier Spalten werden gezeichnet |
 | `pump` | Umwälzpumpe, bestimmt auch, ob der Kreis durchströmt wird |
-| `valve` | Mischer, als Prozentwert unter dem Symbol |
+| `valve` | Mischer: Prozentwert oder Ansteuerung `Öffnet` / `Schließt` / `Hält` |
+
+Pumpe und Mischer sind getrennt beschriftet. Pumpen mit Ein/Aus-Signal zeigen
+einheitlich `Ein` / `Aus`; Drehzahl- und Prozentwerte bleiben erhalten.
+Beim iDM-Mischerausgang bedeutet `Auf` → `Öffnet`, `Zu` → `Schließt` und
+`Aus` → `Hält`: Der Antrieb verstellt den Mischer gerade nicht. Das ist keine
+Ventilpositionsrückmeldung und bedeutet nicht, dass der Heizkreis ausgeschaltet
+oder das Ventil geschlossen ist. Eine laufende Pumpe bei `Hält` ist möglich.
+Fehlende Rückmeldungen erscheinen als `–`.
 
 **Läuft der Kreis?** `pump` → `mode` auf „Aus“ parkt ihn → `valve` über 0 →
 `entity` → sonst folgt er der Wärmepumpe. Jeder Kreis beantwortet das für sich:
@@ -144,6 +152,35 @@ dass A läuft, sagt nichts über D.
 
 Sieben Kreise werden unterstützt (A–G). Ein achter Eintrag wird ignoriert,
 statt aus der Zeichnung zu laufen.
+
+## Stromfluss als Linie oder Hub
+
+`electrics_style: tiles` behält die Kacheln. `flow` zeigt runde Knoten auf einer
+Linie; `hub` ordnet PV oben, Netz links, Batterie unten sowie Haus und einzelne
+Verbraucher rechts an. Bei `flow` und `hub` wechseln Leistungswerte ab 1 kW zu
+kW mit einer Nachkommastelle. Vollständige Namen stehen in bis zu zwei Zeilen.
+PV bleibt gelb-orange, Netz indigo und Batterie grün.
+
+```yaml
+electrics_style: hub
+pv:
+  flow_threshold: 25
+```
+
+Die Totzone gilt in Watt und beträgt standardmäßig 25. Werte bis einschließlich
+dieser Grenze bewegen keine Punkte; `0` deaktiviert die Totzone. Das eigene
+`threshold` eines Knotens ersetzt dessen Totzone. Bei `flow` müssen beide Seiten
+eines Segments mit bekannten Messwerten dieselbe Richtung bestätigen. Es gilt
+der kleinere Betrag; Restleistungen fließen dadurch nicht in inaktive Endgeräte.
+
+Die Hub-Verbindungen sind **geschätzte Verteilungen**, keine gemessene Zuordnung
+von Quellen zu Verbrauchern. PV versorgt zuerst gemessene Verbraucher, dann die
+Batterieladung und zuletzt die Netzeinspeisung. Entladende Batterie und Netzbezug
+decken in dieser Reihenfolge verbleibenden Bedarf. Jede Verbindung bleibt auf
+die Messwerte von Quelle und Ziel begrenzt. Unbekannte Werte, ungedeckter Bedarf
+und übriger Überschuss erzeugen keine erfundenen Verbindungen. `house.subtract`
+darf nur Verbraucher abziehen, die der Hauszähler bereits enthält.
+Siehe [vollständiges Beispiel](../../examples/12-energy-hub.yaml).
 
 ## Langform für jeden Wert
 

@@ -34,6 +34,70 @@ after(async () => {
   await browser.close();
 });
 
+test("pump feedback stays independent of mixer drive commands with consistent localized labels", async () => {
+  for (const lang of ["de", "en"]) {
+    for (const mixer of ["Aus", "Auf", "Zu", "unavailable", "unknown", "64"]) {
+      const result = await page.evaluate(({ lang, mixer }) => {
+        const card = document.createElement("heatpump-flow-card");
+        card.setConfig({
+          type: "custom:heatpump-flow-card", layout: "dual",
+          heatpump: { state_entity: "binary_sensor.compressor", status: "sensor.hp_status" },
+          dhw: { temp: "sensor.dhw_temperature", pump: "binary_sensor.dhw_pump" },
+          circuits: [{ type: "underfloor", pump: "binary_sensor.circuit_a_pump", valve: "sensor.circuit_a_mixer" }],
+        });
+        document.body.appendChild(card);
+        const hass = window.makeHass(lang);
+        hass.states = { ...hass.states,
+          "sensor.hp_status": { state: "Heating", attributes: {} },
+          "binary_sensor.circuit_a_pump": { state: "on", attributes: {} },
+          "binary_sensor.dhw_pump": { state: "off", attributes: { device_class: "running" } },
+          "sensor.circuit_a_mixer": { state: mixer, attributes: mixer === "64" ? { unit_of_measurement: "%" } : {} },
+        };
+        // HA may localize running-class binary sensors as "Außer Betrieb".
+        const format = hass.formatEntityState;
+        hass.formatEntityState = (st) => st.state === "off" ? "Außer Betrieb" : format(st);
+        card.hass = hass;
+        const root = card.shadowRoot;
+        const read = () => ({
+          status: root.querySelector(".hpfc-heatpump .hpfc-chip text").textContent,
+          pump: root.querySelector(".hpfc-circuit .hpfc-component-state").textContent,
+          mixer: root.querySelector(".hpfc-valve .hpfc-component-state").textContent,
+          moving: root.querySelector(".hpfc-valve").classList.contains("hpfc-running"),
+          running: root.querySelector(".hpfc-circuit").classList.contains("hpfc-running"),
+          waves: root.querySelectorAll(".hpfc-emitter-underfloor .hpfc-heatwave").length,
+          waveAnimation: getComputedStyle(root.querySelector(".hpfc-emitter-underfloor .hpfc-heatwave")).animationName,
+          dhw: [...root.querySelectorAll(".hpfc-dhw .hpfc-readout .hpfc-value")].at(-1).textContent,
+        });
+        const initial = read();
+        for (const state of ["off", "unavailable", "unknown"]) {
+          hass.states = { ...hass.states, "binary_sensor.circuit_a_pump": { state, attributes: {} } };
+          card.hass = { ...hass };
+          initial[state] = read();
+        }
+        card.remove();
+        return initial;
+      }, { lang, mixer });
+      const labels = lang === "de" ? ["Hält", "Öffnet", "Schließt"] : ["Holding", "Opening", "Closing"];
+      assert.equal(result.pump, lang === "de" ? "Ein" : "On");
+      assert.equal(result.status, lang === "de" ? "Heizen" : "Heating");
+      assert.equal(result.dhw, lang === "de" ? "Aus" : "Off");
+      assert.equal(result.mixer.replace(/\s/g, ""), mixer === "64" ? "64%" : labels[["Aus", "Auf", "Zu"].indexOf(mixer)] || "–");
+      assert.equal(result.moving, ["Auf", "Zu", "64"].includes(mixer));
+      assert.equal(result.running, true);
+      assert.equal(result.waves, 3);
+      assert.equal(result.waveAnimation, "hpfc-rise");
+      assert.equal(result.off.pump, lang === "de" ? "Aus" : "Off");
+      assert.equal(result.off.running, false);
+      assert.equal(result.off.waveAnimation, "none");
+      for (const state of ["unavailable", "unknown"]) {
+        assert.equal(result[state].pump, "–");
+        assert.equal(result[state].running, false);
+        assert.equal(result[state].waveAnimation, "none");
+      }
+    }
+  }
+});
+
 test("renders every layout without errors", async () => {
   for (const layout of ["compact", "single", "dual", "full"]) {
     await page.goto(`${previewUrl}?layout=${layout}`);
@@ -1933,6 +1997,127 @@ test("the house reading can subtract loads it already contains", async () => {
     return house;
   });
   assert.equal(result, "-1,730 W", "410 W house less 2,140 W heat pump");
+});
+
+test("flow segments require agreeing measurements on both sides, including idle end nodes", async () => {
+  await page.goto(`${previewUrl}?layout=energy-hub`);
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({ ...window.previewConfigs["energy-hub"], electrics_style: "flow" });
+    document.body.appendChild(card);
+    let hass = window.makeHass("en");
+    const push = (updates) => {
+      const states = { ...hass.states };
+      for (const [key, state] of Object.entries(updates)) states[`sensor.hub_${key}`] = { state: String(state), attributes: { unit_of_measurement: "W" } };
+      hass = { ...hass, states }; card.hass = hass;
+      return [...card.shadowRoot.querySelectorAll(".hpfc-flow-seg")].map((n) => ({
+        stopped: n.classList.contains("hpfc-stopped"), reverse: n.querySelector(".hpfc-dots").classList.contains("hpfc-dots-reverse"),
+      }));
+    };
+    const noise = [11403, 11360, 11440].map((grid) => push({ grid }).at(-1));
+    const active = push({ grid: 11403, airco: 200 });
+    const missing = push({ airco: "unavailable" });
+    const sourceOnly = push({ pv: 100, grid: 100, battery: -100, house: 0, hp: 0, airco: 0, wallbox: 0 });
+    card.remove(); return { noise, active, missing, sourceOnly };
+  });
+  assert.ok(result.noise.every((segment) => segment.stopped && !segment.reverse));
+  assert.equal(result.active.at(-1).stopped, false);
+  assert.ok(result.missing.every((segment) => segment.stopped));
+  assert.ok(result.sourceOnly.every((segment) => segment.stopped));
+});
+
+test("power flow deadband is in watts, configurable, and respects disabled motion", async () => {
+  const results = await page.evaluate(() => {
+    return [undefined, 0, 100, -5, "invalid"].map((threshold) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({ type: "custom:heatpump-flow-card", layout: "direct", electrics_style: "flow", animation: false, circuits: [], pv: { power: "sensor.pv", house: "sensor.load", flow_threshold: threshold } });
+      document.body.appendChild(card);
+      const readings = [1, 25, 26, 100, 101].map((watts) => {
+        card.hass = { ...window.makeHass("en"), states: {
+          "sensor.pv": { state: String(watts / 1000), attributes: { unit_of_measurement: "kW" } },
+          "sensor.load": { state: String(watts), attributes: { unit_of_measurement: "W" } },
+        } };
+        const group = card.shadowRoot.querySelector(".hpfc-flow-seg");
+        return { active: !group.classList.contains("hpfc-stopped"), dots: group.querySelector(".hpfc-dots").style.display };
+      });
+      card.remove(); return readings;
+    });
+  });
+  assert.deepEqual(results.map((row) => row.map((r) => r.active)), [
+    [false, false, true, true, true], [true, true, true, true, true],
+    [false, false, false, false, true], [false, false, true, true, true], [false, false, true, true, true],
+  ]);
+  assert.ok(results.flat().every((r) => r.dots === "none"));
+});
+
+test("changing flow speed keeps the animation object and playback position", async () => {
+  await page.goto(`${previewUrl}?layout=energy-hub`);
+  const result = await page.evaluate(async () => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({ type: "custom:heatpump-flow-card", layout: "direct", electrics_style: "flow", pv: { power: "sensor.hub_pv", house: "sensor.hub_house" }, circuits: [] });
+    document.body.appendChild(card);
+    let hass = window.makeHass("en");
+    const push = (watts) => {
+      const states = { ...hass.states };
+      for (const key of ["pv", "house"]) states[`sensor.hub_${key}`] = { state: String(watts), attributes: { unit_of_measurement: "W" } };
+      hass = { ...hass, states }; card.hass = hass;
+    };
+    push(500);
+    const group = card.shadowRoot.querySelector(".hpfc-flow-seg");
+    const dots = group.querySelector(".hpfc-dots");
+    const animation = dots.getAnimations()[0];
+    await animation.ready; animation.pause(); await animation.ready; animation.currentTime = 2100;
+    const firstRate = animation.playbackRate;
+    push(501); await animation.ready;
+    const sameStep = { same: animation === dots.getAnimations()[0], time: animation.currentTime, rate: animation.playbackRate };
+    push(4000); await animation.ready;
+    const nextStep = { same: animation === dots.getAnimations()[0], time: animation.currentTime, rate: animation.playbackRate };
+    const cssDuration = group.style.getPropertyValue("--hpfc-dash");
+    const dashPeriod = getComputedStyle(dots).strokeDasharray.split(/[ ,]+/).reduce((sum, value) => sum + parseFloat(value), 0);
+    const cycleOffset = Math.abs(parseFloat(animation.effect.getKeyframes().at(-1).strokeDashoffset));
+    card.remove(); return { firstRate, sameStep, nextStep, cssDuration, dashPeriod, cycleOffset };
+  });
+  assert.equal(result.sameStep.same, true);
+  assert.equal(result.nextStep.same, true);
+  assert.equal(result.sameStep.time, 2100);
+  assert.equal(result.nextStep.time, 2100);
+  assert.equal(result.sameStep.rate, result.firstRate);
+  assert.ok(result.nextStep.rate > result.firstRate);
+  assert.equal(result.cssDuration, "4s");
+  assert.equal(result.cycleOffset % result.dashPeriod, 0, "the dash pattern also loops without jumping");
+});
+
+test("hub routes stay bounded by meters, keep source colours, scale watts and preserve full names", async () => {
+  await page.goto(`${previewUrl}?layout=energy-hub`);
+  const result = await page.evaluate(() => {
+    const card = document.getElementById("card-energy-hub");
+    const root = card.shadowRoot;
+    const read = () => [...root.querySelectorAll(".hpfc-hub-route")].filter((n) => !n.classList.contains("hpfc-stopped")).map((n) => ({ part: n.dataset.part, watts: Number(n.dataset.watts) }));
+    const initial = read();
+    const colour = (key) => getComputedStyle(root.querySelector(`.hpfc-enode-${key} .hpfc-value`)).fill;
+    const colours = [colour("pv"), colour("grid"), colour("battery")];
+    const names = [...root.querySelectorAll(".hpfc-hub-node .hpfc-label")].map((n) => [...n.querySelectorAll("tspan")].map((s) => s.textContent).join(" "));
+    const values = [...root.querySelectorAll(".hpfc-hub-node .hpfc-value")].map((n) => n.textContent);
+    const editor = document.createElement("heatpump-flow-card-editor");
+    editor.setConfig(window.previewConfigs["energy-hub"]);
+    const roundtrip = editor._toConfig(editor._toData(window.previewConfigs["energy-hub"]));
+    card.hass = { ...card.hass, states: { ...card.hass.states, "sensor.hub_grid": { state: "-4000", attributes: { unit_of_measurement: "W" } }, "sensor.hub_pv": { state: "6000", attributes: { unit_of_measurement: "W" } }, "sensor.hub_battery": { state: "-1000", attributes: { unit_of_measurement: "W" } }, "sensor.hub_wallbox": { state: "0", attributes: { unit_of_measurement: "W" } } } };
+    const exported = read();
+    return { initial, exported, colours, names, values, style: roundtrip.electrics_style, threshold: roundtrip.pv.flow_threshold, subtract: roundtrip.pv.house.subtract };
+  });
+  assert.ok(result.initial.length > 0);
+  assert.ok(result.initial.every((route) => !route.part.endsWith("consumer-0") && !route.part.endsWith("heatpump")));
+  assert.ok(result.initial.filter((r) => r.part.startsWith("power-route-grid-")).reduce((sum, r) => sum + r.watts, 0) <= 11403);
+  assert.ok(result.initial.filter((r) => r.part.endsWith("-wallbox")).reduce((sum, r) => sum + r.watts, 0) <= 10893);
+  assert.ok(result.exported.some((r) => r.part === "power-route-pv-grid"));
+  assert.ok(result.exported.every((r) => !r.part.startsWith("power-route-grid-")));
+  assert.deepEqual(result.colours, ["rgb(245, 158, 11)", "rgb(129, 140, 248)", "rgb(34, 197, 94)"]);
+  assert.ok(result.names.includes("Xtend Warmtepomp"));
+  assert.ok(result.values.includes("11.4 kW"));
+  assert.ok(result.values.includes("10 W"));
+  assert.equal(result.style, "hub");
+  assert.equal(result.threshold, 25);
+  assert.deepEqual(result.subtract, ["heatpump", "consumers"]);
 });
 
 test("a taken element name gets a fallback instead of a broken card", async () => {

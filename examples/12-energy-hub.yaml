@@ -1,0 +1,29 @@
+type: custom:heatpump-flow-card
+layout: direct
+electrics_style: hub
+heatpump:
+  name: Xtend Warmtepomp
+  power: sensor.heat_pump_power
+  flow_temp: sensor.heat_pump_flow_temperature
+  return_temp: sensor.heat_pump_return_temperature
+pv:
+  power: sensor.pv_power
+  grid_power: sensor.grid_power
+  battery_power:
+    entity: sensor.battery_power
+    # Positive = charging. Use invert: true if your meter reports the reverse.
+  battery: sensor.battery_soc
+  wallbox: sensor.wallbox_power
+  house:
+    entity: sensor.house_power
+    # Include only loads that this sensor actually contains.
+    subtract: [heatpump, consumers]
+  flow_threshold: 25
+  consumers:
+    - entity: sensor.airco_current_power_total
+      name: Airco
+circuits:
+  - name: Underfloor heating
+    type: underfloor
+    pump: binary_sensor.heating_circuit_pump
+    flow_temp: sensor.heating_circuit_flow_temperature

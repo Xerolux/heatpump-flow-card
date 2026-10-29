@@ -319,7 +319,7 @@ Designgröße würde die Zeichnung nur größer, nicht lesbarer – auf einem 4K
 | `temperature_colors` | boolean | `true` | `false` = Vorlauf rot, Rücklauf blau |
 | `controls` | boolean | `true` | `false` = jeder Klick öffnet nur more-info |
 | `zoom` | boolean | `true` | Die Lupe, die die Karte bildschirmfüllend öffnet |
-| `electrics_style` | string | `tiles` | `flow` zeichnet den Strombus als runde Knoten auf einer dünnen Linie |
+| `electrics_style` | string | `tiles` | `tiles`, `flow` (runde Knoten auf einer Linie) oder `hub` (Verbindungen zwischen Quellen und Geräten) |
 | `heatpump` | object | `{}` | siehe unten |
 | `buffer` | object \| `false` | sichtbar | Pufferspeicher |
 | `dhw` | object \| `false` | nur `full` | Warmwasser |
@@ -431,10 +431,20 @@ Bis zu vier Verbraucher; jeder animiert nur, während er Leistung zieht.
 
 **Der Look der Schiene** folgt `electrics_style` auf der Karte. `tiles`
 (Standard) zeichnet rechteckige Kacheln unter einer kräftigen Energielinie;
-`flow` zeichnet runde Knoten auf einer dünnen, durchgehenden Linie — wie die
-Tesla-App oder power-flow-card-plus: einspeisende Knoten in ihrer eigenen
-Farbe, Punkte, deren Tempo der Leistung folgt, und Leitungsstücke, die nur
-Strom führen, wenn die Bilanz der Anlage wirklich durch sie fließt.
+`flow` zeichnet runde Knoten auf einer dünnen, durchgehenden Linie. `hub` ordnet
+PV oben, Netz links, Batterie unten sowie Haus und einzelne Geräte rechts an.
+Gebogene Verbindungen tragen die Farbe ihrer Quelle. Beide Stile zeigen ganze
+Namen und skalieren Leistungswerte in W/kW.
+
+`pv.flow_threshold` stellt die Totzone in Watt ein (Standard 25). Flow-Segmente
+benötigen übereinstimmende Messwerte auf beiden Seiten; Messrauschen versorgt
+dadurch kein inaktives Endgerät. Die Hub-Verteilung ist als **Schätzung aus den
+Netto-Messwerten** gekennzeichnet. PV, entladende Batterie und Netzbezug decken
+in dieser Reihenfolge den gemessenen Bedarf, begrenzt auf die Messwerte beider
+Enden. Siehe [Hub-Beispiel](examples/12-energy-hub.yaml) und
+[Konfigurationsdetails](docs/wiki/Configuration-de.md#stromfluss-als-linie-oder-hub).
+
+![Optionaler Energie-Hub mit Demowerten](docs/images/energy-hub.png)
 
 ### `wood_stove`
 

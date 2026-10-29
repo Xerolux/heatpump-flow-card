@@ -21,6 +21,50 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.11.0-beta.1] - 2026-10-29
+
+This is a prerelease for testing the electrical-flow fixes and the optional hub
+style. Existing dashboards retain their selected style; `hub` is opt-in.
+
+### Fixed
+
+- Electrical flow dots keep their playback position when meter readings change.
+  Speed changes use a few power bands and the Web Animations playback-rate API;
+  their CSS duration remains fixed, including when crossing a power band.
+- Flow segments require agreeing supply/demand on both sides and use the smaller
+  magnitude. Idle end devices no longer receive balancing residuals, and missing
+  meters cannot manufacture a flow. `pv.flow_threshold` sets the deadband in watts
+  (default 25 W, also available in the editor).
+- Flow-style source rings and values retain amber PV, indigo grid and green
+  battery colours. Power values scale to W/kW and labels use two complete lines.
+
+- Underfloor emitters now show rising heat waves while their circuit runs,
+  matching the radiator animation and stopping with the circuit pump signal.
+- Label circuit pumps and mixers separately. iDM mixer outputs `Auf`, `Zu`
+  and `Aus` now read `Opening`, `Closing` and `Holding` (localized), describing
+  drive commands rather than claiming a valve position or a stopped circuit.
+  Both opening and closing commands highlight the mixer. Pump on/off feedback
+  uses the same short labels in heating circuits and hot water; missing signals
+  remain unknown and speed/percentage readings retain their values.
+- Localize capitalized technical status tokens such as `Heating` as well as
+  lowercase tokens, so a German dashboard consistently reads `Heizen`.
+
+### Added
+
+- `electrics_style: hub`: PV above, grid left, battery below, and home plus
+  individual devices to the right. Curved, source-coloured connections show
+  estimated source-to-destination routes with independent dot speeds. Net meters
+  do not measure source attribution: the drawing explicitly labels this estimate.
+  Existing `flow` and `tiles` styles remain selectable.
+- The hub groups device readings in a compact panel rather than scattering
+  idle circles across the drawing. Complete two-line names remain readable.
+
+### Maintenance
+
+- Resolve stale merge-conflict markers in the npm lockfile and keep lockfile,
+  package and card versions aligned. Prerelease tags publish as prereleases
+  without replacing the latest stable release.
+
 ## [1.10.0] - 2026-10-29
 
 ### Added
@@ -546,7 +590,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.0-beta.1...HEAD
+[1.11.0-beta.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.10.0...v1.11.0-beta.1
 [1.10.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.3...v1.10.0
 [1.8.3]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.2...v1.8.3
 [1.8.2]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.1...v1.8.2
