@@ -920,6 +920,8 @@ test("the editor offers the refrigerant circuit switch only once a sensor is set
     ref_discharge_temp: "sensor.hp_ref_discharge",
     ref_circuit: false,
   });
+});
+
 test("a wood stove plumbs into the buffer alongside the heat pump", async () => {
   await page.goto(`${previewUrl}?layout=wood-stove`);
   const state = await page.evaluate(() => {
@@ -1551,16 +1553,20 @@ test("a long label gives way to the value beside it", async () => {
 });
 
 test("a circuit follows hvac_action, not the mode it was set to", async () => {
-  const running = await page.evaluate((action) => {
-    window.demoStates["climate.idle_circuit"] = {
-      entity_id: "climate.idle_circuit",
-      state: "heat",
-      attributes: {
-        friendly_name: "Idle circuit",
-        hvac_modes: ["off", "heat"],
-        hvac_action: action,
-      },
-    };
+  const setState = (action) =>
+    page.evaluate((value) => {
+      window.demoStates["climate.idle_circuit"] = {
+        entity_id: "climate.idle_circuit",
+        state: "heat",
+        attributes: {
+          friendly_name: "Idle circuit",
+          hvac_modes: ["off", "heat"],
+          hvac_action: value,
+        },
+      };
+    }, action);
+  await setState("idle");
+  const running = await page.evaluate(() => {
     const card = document.createElement("heatpump-flow-card");
     card.setConfig({
       type: "custom:heatpump-flow-card",
@@ -1570,13 +1576,13 @@ test("a circuit follows hvac_action, not the mode it was set to", async () => {
     });
     document.body.appendChild(card);
     card.hass = window.makeHass("en");
-    const circuit = card.shadowRoot.querySelector(".hpfc-circuit");
-    const state = circuit.classList.contains("hpfc-running");
+    const state = card.shadowRoot.querySelector(".hpfc-circuit").classList.contains("hpfc-running");
     card.remove();
     return state;
-  }, "idle");
+  });
   assert.equal(running, false, "a climate reporting idle must not draw as running");
 
+  await setState("heating");
   const heating = await page.evaluate(() => {
     const card = document.createElement("heatpump-flow-card");
     card.setConfig({
@@ -1598,9 +1604,15 @@ test("a circuit follows hvac_action, not the mode it was set to", async () => {
 
 test("the card calculates a COP from heat output over electrical power", async () => {
   const result = await page.evaluate(() => {
-    window.demoStates["sensor.hp_thermal"] = {
-      entity_id: "sensor.hp_thermal",
+    // dedicated entities: this page is shared, so nothing else may interfere
+    window.demoStates["sensor.cop_probe_thermal"] = {
+      entity_id: "sensor.cop_probe_thermal",
       state: "8560",
+      attributes: { unit_of_measurement: "W", device_class: "power" },
+    };
+    window.demoStates["sensor.cop_probe_power"] = {
+      entity_id: "sensor.cop_probe_power",
+      state: "2140",
       attributes: { unit_of_measurement: "W", device_class: "power" },
     };
     const card = document.createElement("heatpump-flow-card");
@@ -1609,8 +1621,12 @@ test("the card calculates a COP from heat output over electrical power", async (
       layout: "single",
       heatpump: {
         entity: "switch.heat_pump",
-        power: "sensor.hp_power",
-        cop: { calculate: true, thermal_power: "sensor.hp_thermal", power: "sensor.hp_power" },
+        power: "sensor.cop_probe_power",
+        cop: {
+          calculate: true,
+          thermal_power: "sensor.cop_probe_thermal",
+          power: "sensor.cop_probe_power",
+        },
       },
     });
     document.body.appendChild(card);
@@ -1618,8 +1634,8 @@ test("the card calculates a COP from heat output over electrical power", async (
     const readouts = [...card.shadowRoot.querySelectorAll(".hpfc-heatpump .hpfc-readout")];
     const value = readouts[1].querySelector(".hpfc-value").textContent;
     // 8.56 kW of heat over a W meter must come out the same
-    window.demoStates["sensor.hp_thermal"] = {
-      entity_id: "sensor.hp_thermal",
+    window.demoStates["sensor.cop_probe_thermal"] = {
+      entity_id: "sensor.cop_probe_thermal",
       state: "8.56",
       attributes: { unit_of_measurement: "kW", device_class: "power" },
     };
@@ -1666,7 +1682,7 @@ test("a push that changes nothing the card reads skips the redraw", async () => 
     return { before, afterIdle, afterChange };
   });
   assert.equal(result.afterIdle, result.before);
-  assert.equal(result.afterChange, "3120 W");
+  assert.equal(result.afterChange, "3,120 W");
 });
 
 test("circuits accepts a count", async () => {
@@ -1736,7 +1752,7 @@ test("an electrical node that feeds the bus reads in the success colour", async 
       const node = card.shadowRoot.querySelector(`.hpfc-enode-${key}`);
       return {
         feeding: node.classList.contains("hpfc-feeding"),
-        colour: node.querySelector(".hpfc-value").style.fill,
+        colour: getComputedStyle(node.querySelector(".hpfc-value")).fill,
       };
     };
     const state = { pv: read("pv"), grid: read("grid") };
@@ -1746,11 +1762,12 @@ test("an electrical node that feeds the bus reads in the success colour", async 
   // the demo produces 3480 W and exports 740 W: the PV feeds the bus, the
   // exporting meter draws from it
   assert.equal(result.pv.feeding, true);
-  assert.match(result.pv.colour, /rgb|var\(/);
+  assert.match(result.pv.colour, /rgb\(67, 160, 71\)/, "the value reads in the success colour");
   assert.equal(result.grid.feeding, false);
 });
 
 test("the enlarged view is announced as a dialog", async () => {
+  await page.goto(`${previewUrl}?layout=dual`);
   const result = await page.evaluate(() => {
     const card = document.getElementById("card-dual");
     card.openZoom();

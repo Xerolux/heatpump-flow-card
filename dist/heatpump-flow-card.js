@@ -1595,6 +1595,7 @@ function drawHeatPump(scene, box, cfg) {
     drawReadout(scene, group, box.x + 108, startY + index * 38, row.label, row.field, {
       colorize: row.colorize,
       strong: index === 0,
+      compute: row.compute,
     });
   });
 
@@ -3056,6 +3057,7 @@ function collectWatchedEntities(config) {
     config.solar,
     config.buffer,
     config.dhw,
+    config.wood_stove,
     ...config.circuits,
   ];
   for (const section of sections) {
