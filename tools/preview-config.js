@@ -47,6 +47,21 @@ const underfloor = {
 };
 
 window.previewConfigs = {
+  "wood-stove": {
+    type: "custom:heatpump-flow-card",
+    layout: "dual",
+    title: "A wood stove alongside the heat pump",
+    heatpump: { ...heatpump, name: "Vaillant Arotherm" },
+    wood_stove: {
+      name: "Wood stove",
+      entity: "binary_sensor.wood_stove",
+      state_entity: "binary_sensor.wood_stove",
+      flow_temp: "sensor.wood_stove_flow_temperature",
+      return_temp: "sensor.wood_stove_return_temperature",
+    },
+    buffer,
+    circuits: [radiators, underfloor],
+  },
   extras: {
     type: "custom:heatpump-flow-card",
     layout: "dhw-dual",

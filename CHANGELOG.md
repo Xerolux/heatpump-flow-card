@@ -51,6 +51,14 @@ changes shipped with the next tagged release.
 - **Producing and consuming can be told apart at a glance.** An electrical
   node that is feeding the bus — the photovoltaics, a discharging battery, an
   exporting meter — now shows its value in the success colour.
+- **A `wood_stove` section.** A second, hand-fed heat source (wood stove,
+  pellet boiler, anything without a compressor) that plumbs into the buffer
+  tank alongside the heat pump, on its own pair of pipes. Deliberately minimal
+  — `name`, `entity`, `state_entity`, `status`, `flow_temp`, `return_temp` —
+  no power/COP/mode chip, since none of that exists for something you load
+  with logs. Opt-in via `wood_stove: {...}` in YAML, or the "Show wood stove"
+  toggle in the visual editor; absent by default, so every existing
+  configuration and layout preset is unaffected.
 
 ### Fixed
 
