@@ -21,6 +21,17 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-11-09
+
+### Fixed
+
+- **The tank element keeps clear of a lone temperature pill.** A tank with a
+  single configured layer draws its pill in the middle — exactly where the
+  element's rod used to run, crossing the boiler temperature. With one layer
+  the element now sits lower in the tank (still above a solar coil when one is
+  drawn), verified by an overlap test and covered by the overlap check's
+  one-layer demo layout.
+
 ## [1.11.0] - 2026-11-09
 
 Everything from the 1.11.0-beta.1 prerelease plus the domestic hot water flow
@@ -654,7 +665,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.1...HEAD
+[1.11.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.10.0...v1.11.0
 [1.11.0-beta.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.10.0...v1.11.0-beta.1
 [1.10.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.8.3...v1.10.0

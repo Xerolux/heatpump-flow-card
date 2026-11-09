@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.11.0";
+const CARD_VERSION = "1.11.1";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -1944,7 +1944,11 @@ function drawTank(scene, box, cfg, options) {
   // Any of its fields is enough to draw it: a plant whose only feedback is the
   // element's power meter still gets the rod, glowing above its own threshold.
   if (opts.heater || opts.heaterPower || opts.heaterTemp || opts.heaterMode) {
-    const heaterY = tank.y + tank.h * 0.55;
+    // With a single layer the tank's pill sits in the middle - exactly where
+    // the rod would run, crossing the reading. Drop the element below it
+    // (still clear of a solar coil, which occupies the bottom of the tank).
+    const pilled = (opts.layers || []).filter((layer) => layer && layer.pill !== false).length;
+    const heaterY = tank.y + tank.h * (pilled === 1 ? (opts.coil ? 0.62 : 0.72) : 0.55);
     const heater = svgEl("g", { class: "hpfc-heater" });
     const coilStart = tank.x + tank.w * 0.42;
     const step = (tank.w * 0.58 - 12) / 5;

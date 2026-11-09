@@ -1166,6 +1166,54 @@ test("an element with only a power meter is drawn and glows above its threshold"
   assert.deepEqual(result.at09kW, { drawn: true, running: true, value: "0.9 kW" });
 });
 
+test("an element in a one-layer tank keeps clear of the lone temperature pill", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "single",
+      heatpump: {},
+      buffer: {
+        top: "sensor.buffer_top", // a single layer: its pill sits mid-tank
+        heater_power: "sensor.ac_thor_power",
+      },
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    card.hass = {
+      ...hass,
+      states: {
+        ...hass.states,
+        "sensor.ac_thor_power": { state: "1800", attributes: { unit_of_measurement: "W" } },
+      },
+    };
+    const root = card.shadowRoot;
+    const rects = (sel) =>
+      [...root.querySelectorAll(sel)].map((el) => el.getBoundingClientRect());
+    const overlap = (a, b) =>
+      a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const pills = rects(".hpfc-tank-pill rect");
+    const parts = [...rects(".hpfc-heater-rod"), ...rects(".hpfc-heater-name"), ...rects(".hpfc-heater-value")];
+    const tank = root.querySelector(".hpfc-tank-outline").getBoundingClientRect();
+    const inside = parts.every((r) => r.bottom <= tank.bottom + 1 && r.top >= tank.top - 1);
+    card.remove();
+    return {
+      pills: pills.length,
+      elementParts: parts.length,
+      collisions: parts.reduce(
+        (n, part) => n + pills.filter((pill) => overlap(part, pill)).length,
+        0
+      ),
+      insideTank: inside,
+      running: root.querySelector(".hpfc-heater")?.classList.contains("hpfc-on"),
+    };
+  });
+  assert.equal(result.pills, 1, "a single configured layer draws one pill");
+  assert.ok(result.elementParts >= 2, "the element is drawn");
+  assert.equal(result.collisions, 0, "the element crosses the temperature pill");
+  assert.equal(result.insideTank, true, "the element stays inside the tank");
+});
+
 test("the hot water litres appear as a badge and run the tank while water is drawn", async () => {
   const result = await page.evaluate(() => {
     const card = document.createElement("heatpump-flow-card");

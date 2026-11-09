@@ -199,7 +199,15 @@ window.previewConfigs = {
     type: "custom:heatpump-flow-card",
     layout: "single",
     heatpump,
-    buffer,
+    // one layer and an element, like a plant that only meters the buffer top
+    // and the AC-Thor in it - the element sits below the lone pill
+    buffer: {
+      name: "Buffer tank",
+      top: "sensor.buffer_top",
+      heater: { entity: "sensor.tank_heater_power", name: "AC-Thor", threshold: 20 },
+      heater_power: "sensor.tank_heater_power",
+      heater_temp: "sensor.tank_heater_temperature",
+    },
     circuits: [underfloor],
   },
   dual: {
