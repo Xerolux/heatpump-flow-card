@@ -961,8 +961,11 @@ function drawReadout(scene, group, x, y, label, field, options) {
 function drawBadge(scene, x, y, field, options) {
   const opts = options || {};
   const group = svgEl("g", { class: "hpfc-badge" });
-  const rect = svgEl("rect", { x: x - 27, y: y - 11, width: 54, height: 22, rx: 11 });
-  const text = svgText(x, y + 4, "–", { "text-anchor": "middle" });
+  // The pill centres on x - unless `rightEdge` is set, in which case it grows
+  // to the left, so a long value never runs into what stands beside it.
+  const center = (width) => (opts.rightEdge !== undefined ? opts.rightEdge - width / 2 : x);
+  const rect = svgEl("rect", { x: center(54) - 27, y: y - 11, width: 54, height: 22, rx: 11 });
+  const text = svgText(center(54), y + 4, "–", { "text-anchor": "middle" });
   group.appendChild(rect);
   group.appendChild(text);
   scene.root.appendChild(group);
@@ -981,8 +984,10 @@ function drawBadge(scene, x, y, field, options) {
     const value = displayValue(hass, field);
     text.textContent = value;
     const width = Math.max(46, value.length * 6.6 + 16);
-    rect.setAttribute("x", String(x - width / 2));
+    const cx = center(width);
+    rect.setAttribute("x", String(cx - width / 2));
     rect.setAttribute("width", String(width));
+    text.setAttribute("x", String(cx));
     const num = numberValue(hass, field);
     const colored =
       scene.config.temperature_colors !== false && isTemperatureUnit(unitOf(hass, field));
@@ -1935,8 +1940,10 @@ function drawTank(scene, box, cfg, options) {
     group.appendChild(svgEl("polyline", { points: points.join(" "), class: "hpfc-coil" }));
   }
 
-  // Electric element in the tank - an AC-Thor, a booster, a backup heater
-  if (opts.heater) {
+  // Electric element in the tank - an AC-Thor, a booster, a backup heater.
+  // Any of its fields is enough to draw it: a plant whose only feedback is the
+  // element's power meter still gets the rod, glowing above its own threshold.
+  if (opts.heater || opts.heaterPower || opts.heaterTemp || opts.heaterMode) {
     const heaterY = tank.y + tank.h * 0.55;
     const heater = svgEl("g", { class: "hpfc-heater" });
     const coilStart = tank.x + tank.w * 0.42;
@@ -1966,19 +1973,31 @@ function drawTank(scene, box, cfg, options) {
     group.appendChild(heater);
 
     // Tapping it operates the mode when there is one - off, auto, boost -
-    // and the element itself otherwise.
-    const control = opts.heaterMode || opts.heater;
-    attachAction(scene, heater, {
-      entity: control.entity,
-      tap_action: control.tap_action,
-      hold_action: control.hold_action,
-      label: opts.heaterLabel,
-    });
+    // the element itself, or at least the power meter that reports it.
+    const control =
+      opts.heaterMode || opts.heater || (opts.heaterPower ? { entity: opts.heaterPower.entity } : null);
+    if (control && control.entity) {
+      attachAction(scene, heater, {
+        entity: control.entity,
+        tap_action: control.tap_action,
+        hold_action: control.hold_action,
+        label: opts.heaterLabel,
+      });
+    }
 
+    // The glow threshold is read in watts, so a kW meter glows as well.
+    const glowThreshold =
+      (opts.heaterPower && opts.heaterPower.threshold !== undefined
+        ? opts.heaterPower.threshold
+        : opts.heater && opts.heater.threshold !== undefined
+          ? opts.heater.threshold
+          : 0);
     scene.add(() => {
       const hass = scene.hass();
-      const power = numberValue(hass, opts.heaterPower);
-      const running = isActive(hass, opts.heater) || (power !== null && power > 0);
+      const watts = powerWatts(hass, opts.heaterPower);
+      const running =
+        (opts.heater && opts.heater.entity ? isActive(hass, opts.heater) : false) ||
+        (watts !== null && watts > glowThreshold);
       heater.classList.toggle("hpfc-on", running);
 
       const parts = [];
@@ -3169,6 +3188,14 @@ function drawDhw(scene, box, cfg) {
   const running = (hass) => {
     // A mode that says off parks the tank, whatever anything else reports.
     if (modeSaysOff(hass, cfg.mode)) return false;
+    // Litres leaving the fresh-water station: someone is drawing water, so the
+    // station is loading - whatever its circulation pump reports at the moment.
+    if (cfg.flow_rate && cfg.flow_rate.entity) {
+      const drawn = numberValue(hass, cfg.flow_rate);
+      if (drawn !== null && drawn > (cfg.flow_rate.threshold !== undefined ? cfg.flow_rate.threshold : 0.5)) {
+        return true;
+      }
+    }
     if (cfg.pump && cfg.pump.entity) return isActive(hass, cfg.pump);
     if (cfg.charge && cfg.charge.entity) {
       const value = numberValue(hass, cfg.charge);
@@ -3330,6 +3357,7 @@ const SECTION_FIELDS = {
     "target_temp",
     "charge",
     "pump",
+    "flow_rate",
     "mode",
     "boost",
     "heater",
@@ -4021,6 +4049,22 @@ function buildScene(card) {
       to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
       active: item.running,
     });
+    // Litres through the fresh-water station while someone draws water - the
+    // hot-water counterpart of the heat pump's flow-rate badge, pulsing while
+    // the tap is open. Anchored on the panel's edge, growing to the left.
+    if (item.kind === "dhw" && item.cfg.flow_rate && item.cfg.flow_rate.entity) {
+      const flowBadge = drawBadge(scene, rightX - 46, item.inletY + 17, item.cfg.flow_rate, {
+        label: textsFor(scene.hass()).flow_rate,
+        rightEdge: rightX - 8,
+      });
+      flowBadge.setAttribute("data-part", "dhw-flow");
+      const deadband =
+        item.cfg.flow_rate.threshold !== undefined ? item.cfg.flow_rate.threshold : 0.5;
+      scene.add(() => {
+        const value = numberValue(scene.hass(), item.cfg.flow_rate);
+        flowBadge.classList.toggle("hpfc-flowing", value !== null && value > deadband);
+      });
+    }
   });
 
   // solar thermal circuit
@@ -4365,6 +4409,8 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-badge text { font-size: 11px; font-weight: 700; fill: #ffffff; }
 .hpfc-badge-plain rect { fill: rgba(127, 127, 127, 0.22); }
 .hpfc-badge-plain text { fill: var(--hpfc-text); }
+/* Water is being drawn: the flow badge breathes while the tap is open. */
+.hpfc-badge.hpfc-flowing rect { animation: hpfc-glow 1.6s ease-in-out infinite; }
 
 /* tanks ----------------------------------------------------------------- */
 .hpfc-tank-fill { transition: fill 1s ease; }
@@ -4457,7 +4503,7 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-valve.hpfc-running .hpfc-valve-body { fill: var(--info-color, #39b0e5); }
 
 @media (prefers-reduced-motion: reduce) {
-  .hpfc-spin, .hpfc-dots, .hpfc-heatwave, .hpfc-sun { animation: none !important; }
+  .hpfc-spin, .hpfc-dots, .hpfc-heatwave, .hpfc-sun, .hpfc-flowing rect { animation: none !important; }
 }
 `;
 
@@ -5132,6 +5178,7 @@ const EDITOR_SECTIONS = {
     "mode",
     "boost",
     "pump",
+    "flow_rate",
     "charge",
     "heater",
     "heater_power",

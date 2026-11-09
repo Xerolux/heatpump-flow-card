@@ -56,6 +56,7 @@ sections:
           temp: sensor.alm6_15_trinkwassererwarmer_oben
           target_temp: number.alm6_15_warmwasser_sollwert
           pump: binary_sensor.alm6_15_warmwasser_zirkulationspumpe_web
+          flow_rate: sensor.alm6_15_warmwasserstation_durchfluss_web
           boost: button.alm6_15_warmwasser_boost_starten
         pv:
           name: SolarEdge

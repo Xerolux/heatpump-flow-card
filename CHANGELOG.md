@@ -21,6 +21,32 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+### Added
+
+- **`dhw.flow_rate`: the litres are on the drawing.** A fresh-water station
+  that reports its flow — `sensor.alm6_15_warmwasserstation_durchfluss_web`
+  on an IDM Navigator — gets a badge under the tank's inlet, next to the flow
+  temperature's own badge on the heat pump. It pulses while someone draws
+  water, and above 0.5 l/min (or the field's `threshold`) the tank counts as
+  running: drawing water is exactly when the station loads, so its pipes
+  animate even while the circulation pump rests. Also in the visual editor.
+- The IDM examples wire the DHW flow meter: the live-verified
+  `07-idm-solaredge-paradigma.yaml` and `09-dashboard-idm.yaml` with the real
+  `warmwasserstation_durchfluss_web` sensor, `06-idm-heatpump.yaml` with the
+  integration's `hotwater_station_flow_web` slug — and the IDM example now
+  carries the AC-Thor block as well, so the element is on the drawing for
+  plants that follow it.
+
+### Fixed
+
+- **The electric element draws even without an on/off entity.** The rod inside
+  the tank appeared only when `heater` was set; a plant whose only feedback is
+  the AC-Thor's power meter set `heater_power` and got nothing. Any of
+  `heater`, `heater_power`, `heater_temp`, `heater_mode` now draws it, the
+  glow follows the watts (normalized, so a kW meter counts), and
+  `heater_power.threshold` sets the deadband in watts. Tapping the element
+  without a mode or switch opens the power meter's more-info dialog.
+
 ## [1.11.0-beta.1] - 2026-10-29
 
 This is a prerelease for testing the electrical-flow fixes and the optional hub

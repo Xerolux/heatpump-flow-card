@@ -219,11 +219,14 @@ afterwards:
   `compressor` when it is set, otherwise by the state of the heat pump. Set any
   one of them to show it, leave out the ones you do not have, or switch it off
   again with `ref_circuit: false`.
-* **An electric element in the tank.** `heater` and `heater_power` on `buffer`
-  or `dhw` draw a heating element inside the tank — a my-PV AC-Thor, a booster,
-  a backup heater — glowing while it draws power, captioned with its name, its
-  power and, with `heater_temp`, its own temperature. Give it a `heater_mode`
-  and one tap offers off / automatic / boost.
+* **An electric element in the tank.** An electric element on `buffer` or
+  `dhw` — a my-PV AC-Thor, a booster, a backup heater — is drawn when *any* of
+  `heater`, `heater_power`, `heater_temp`, `heater_mode` is set: a plant whose
+  only feedback is the element's power meter sets `heater_power` alone. It
+  glows while it draws power (above `heater_power.threshold` watts) and is
+  captioned with its name, its power and, with `heater_temp`, its own
+  temperature. Give it a `heater_mode` and one tap offers off / automatic /
+  boost.
 
 ```yaml
 heatpump:
@@ -347,8 +350,12 @@ circuits.
 
 ### `dhw`
 
-`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`, `mode`, `boost`, `heater`,
-`heater_power`
+`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`, `flow_rate`, `mode`,
+`boost`, `heater`, `heater_power`
+
+`flow_rate` is the fresh-water station's litres per minute — a badge under the
+tank's inlet that pulses while someone draws water, and above 0.5 l/min (or
+`threshold`) the tank counts as running.
 
 ### `pv` / `solar`
 
