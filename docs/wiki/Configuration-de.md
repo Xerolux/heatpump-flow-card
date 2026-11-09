@@ -86,6 +86,9 @@ fließen.
 | `entity` | Klick auf den Speicher bedient diese Entität |
 | `top`, `middle`, `bottom` | Schichttemperaturen – füllen den Speicher mit Verlauf und erscheinen als Pillen |
 | `charge` | Ladezustand, unter dem Namen |
+
+Wird der Speicher geladen, steigt ein dezentes Schimmern in ihm auf – der
+Speicher erzählt dasselbe wie die Rohre, die ihn speisen.
 | `heater` | Heizstab im Speicher – glüht, solange er Leistung zieht, Klick bedient ihn. Darf auch der Leistungssensor selbst sein, mit `threshold` in Watt |
 | `heater_power` | Dessen Leistung, unter dem Heizstab – und allein schon genug, um ihn zu zeichnen |
 | `heater_temp` | Seine eigene Temperatur, neben der Leistung |
@@ -112,7 +115,8 @@ Nur `top` und `bottom` konfiguriert → zwei Pillen. Gar nichts → drei leere.
 `name`, `entity`, `temp`, `target_temp` (Klick öffnet das Stellfeld), `mode`
 (Betriebsart-Chip), `boost` (Chip für die Einmalladung), `pump`,
 `flow_rate` (Liter pro Minute durch die Warmwasserstation, als Badge unter
-dem Tanks-Einlass; über 0,5 l/min – oder `threshold` – zählt der Tank als
+dem Tanks-Einlass, die pulsiert, während Wasser gezapft wird – drei Tropfen
+fallen im Takt darunter; über 0,5 l/min – oder `threshold` – zählt der Tank als
 laufend, während Wasser gezapft wird), `charge`, `heater`, `heater_power`.
 
 ## pv und solar
@@ -168,6 +172,13 @@ Fehlende Rückmeldungen erscheinen als `–`.
 **Läuft der Kreis?** `pump` → `mode` auf „Aus“ parkt ihn → `valve` über 0 →
 `entity` → sonst folgt er der Wärmepumpe. Jeder Kreis beantwortet das für sich:
 dass A läuft, sagt nichts über D.
+
+**Und Kühlen?** Keine Zusatzverkabelung. Ein Kreis, der mit
+`hvac_action: cooling` antwortet, meldet sich selbst; sonst entscheidet der
+Wortlaut seines Modus, und ein Kreis ohne eigenes Signal folgt der Anlage –
+kühlt er, fallen seine Wellen kühlblau, statt rot aufzusteigen. An der
+Wärmepumpe genügt ein Status- oder Modustext „Kühlen“, ein expliziter
+`cooling`-Binärsensor erzwingt die Darstellung.
 
 Sieben Kreise werden unterstützt (A–G). Ein achter Eintrag wird ignoriert,
 statt aus der Zeichnung zu laufen.

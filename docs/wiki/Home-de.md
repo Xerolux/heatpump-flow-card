@@ -59,6 +59,13 @@ die Beschriftung ohnehin.
 * **Rohre führen Temperaturen.** Jedes Rohr wird nach der geführten Temperatur
   eingefärbt; sind beide Enden bekannt, verläuft die Farbe entlang des Rohres –
   man sieht das Wasser auf dem Rückweg abkühlen.
+* **Heizen und Kühlen in einer Zeichnung.** Kühlt die Anlage, tragen die Rohre
+  ihre kalten Farben und die Wellen der Emitter fallen kühlblau, statt rot
+  aufzusteigen – ohne Zusatzverkabelung, der Statustext oder das
+  `hvac_action` des Kreises sagt es.
+* **Störungen übersieht man nicht.** Ein Alarm rahmt die Wärmepumpe rot, und
+  eine Statusleiste unter der Anlage trägt den Meldungstext des Reglers, den
+  Anforderungsgrund, den SG-Ready-Status und die Diagnose des Tages.
 * **Bewegung heißt Betrieb.** Der Ventilator dreht schneller bei höherer
   Verdichterlast, Pumpen laufen, Punkte wandern durch durchströmte Rohre,
   inaktive Stränge werden abgedunkelt und stehen still.

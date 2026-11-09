@@ -59,6 +59,13 @@ when Home Assistant speaks German. Any `name:` you set wins over both.
 * **Pipes carry temperatures.** Each pipe is coloured by what it transports, and
   where both ends are known the colour fades along the pipe — you can watch the
   water cool on its way back.
+* **Heating and cooling, one drawing.** When the plant cools, the pipes carry
+  their cold colours and the emitters' waves fall in cool blue instead of
+  rising red — no extra wiring, the status text or the circuit's
+  `hvac_action` says it.
+* **Faults are impossible to miss.** An alarm turns the heat pump's frame red,
+  and a status strip below the plant carries the controller's wording, the
+  demand reason, the SG-Ready state and the day's diagnostics.
 * **Motion means running.** The fan turns faster at higher compressor load,
   pumps spin, dots travel through flowing pipes, idle branches dim and stop.
 * **It is a control surface,** not just a picture: modes, setpoints, pumps and

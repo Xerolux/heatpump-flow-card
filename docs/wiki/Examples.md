@@ -16,6 +16,9 @@ and can be pasted into a manual card editor as they are.
 | `08-immersion-heater.yaml` | An AC-Thor element in the buffer tank, plus the bivalent stage |
 | `09-dashboard-idm.yaml` | A whole dashboard view around that plant — the card plus built-in cards |
 | `10-energy-bus.yaml` | The electrical side: battery, grid, wallbox, house and the element on one bus |
+| `11-energy-bus-flow-wood-stove.yaml` | The energy bus in the light flow style, with a wood stove beside the heat pump |
+| `12-energy-hub.yaml` | The hub style: PV, grid, battery and the devices joined by curved connections |
+| `13-viessmann-oil.yaml` | A Viessmann oil boiler instead of a heat pump, without a buffer tank — vendor neutral |
 
 ## Every circuit keeps its own state
 

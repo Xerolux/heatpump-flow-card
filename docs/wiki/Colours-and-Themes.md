@@ -26,6 +26,10 @@ back to the tank.
 on a light and a dark card. Room temperatures near 22 °C therefore keep the
 normal text colour instead of turning pale grey.
 
+**Cooling reads from the same ramp:** cold water is blue on its own, and while
+a circuit cools its heat waves turn `#38bdf8` and fall instead of rising —
+the heat pump's fan ring goes blue with them.
+
 ```yaml
 temperature_colors: false
 ```
@@ -55,6 +59,12 @@ One extra variable belongs to the card itself:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `--hpfc-panel-color` | `rgba(127,127,127,0.10)` | Fill of the component panels |
+
+On Home Assistant 2026 the card also reads the platform's own tokens —
+`--ha-font-family-body` for typography, the `--ha-color-surface-*` range as a
+surface fallback, the `--ha-box-shadow-*` shadows for the popover and the
+enlarged view. The classic variables above win when your theme sets them, so
+existing themes keep working unchanged.
 
 Set it per card with `card_mod`, or globally in your theme:
 

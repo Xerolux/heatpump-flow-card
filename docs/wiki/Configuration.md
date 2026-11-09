@@ -84,6 +84,9 @@ tank flow.
 | `entity` | Tapping the tank operates this entity |
 | `top`, `middle`, `bottom` | Layer temperatures — they fill the tank with a gradient and print as pills |
 | `charge` | Charge level, printed under the name |
+
+While the tank charges, a subtle shimmer rises through it — the tank tells
+the same story as the pipes that feed it.
 | `heater` | Electric element inside the tank — glows while it draws power, tap to operate. Can be the power sensor itself, with a `threshold` in watts |
 | `heater_power` | Its power, printed under the element — and on its own already enough to draw it |
 | `heater_temp` | Its own temperature, printed next to the power |
@@ -115,7 +118,7 @@ the circuits.
 | `mode` | Operating mode chip (`select` or `water_heater`) |
 | `boost` | Extra chip for a one-time charge (`button` or `switch`) |
 | `pump` | Charging pump |
-| `flow_rate` | Litres per minute through the fresh-water station, as a badge under the tank's inlet that pulses while water is drawn. Above 0.5 l/min (or `threshold`) the tank counts as running |
+| `flow_rate` | Litres per minute through the fresh-water station, as a badge under the tank's inlet that pulses while water is drawn — three drops fall under the tank in step with it. Above 0.5 l/min (or `threshold`) the tank counts as running |
 | `charge` | Charge level |
 
 ## pv and solar
@@ -262,6 +265,13 @@ circuits:
 | `valve` | Mixing valve, printed as a percentage under the symbol |
 
 **Is the circuit running?** `pump` → `valve` above 0 → `entity` → the heat pump
+
+**And cooling?** No extra wiring. A circuit that answers
+`hvac_action: cooling` reports itself; otherwise the mode's own wording
+decides, and a circuit without any signal of its own follows the plant —
+while it cools, its waves fall in cool blue instead of rising red. On the
+heat pump, a status or mode text of “cooling” is enough, and an explicit
+`cooling` binary sensor forces the look.
 state.
 
 Pumps and mixers have separate captions. On/off pump feedback uses consistent
