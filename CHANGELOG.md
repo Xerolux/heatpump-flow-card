@@ -21,6 +21,25 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-09
+
+Current with Home Assistant 2026.11, tested against it.
+
+### Changed
+
+- **The card wears Home Assistant 2026's own design tokens.** Typography
+  follows `--ha-font-family-body` (the paper variable and a font list remain
+  as fallbacks for older instances), surfaces fall back to the 2026
+  `--ha-color-surface-*` tokens, and the popover and enlarged view use the
+  `--ha-box-shadow-*` shadows — so custom themes that set the new tokens style
+  the card natively, while everything that only sets the classic variables
+  keeps working unchanged.
+- **Half the work per push on a busy instance.** Every `hass` push had the
+  card walk its watched entities twice — once to decide whether anything
+  changed and once again inside the update. The signature is now handed over
+  instead of recomputed; on an instance where any entity change pushes a fresh
+  object to every card, the walk happens once.
+
 ## [1.11.1] - 2026-11-09
 
 ### Fixed
@@ -665,7 +684,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.1...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.10.0...v1.11.0
 [1.11.0-beta.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.10.0...v1.11.0-beta.1

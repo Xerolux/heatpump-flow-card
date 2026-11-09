@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.11.1";
+const CARD_VERSION = "1.12.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -4203,8 +4203,8 @@ ha-card.hpfc-has-title { padding-top: 4px; }
   margin: auto;
   padding: 8px;
   border-radius: 16px;
-  background: var(--card-background-color, #fff);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  background: var(--card-background-color, var(--ha-color-surface-default, #fff));
+  box-shadow: var(--ha-box-shadow-l, 0 18px 48px rgba(0, 0, 0, 0.45));
 }
 .hpfc-backdrop { position: absolute; inset: 0; z-index: 1; }
 .hpfc-pop {
@@ -4215,9 +4215,9 @@ ha-card.hpfc-has-title { padding-top: 4px; }
   padding: 10px;
   border-radius: 14px;
   border: 1px solid var(--divider-color, #d5d5d5);
-  background: var(--card-background-color, #fff);
+  background: var(--card-background-color, var(--ha-color-surface-default, #fff));
   color: var(--primary-text-color, #212121);
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--ha-box-shadow-m, 0 8px 26px rgba(0, 0, 0, 0.3));
 }
 .hpfc-pop-title { font-size: 12px; font-weight: 600; opacity: 0.7; margin-bottom: 8px; }
 .hpfc-pop-step { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -4264,11 +4264,15 @@ ha-card.hpfc-has-title { padding-top: 4px; }
   display: block;
   width: 100%;
   height: auto;
-  font-family: var(--paper-font-body1_-_font-family, var(--ha-font-family-body, Roboto, sans-serif));
+  /* Home Assistant 2026 ships its own typography tokens; the paper variable
+     and the font list remain as fallbacks for older instances. */
+  font-family: var(--ha-font-family-body, var(--paper-font-body1_-_font-family, Roboto, Noto, sans-serif));
   --hpfc-stroke: var(--divider-color, #d5d5d5);
   --hpfc-text: var(--primary-text-color, #212121);
   --hpfc-muted: var(--secondary-text-color, #757575);
-  --hpfc-surface: var(--card-background-color, #fff);
+  /* the surface token of 2026 as a fallback keeps custom themes that only
+     set it, and instances before it, working alike */
+  --hpfc-surface: var(--card-background-color, var(--ha-color-surface-default, #fff));
   --hpfc-panel-bg: var(--hpfc-panel-color, rgba(127, 127, 127, 0.10));
   --hpfc-tank-warm: #f97316;
   --hpfc-tank-mid: #eab308;
@@ -4569,7 +4573,10 @@ class HeatpumpFlowCard extends HTMLElement {
     const signature = entitySignature(hass, this._entities);
     if (signature === this._signature) return;
     this._signature = signature;
-    this._update();
+    // The signature is handed over rather than recomputed: a busy instance
+    // pushes a fresh hass object for every entity anywhere in it, and this
+    // way the watched entities are walked once per push, not twice.
+    this._update(signature);
   }
 
   get hass() {
@@ -4632,9 +4639,9 @@ class HeatpumpFlowCard extends HTMLElement {
     }
   }
 
-  _update() {
+  _update(signature) {
     if (!this._scene || !this._hass) return;
-    this._signature = entitySignature(this._hass, this._entities);
+    this._signature = signature !== undefined ? signature : entitySignature(this._hass, this._entities);
     for (const updater of this._scene.updaters) {
       try {
         updater();
