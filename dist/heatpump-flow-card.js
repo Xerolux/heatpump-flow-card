@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.12.0";
+const CARD_VERSION = "1.13.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -890,7 +890,8 @@ function drawReadout(scene, group, x, y, label, field, options) {
   const opts = options || {};
   const anchor = opts.anchor || "start";
   const block = svgEl("g", { class: "hpfc-readout" });
-  block.appendChild(svgText(x, y, label, { class: "hpfc-label", "text-anchor": anchor }));
+  const labelEl = svgText(x, y, label, { class: "hpfc-label", "text-anchor": anchor });
+  block.appendChild(labelEl);
   const value = svgText(x, y + 16, "–", {
     class: opts.strong ? "hpfc-value hpfc-value-strong" : "hpfc-value",
     "text-anchor": anchor,
@@ -917,6 +918,9 @@ function drawReadout(scene, group, x, y, label, field, options) {
 
   scene.add(() => {
     const hass = scene.hass();
+    // A long label gives way to what stands beside the column - the heat
+    // pump's badges sit close enough for "Thermal power" to reach them.
+    shrinkToFit(labelEl, label, opts.labelWidth || 0);
     let text;
     let unset;
     if (opts.compute) {
@@ -1148,6 +1152,12 @@ const TEXTS = {
     cool: "Cooling",
     water: "Hot water",
     defrost: "Defrost",
+    thermal_power: "Heat output",
+    fault: "Fault",
+    reason: "Reason",
+    smart_grid: "SG",
+    starts_today: "Starts today",
+    defrosts_today: "Defrosts today",
     idle: "Standby",
     off: "Off",
     wood_stove: "Wood stove",
@@ -1207,6 +1217,12 @@ const TEXTS = {
     idle: "Bereitschaft",
     off: "Aus",
     wood_stove: "Holzofen",
+    thermal_power: "Heizleistung",
+    fault: "Störung",
+    reason: "Grund",
+    smart_grid: "SG",
+    starts_today: "Starts heute",
+    defrosts_today: "Abtaustarts heute",
   },
 };
 
@@ -1369,6 +1385,110 @@ function drawChip(scene, group, box, field, options) {
   return chip;
 }
 
+/** Wording a controller uses when there is nothing to report. */
+const QUIET_MESSAGE = /^(0+|-{2,}|)$|keine|none|no active|nothing|alles ok|^ok$/i;
+
+/**
+ * Whether the plant reports a fault. An explicit alarm entity decides when it
+ * is wired (on means fault, the way a sum alarm works); a message sensor alone
+ * counts as quiet while it says there is nothing to report.
+ */
+function alarmActive(hass, cfg) {
+  if (cfg.alarm && cfg.alarm.entity) return isActive(hass, cfg.alarm);
+  if (cfg.message && cfg.message.entity) {
+    if (isMissing(stateOf(hass, cfg.message))) return false;
+    const text = String(rawValue(hass, cfg.message) || "");
+    return text !== "" && !QUIET_MESSAGE.test(text.trim());
+  }
+  return false;
+}
+
+/**
+ * A slim row of chips below the plant: a red fault chip while something is
+ * wrong, the demand reason, the smart-grid state, and small diagnostic pills
+ * (compressor starts today, defrost starts today). Everything is optional and
+ * the row only exists when at least one field is configured.
+ */
+function drawStatusStrip(scene, box, cfg) {
+  const texts = textsFor(scene.hass());
+  const group = svgEl("g", { class: "hpfc-status" });
+  scene.root.appendChild(group);
+
+  const items = [];
+  if (cfg.alarm || cfg.message) items.push({ kind: "alarm", field: cfg.message || cfg.alarm });
+  if (cfg.reason) items.push({ kind: "reason", field: cfg.reason, label: texts.reason });
+  if (cfg.smart_grid) items.push({ kind: "sg", field: cfg.smart_grid, label: texts.smart_grid });
+  if (cfg.cycles_today) items.push({ kind: "cycles", field: cfg.cycles_today, label: texts.starts_today });
+  if (cfg.defrosts_today) items.push({ kind: "defrosts", field: cfg.defrosts_today, label: texts.defrosts_today });
+
+  const chips = items.map((item) => {
+    const chip = svgEl("g", { class: `hpfc-status-chip hpfc-status-${item.kind}` });
+    const rect = svgEl("rect", { y: box.y, height: box.h, rx: box.h / 2 });
+    const text = svgText(0, box.y + box.h / 2 + 4, "", { "text-anchor": "start" });
+    chip.appendChild(rect);
+    chip.appendChild(text);
+    group.appendChild(chip);
+    if (item.field && item.field.entity) {
+      attachAction(scene, chip, {
+        entity: item.field.entity,
+        tap_action: item.field.tap_action,
+        hold_action: item.field.hold_action,
+        label: item.label || texts.fault,
+      });
+    }
+    return { item, chip, rect, text };
+  });
+
+  scene.add(() => {
+    const hass = scene.hass();
+    let x = box.x;
+    for (const { item, chip, rect, text } of chips) {
+      let label = "";
+      let show = true;
+      if (item.kind === "alarm") {
+        const active = alarmActive(hass, cfg);
+        show = active;
+        chip.classList.toggle("hpfc-alarm-on", active);
+        if (active) {
+          const wording =
+            cfg.message && cfg.message.entity && !isMissing(stateOf(hass, cfg.message))
+              ? displayValue(hass, cfg.message, "")
+              : "";
+          label = wording || texts.fault;
+        }
+      } else {
+        const st = stateOf(hass, item.field);
+        show = Boolean(st) && !isMissing(st);
+        const value = displayValue(hass, item.field, "");
+        if (show && value === "") show = false;
+        label = `${item.label}: ${value}`;
+      }
+      if (!show) {
+        chip.style.display = "none";
+        continue;
+      }
+      const remaining = box.x + box.w - x;
+      let width = label.length * 6.2 + 22;
+      if (width > remaining) {
+        const maxChars = Math.floor((remaining - 32) / 6.2);
+        if (maxChars < 4 || x + 46 > box.x + box.w) {
+          chip.style.display = "none";
+          continue;
+        }
+        label = `${label.slice(0, maxChars)}…`;
+        width = label.length * 6.2 + 22;
+      }
+      chip.style.display = "";
+      text.textContent = label;
+      text.setAttribute("x", String(x + 11));
+      rect.setAttribute("x", String(x));
+      rect.setAttribute("width", String(width));
+      x += width + 8;
+    }
+  });
+  return group;
+}
+
 /* =========================================================================
  * Components
  * ========================================================================= */
@@ -1456,6 +1576,25 @@ function computedCop(cop) {
     const electric = powerWatts(hass, power);
     if (heat === null || electric === null || electric <= 0) return null;
     return formatNumber(hass, heat / electric, { decimals: cop.decimals });
+  };
+}
+
+/**
+ * The thermal output from two values the card already knows: electrical draw
+ * times COP, in kilowatts. Null while either side is missing or the plant is
+ * off - zero draw times any factor is not a reading worth showing.
+ */
+function computedThermal(thermal) {
+  if (!thermal || thermal.calculate !== true) return null;
+  const power = thermal.power;
+  const cop = thermal.cop;
+  return (hass) => {
+    const electric = powerWatts(hass, power);
+    const factor = numberValue(hass, cop);
+    if (electric === null || electric <= 0 || factor === null || factor <= 0) return null;
+    const kw = (electric * factor) / 1000;
+    const decimals = thermal.decimals !== undefined ? thermal.decimals : 1;
+    return `${formatNumber(hass, kw, { decimals })} kW`;
   };
 }
 
@@ -1686,10 +1825,16 @@ function drawHeatPump(scene, box, cfg) {
     group.appendChild(steam);
   }
 
-  // Readouts on the right
+  // Readouts on the right. The thermal output is the plant's headline number,
+  // so it takes the second place; three rows fit above the mode chip that
+  // closes the panel (measured: a fourth would run into it).
   const copCompute = computedCop(cfg.cop);
+  const thermalCompute = computedThermal(cfg.thermal_power);
   const rows = [
     cfg.power ? { label: texts.power, field: cfg.power } : null,
+    cfg.thermal_power
+      ? { label: texts.thermal_power, field: cfg.thermal_power, compute: thermalCompute }
+      : null,
     cfg.cop ? { label: texts.cop, field: cfg.cop, compute: copCompute } : null,
     cfg.outside_temp ? { label: texts.outside, field: cfg.outside_temp, colorize: true } : null,
     cfg.compressor ? { label: cfg.compressor.name || "Kompressor", field: cfg.compressor } : null,
@@ -1700,8 +1845,17 @@ function drawHeatPump(scene, box, cfg) {
       colorize: row.colorize,
       strong: index === 0,
       compute: row.compute,
+      labelWidth: cfg.flow_temp || cfg.return_temp || cfg.flow_rate ? box.w - 120 : 0,
     });
   });
+
+  // A fault turns the panel's frame red - hard to miss even from across the
+  // room, with the wording in the status strip below the plant.
+  if (cfg.alarm || cfg.message) {
+    scene.add(() => {
+      group.classList.toggle("hpfc-alarm", alarmActive(scene.hass(), cfg));
+    });
+  }
 
   // Second heat generator: the bit that quietly switches in on cold days
   if (cfg.aux_heat || cfg.aux_heat_power) {
@@ -1929,6 +2083,28 @@ function drawTank(scene, box, cfg, options) {
       class: "hpfc-tank-outline",
     })
   );
+
+  // Warmth rises through the tank while it charges - a subtle shimmer, so the
+  // tank tells the same story as the pipes that feed it.
+  if (opts.charging) {
+    const bubbles = svgEl("g", { class: "hpfc-bubbles" });
+    for (let i = 0; i < 4; i++) {
+      bubbles.appendChild(
+        svgEl("circle", {
+          cx: tank.x + 16 + (i % 2) * (tank.w - 32),
+          cy: tank.y + tank.h - 22 - i * Math.max(12, tank.h / 6),
+          r: 2.2,
+          style: `animation-delay:${i * 0.7}s`,
+        })
+      );
+    }
+    group.appendChild(bubbles);
+    scene.add(() => {
+      const on =
+        scene.config.animation !== false && Boolean(opts.charging(scene.hass()));
+      bubbles.classList.toggle("hpfc-on", on);
+    });
+  }
 
   // Heat exchanger coil (drawn when a solar circuit feeds the tank)
   if (opts.coil) {
@@ -3260,8 +3436,34 @@ function drawDhw(scene, box, cfg) {
       heaterLabel: texts.heater,
       entity: cfg.entity,
       tap_action: cfg.tap_action,
+      charging: running,
     }
   );
+
+  // A dripping tap while water is drawn: three drops under the tank, in step
+  // with the flow badge's pulse.
+  if (cfg.flow_rate && cfg.flow_rate.entity) {
+    const drops = svgEl("g", { class: "hpfc-drops" });
+    const tankCx = box.x + 14 + 23;
+    for (let i = 0; i < 3; i++) {
+      drops.appendChild(
+        svgEl("circle", {
+          cx: tankCx - 8 + i * 8,
+          cy: box.y + box.h - 13,
+          r: 1.8,
+          style: `animation-delay:${i * 0.55}s`,
+        })
+      );
+    }
+    group.appendChild(drops);
+    scene.add(() => {
+      const value = numberValue(scene.hass(), cfg.flow_rate);
+      const flowing =
+        value !== null &&
+        value > (cfg.flow_rate.threshold !== undefined ? cfg.flow_rate.threshold : 0.5);
+      drops.classList.toggle("hpfc-on", flowing && scene.config.animation !== false);
+    });
+  }
 
   const columns = [
     { label: cfg.temp && cfg.temp.name ? cfg.temp.name : texts.current, field: cfg.temp, colorize: true },
@@ -3338,6 +3540,7 @@ const LAYOUT_PRESETS = {
 const SECTION_FIELDS = {
   heatpump: [
     "power",
+    "thermal_power",
     "cop",
     "outside_temp",
     "flow_temp",
@@ -3350,6 +3553,12 @@ const SECTION_FIELDS = {
     "aux_heat_power",
     "defrost",
     "flow_rate",
+    "alarm",
+    "message",
+    "reason",
+    "smart_grid",
+    "cycles_today",
+    "defrosts_today",
     ...REF_CIRCUIT_FIELDS,
   ],
   pv: ["power", "battery", "grid", "battery_power", "grid_power", "wallbox", "house", "consumers"],
@@ -3432,6 +3641,21 @@ function normalizeSection(raw, fields) {
           thermal_power: thermal,
           power: electric,
           decimals: field.decimals !== undefined ? field.decimals : 2,
+        };
+        continue;
+      }
+    }
+    // A calculated thermal output multiplies the electrical draw by the COP,
+    // the same way round: both sides given as fields of their own.
+    if (target === "thermal_power" && field.calculate === true) {
+      const electric = asField(field.power);
+      const cop = asField(field.cop);
+      if (electric && cop) {
+        result[target] = {
+          calculate: true,
+          power: electric,
+          cop,
+          decimals: field.decimals !== undefined ? field.decimals : 1,
         };
         continue;
       }
@@ -3717,11 +3941,25 @@ function buildScene(card) {
   const solarLanes = config.solar && config.buffer;
   const electrics = hasElectrics(config) ? electricNodes(config) : [];
   const showElectrics = electrics.length > 1;
-  const stripY = G.pad + contentH + (solarLanes ? 88 : G.pad);
+
+  // The status strip: fault wording, demand reason, smart-grid state, and the
+  // day's diagnostics - only drawn when at least one of them is configured.
+  const statusStrip = [
+    config.heatpump.alarm,
+    config.heatpump.message,
+    config.heatpump.reason,
+    config.heatpump.smart_grid,
+    config.heatpump.cycles_today,
+    config.heatpump.defrosts_today,
+  ].some(Boolean);
+  const statusH = statusStrip ? 32 : 0;
+
+  const stripY = G.pad + contentH + statusH + (solarLanes ? 88 : G.pad);
   const electricsHeight = config.electrics_style === "hub" ? hubHeight(electrics) : 110;
   const height = stripY + (showElectrics ? electricsHeight : 0);
-  const laneA = G.pad + contentH + 20;
-  const laneB = G.pad + contentH + 54;
+  const laneBase = G.pad + contentH + statusH;
+  const laneA = laneBase + 20;
+  const laneB = laneBase + 54;
 
   // ---- scene scaffolding ----------------------------------------------
   const svg = svgEl("svg", {
@@ -3745,14 +3983,22 @@ function buildScene(card) {
     svg,
     defs,
     pipeLayer,
-    root: nodeLayer,
-    updaters: [],
+    root: nodeLayer,    updaters: [],
     flags: {},
     hass: () => card._hass,
     add(fn) {
       this.updaters.push(fn);
     },
   };
+
+  // The status strip sits between the plant and whatever follows below.
+  if (statusStrip) {
+    drawStatusStrip(
+      scene,
+      { x: G.pad, y: G.pad + contentH + 4, w: width - G.pad * 2, h: 24 },
+      config.heatpump
+    );
+  }
 
   // ---- nodes ------------------------------------------------------------
   const heatpump = drawHeatPump(scene, { x: hpX, y: hpY, w: G.hp.w, h: hpHeight }, config.heatpump);
@@ -3789,6 +4035,7 @@ function buildScene(card) {
       title: config.buffer.name || texts.buffer,
       subtitle: config.buffer.charge ? { label: texts.charge, field: config.buffer.charge } : null,
       coil: Boolean(config.solar),
+      charging: heatpump.running,
       entity: config.buffer.entity,
       tap_action: config.buffer.tap_action,
       layers: used.map((key) => ({ label: texts[key], field: config.buffer[key] })),
@@ -3847,6 +4094,10 @@ function buildScene(card) {
       active: heatpump.running,
     });
   } else if (consumers.length) {
+    // Without a buffer the heat pump feeds the rails directly - so the stubs
+    // must not flow on the generator alone: a burner running against closed
+    // pumps is standby, not distribution (#42). It takes a consumer drawing.
+    const distributing = (hass) => heatpump.running(hass) && anyConsumer(hass);
     drawPipe(scene, {
       points: [
         [hpRight, hpFlowY],
@@ -3855,7 +4106,7 @@ function buildScene(card) {
       role: "flow",
       from: config.heatpump.flow_temp,
       to: null,
-      active: heatpump.running,
+      active: distributing,
     });
     drawPipe(scene, {
       points: [
@@ -3865,7 +4116,7 @@ function buildScene(card) {
       role: "return",
       from: null,
       to: config.heatpump.return_temp,
-      active: heatpump.running,
+      active: distributing,
     });
   }
 
@@ -4420,6 +4671,34 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 /* Water is being drawn: the flow badge breathes while the tap is open. */
 .hpfc-badge.hpfc-flowing rect { animation: hpfc-glow 1.6s ease-in-out infinite; }
 
+/* status strip ----------------------------------------------------------- */
+.hpfc-status-chip rect {
+  fill: rgba(127, 127, 127, 0.14);
+  stroke: var(--hpfc-stroke);
+  stroke-width: 1;
+}
+.hpfc-status-chip text { font-size: 10.5px; font-weight: 600; fill: var(--hpfc-text); }
+.hpfc-status-chip.hpfc-status-reason rect,
+.hpfc-status-chip.hpfc-status-sg rect { fill: rgba(57, 176, 229, 0.14); }
+.hpfc-status-chip.hpfc-alarm-on rect {
+  fill: var(--error-color, #db4437);
+  stroke: transparent;
+}
+.hpfc-status-chip.hpfc-alarm-on text { fill: #ffffff; }
+.hpfc-heatpump.hpfc-alarm .hpfc-panel { stroke: var(--error-color, #db4437); stroke-width: 1.6; }
+.hpfc-heatpump.hpfc-alarm .hpfc-hp-body { stroke: var(--error-color, #db4437); stroke-width: 1.8; }
+
+/* tank charging shimmer and the dripping tap ----------------------------- */
+.hpfc-bubbles circle { fill: #ffffff; opacity: 0; }
+.hpfc-bubbles.hpfc-on circle { animation: hpfc-rise 2.6s ease-out infinite; }
+.hpfc-drops circle { fill: #38bdf8; opacity: 0; }
+.hpfc-drops.hpfc-on circle { animation: hpfc-drop 1.4s linear infinite; }
+@keyframes hpfc-drop {
+  0% { opacity: 0; transform: translateY(0); }
+  15% { opacity: 0.9; }
+  100% { opacity: 0; transform: translateY(9px); }
+}
+
 /* tanks ----------------------------------------------------------------- */
 .hpfc-tank-fill { transition: fill 1s ease; }
 .hpfc-tank-outline { fill: none; stroke: var(--hpfc-stroke); stroke-width: 1.5; }
@@ -4511,7 +4790,8 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-valve.hpfc-running .hpfc-valve-body { fill: var(--info-color, #39b0e5); }
 
 @media (prefers-reduced-motion: reduce) {
-  .hpfc-spin, .hpfc-dots, .hpfc-heatwave, .hpfc-sun, .hpfc-flowing rect { animation: none !important; }
+  .hpfc-spin, .hpfc-dots, .hpfc-heatwave, .hpfc-sun, .hpfc-flowing rect,
+  .hpfc-bubbles circle, .hpfc-drops circle { animation: none !important; }
 }
 `;
 
@@ -5015,6 +5295,13 @@ const EDITOR_TEXTS = {
     return_temp: "Return temperature",
     outside_temp: "Outside temperature",
     compressor: "Compressor load",
+    thermal_power: "Thermal power (or { calculate: true, power: …, cop: … })",
+    alarm: "Fault (binary sensor)",
+    message: "Fault message (text sensor)",
+    reason: "Demand reason - why it runs",
+    smart_grid: "Smart grid / SG-Ready state",
+    cycles_today: "Compressor starts today",
+    defrosts_today: "Defrost starts today",
     flow_rate: "Flow rate",
     top: "Top temperature",
     middle: "Middle temperature",
@@ -5114,6 +5401,13 @@ const EDITOR_TEXTS = {
     return_temp: "Rücklauftemperatur",
     outside_temp: "Außentemperatur",
     compressor: "Verdichterlast",
+    thermal_power: "Thermische Leistung (oder { calculate: true, power: …, cop: … })",
+    alarm: "Störung (Binary Sensor)",
+    message: "Störungstext (Text-Sensor)",
+    reason: "Anforderungsgrund – warum sie läuft",
+    smart_grid: "Smart-Grid-/SG-Ready-Status",
+    cycles_today: "Verdichterstarts heute",
+    defrosts_today: "Abtaustarts heute",
     flow_rate: "Volumenstrom",
     top: "Temperatur oben",
     middle: "Temperatur Mitte",
@@ -5171,6 +5465,7 @@ const EDITOR_SECTIONS = {
     "mode",
     "status",
     "power",
+    "thermal_power",
     "cop",
     "flow_temp",
     "return_temp",
@@ -5180,6 +5475,12 @@ const EDITOR_SECTIONS = {
     "aux_heat_power",
     "defrost",
     "flow_rate",
+    "alarm",
+    "message",
+    "reason",
+    "smart_grid",
+    "cycles_today",
+    "defrosts_today",
     ...REF_CIRCUIT_FIELDS,
   ],
   buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power", "heater_temp", "heater_mode"],

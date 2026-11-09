@@ -331,6 +331,9 @@ readable, so on a 4K or 8K panel it stops there and centres instead.
 | `state_entity` | Decides whether the heat pump counts as running |
 | `mode` | Operating mode; `heat`/`cool`/`water`/`defrost`/`idle` are detected from the state text, and `hvac_action` of a `climate` entity is used automatically |
 | `power`, `cop`, `outside_temp`, `compressor` | Values shown next to the unit (the first three are displayed, the compressor also sets the fan speed) |
+| `thermal_power` | Thermal output, its own readout — a plain heat meter, or `{ calculate: true, power: sensor.hp_power, cop: sensor.hp_cop }` computes it from the draw times the COP (#41) |
+| `alarm`, `message` | A fault turns the panel's frame red; the controller's wording lands in the status strip below the plant |
+| `reason`, `smart_grid`, `cycles_today`, `defrosts_today` | Status strip below the plant: why it runs, the SG-Ready state, the day's compressor and defrost starts |
 | `cop` (long form) | `{ calculate: true, thermal_power: sensor.heat_output, power: sensor.hp_power }` computes the COP in the card from two meters; `decimals` optional (default 2). A plain COP sensor still works |
 | `fan` | `false` for a brine-to-water or water-to-water unit: no outdoor fan is drawn — two brine ports instead — and defrost vapour stays hidden |
 | `flow_temp`, `return_temp` | Colour and label the pipes to the tank |

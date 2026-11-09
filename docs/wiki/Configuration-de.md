@@ -44,13 +44,24 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `defrost` | Binärsensor, der die Abtau-Darstellung erzwingt, wenn der Statustext sie nicht hergibt |
 | `flow_rate` | Durchfluss durch die Wärmepumpe, als Pille unter der Vorlauftemperatur |
 | `power` | Leistung, neben dem Außengerät |
+| `thermal_power` | Thermische Leistung, eigenes Readout – ein plain Sensor oder `{ calculate: true, power: sensor.wp_leistung, cop: sensor.cop }` rechnet sie aus Aufnahme mal COP |
 | `cop` | Arbeitszahl / COP |
 | `outside_temp` | Außentemperatur |
 | `compressor` | Verdichterlast in Prozent – bestimmt auch die Drehzahl des Ventilators |
 | `flow_temp` | Vorlauf: Pille und Rohrfarbe Richtung Speicher |
 | `return_temp` | Rücklauf: Pille und Rohrfarbe zurück |
 | `fan` | `false` für Sole/Wasser- oder Wasser/Wasser-Geräte: kein Außengerät-Ventilator — stattdessen zwei Sole-Anschlüsse — und kein Abtau-Dampf |
+| `alarm`, `message` | Eine Störung (`alarm`, Binary Sensor) rahmt das Panel rot; `message` schreibt den Meldungstext des Reglers in die Statusleiste unter die Anlage |
+| `reason` | Warum sie gerade läuft – der Anforderungsgrund, als Chip in der Statusleiste |
+| `smart_grid` | SG-Ready-/Smart-Grid-Status als Chip in der Statusleiste |
+| `cycles_today`, `defrosts_today` | Die Starts des Verdichters und die Abtaustarts des Tages, als kleine Diagnose-Pillen in der Statusleiste |
 | `power_threshold` | Watt, ab denen die Wärmepumpe als laufend gilt (Standard `20`) |
+
+Die Statusleiste ist die schmale Zeile unter der Anlage. Sie existiert nur, wenn
+mindestens eines von `alarm`, `message`, `reason`, `smart_grid`,
+`cycles_today`, `defrosts_today` gesetzt ist; der Störungs-Chip erscheint nur,
+solange wirklich eine Störung gemeldet wird – eine Meldung „keine Meldung“
+zählt als still. Jeder Chip öffnet das More-Info seiner Entität.
 
 `cop` kennt auch die Langform: `{ calculate: true, thermal_power: sensor.heizleistung, power: sensor.wp_leistung }`
 teilt die Heizleistung durch die elektrische Aufnahme, beide vorher einheitlich

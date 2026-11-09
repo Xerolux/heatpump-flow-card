@@ -196,6 +196,41 @@ window.demoStates["sensor.dhw_flow_rate"] = {
   state: "7.2",
   attributes: { friendly_name: "Hot water flow", unit_of_measurement: "l/min" },
 };
+window.demoStates["sensor.hp_thermal_power"] = {
+  entity_id: "sensor.hp_thermal_power",
+  state: "6.2",
+  attributes: { friendly_name: "Thermal power", unit_of_measurement: "kW" },
+};
+window.demoStates["binary_sensor.hp_alarm"] = {
+  entity_id: "binary_sensor.hp_alarm",
+  state: "on",
+  attributes: { friendly_name: "Sum alarm" },
+};
+window.demoStates["sensor.hp_message"] = {
+  entity_id: "sensor.hp_message",
+  state: "Error 123 · high pressure",
+  attributes: { friendly_name: "Internal message" },
+};
+window.demoStates["sensor.hp_reason"] = {
+  entity_id: "sensor.hp_reason",
+  state: "Hot water",
+  attributes: { friendly_name: "Demand reason" },
+};
+window.demoStates["sensor.hp_smart_grid"] = {
+  entity_id: "sensor.hp_smart_grid",
+  state: "Yellow",
+  attributes: { friendly_name: "Smart grid" },
+};
+window.demoStates["sensor.hp_cycles_today"] = {
+  entity_id: "sensor.hp_cycles_today",
+  state: "12",
+  attributes: { friendly_name: "Compressor starts today" },
+};
+window.demoStates["sensor.hp_defrosts_today"] = {
+  entity_id: "sensor.hp_defrosts_today",
+  state: "1",
+  attributes: { friendly_name: "Defrost starts today" },
+};
 window.demoStates["sensor.solar_flow_temperature"] = {
   entity_id: "sensor.solar_flow_temperature",
   state: "58.2",

@@ -21,6 +21,54 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-11-09
+
+### Fixed
+
+- **Without a buffer, water no longer flows into nothing (#42).** A plant
+  wired straight to its circuits animated the stub pipes between the heat
+  pump and the distributor as soon as the generator ran — a Viessmann oil
+  boiler running against stopped pumps looked like it was distributing heat.
+  The stubs now need a consumer that actually draws, the same agreement the
+  rest of the rails already required. The reporter's configuration ships as
+  `examples/13-viessmann-oil.yaml`, the card's first boiler example.
+
+### Added
+
+- **The thermal output is on the panel (#41).** `heatpump.thermal_power` gets
+  its own readout next to the electrical one — a plain heat meter, or
+  `{ calculate: true, power: …, cop: … }` computes it from the draw times the
+  COP, normalized to watts first, so a kW meter against a W meter comes out
+  right and the readout stays empty while the plant is off. The panel fits a
+  fourth row when no second heat generator and no refrigerant circuit claim
+  the space. With #41's fresh-water station wishes this closes the loop: the
+  tapping litres arrived as `dhw.flow_rate` in 1.11.0, and a percentage
+  sensor as `dhw.pump` has always kept its value.
+- **A fault is impossible to miss.** `heatpump.alarm` (a binary sensor, the
+  way a sum alarm works) turns the heat pump panel's frame red;
+  `heatpump.message` puts the controller's own wording into a new status
+  strip below the plant. Without an alarm entity, a message that says there
+  is nothing to report counts as quiet.
+- **The status strip below the plant.** A slim row of chips, only drawn when
+  at least one of its fields is configured: the fault chip, `reason` (why the
+  plant runs right now — a demand-reason sensor), `smart_grid` (the SG-Ready
+  state — vendor neutral, the standard spans brands), and the day's
+  diagnostics as `cycles_today` and `defrosts_today` pills. Every chip opens
+  the more-info dialog of its entity, and all of it is in the visual editor.
+- **Tanks tell the same story as their pipes.** While a tank charges, a
+  subtle shimmer rises through it (`hpfc-bubbles`), and while water is drawn
+  from the hot water station three drops fall under the tank — in step with
+  the pulsing flow badge, and still respecting `animation: false` and
+  reduced-motion preferences.
+
+### Maintenance
+
+- The IDM examples wire the new fields against the entities of the reference
+  plant: thermal power from the flow sensor's meter, sum alarm and internal
+  message, the day's compressor cycles and defrost starts, and — for the
+  integration-native example — the calculated thermal output and the demand
+  reason.
+
 ## [1.12.0] - 2026-11-09
 
 Current with Home Assistant 2026.11, tested against it.
@@ -684,7 +732,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.10.0...v1.11.0

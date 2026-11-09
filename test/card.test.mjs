@@ -263,19 +263,46 @@ test("the editor round-trips a configuration", async () => {
     const config = {
       type: "custom:heatpump-flow-card",
       layout: "full",
-      heatpump: { entity: "switch.heat_pump", power: { entity: "sensor.hp_power", decimals: 2 } },
+      heatpump: {
+        entity: "switch.heat_pump",
+        power: { entity: "sensor.hp_power", decimals: 2 },
+        thermal_power: "sensor.hp_thermal_power",
+        alarm: "binary_sensor.hp_alarm",
+        message: "sensor.hp_message",
+        reason: "sensor.hp_reason",
+        smart_grid: "sensor.hp_smart_grid",
+        cycles_today: "sensor.hp_cycles_today",
+        defrosts_today: "sensor.hp_defrosts_today",
+      },
       pv: { power: "sensor.pv_power", house: { calculate: true, name: "Residual house" } },
       circuits: [{ type: "underfloor", pump: "binary_sensor.circuit_a_pump" }],
     };
     editor.setConfig(config);
     const data = editor._toData(config);
-    return { data, roundTrip: editor._toConfig(data) };
+    const schema = editor._schema(data, editor._texts);
+    const hpFields = schema
+      .find((row) => row.name === "heatpump")
+      .schema.flatMap((row) => (row.type === "grid" ? row.schema.map((f) => f.name) : [row.name]));
+    return { data, roundTrip: editor._toConfig(data), hpFields };
   });
   assert.equal(result.data.layout, "full");
   assert.equal(result.data.show_pv, true);
   assert.equal(result.data.circuit_count, 1);
   // object style options are preserved even though the form only shows entity ids
   assert.deepEqual(result.roundTrip.heatpump.power, { entity: "sensor.hp_power", decimals: 2 });
+  const roundTripFields = {
+    thermal_power: "sensor.hp_thermal_power",
+    alarm: "binary_sensor.hp_alarm",
+    message: "sensor.hp_message",
+    reason: "sensor.hp_reason",
+    smart_grid: "sensor.hp_smart_grid",
+    cycles_today: "sensor.hp_cycles_today",
+    defrosts_today: "sensor.hp_defrosts_today",
+  };
+  for (const [field, value] of Object.entries(roundTripFields)) {
+    assert.ok(result.hpFields.includes(field), `heat pump editor is missing ${field}`);
+    assert.equal(result.roundTrip.heatpump[field], value);
+  }
   assert.equal(result.roundTrip.circuits[0].type, "underfloor");
   assert.equal(result.roundTrip.pv.power, "sensor.pv_power");
   assert.deepEqual(result.roundTrip.pv.house, { calculate: true, name: "Residual house" });
@@ -1259,6 +1286,131 @@ test("the hot water litres appear as a badge and run the tank while water is dra
   });
   assert.deepEqual(result.drawing, { badge: true, value: "7.4 l/min", flowing: true, tankRunning: true });
   assert.deepEqual(result.closed, { badge: true, value: "0.2 l/min", flowing: false, tankRunning: false });
+});
+
+test("without a buffer the stub pipes stay still until a consumer draws (#42)", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      buffer: false,
+      heatpump: { state_entity: "binary_sensor.compressor" },
+      dhw: { temp: "sensor.dhw_temperature", pump: "binary_sensor.dhw_pump" },
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    const read = (pumpA) => {
+      card.hass = { ...hass, states: { ...hass.states,
+        "binary_sensor.compressor": { state: "on", attributes: {} },
+        "binary_sensor.dhw_pump": { state: "off", attributes: {} },
+        "binary_sensor.circuit_a_pump": { state: pumpA, attributes: {} },
+      }};
+      const stubs = [...card.shadowRoot.querySelectorAll(".hpfc-pipe-group:not([data-part])")];
+      return {
+        stubs: stubs.length,
+        stoppedWhileRunning: stubs.every((s) => s.classList.contains("hpfc-stopped")),
+      };
+    };
+    // the burner runs, but every pump in the plant reports off
+    const standby = read("off");
+    const distributing = read("on");
+    card.remove();
+    return { standby, distributing };
+  });
+  assert.equal(result.standby.stubs, 2, "the stubs between heat pump and rails");
+  assert.equal(result.standby.stoppedWhileRunning, true, "a generator alone must not move the water");
+  assert.equal(result.distributing.stoppedWhileRunning, false, "a drawing consumer makes the stubs flow");
+});
+
+test("the thermal output is shown, measured or computed from power times COP", async () => {
+  const result = await page.evaluate(() => {
+    const read = (thermal) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "dual",
+        heatpump: { power: "sensor.hp_power", cop: "sensor.hp_cop", thermal_power: thermal },
+        buffer: { top: "sensor.buffer_top" },
+        circuits: [{ type: "radiator" }],
+      });
+      document.body.appendChild(card);
+      const hass = window.makeHass("en");
+      card.hass = { ...hass, states: { ...hass.states,
+        "sensor.hp_power": { state: "2000", attributes: { unit_of_measurement: "W" } },
+        "sensor.hp_cop": { state: "4.3", attributes: {} },
+        "sensor.hp_thermal_power": { state: "6.2", attributes: { unit_of_measurement: "kW" } },
+      }};
+      const labels = [...card.shadowRoot.querySelectorAll(".hpfc-heatpump .hpfc-readout .hpfc-label")].map((t) => t.textContent);
+      const values = [...card.shadowRoot.querySelectorAll(".hpfc-heatpump .hpfc-readout .hpfc-value")].map((t) => t.textContent);
+      card.remove();
+      return { labels, values };
+    };
+    return {
+      metered: read("sensor.hp_thermal_power"),
+      computed: read({ calculate: true, power: "sensor.hp_power", cop: "sensor.hp_cop" }),
+    };
+  });
+  assert.deepEqual(result.metered.labels, ["Power", "Heat output", "COP"]);
+  assert.deepEqual(result.metered.values, ["2,000 W", "6.2 kW", "4.3"]);
+  assert.deepEqual(result.computed.values, ["2,000 W", "8.6 kW", "4.3"]);
+});
+
+test("a fault turns the panel red and speaks in the status strip", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        state_entity: "binary_sensor.compressor",
+        alarm: "binary_sensor.hp_alarm",
+        message: "sensor.hp_message",
+        reason: "sensor.hp_reason",
+        smart_grid: "sensor.hp_smart_grid",
+        cycles_today: "sensor.hp_cycles_today",
+        defrosts_today: "sensor.hp_defrosts_today",
+      },
+      buffer: { top: "sensor.buffer_top" },
+      circuits: [{ type: "radiator" }],
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    const read = (alarm, message) => {
+      card.hass = { ...hass, states: { ...hass.states,
+        "binary_sensor.hp_alarm": { state: alarm, attributes: {} },
+        "sensor.hp_message": { state: message, attributes: {} },
+        "sensor.hp_reason": { state: "Hot water", attributes: {} },
+        "sensor.hp_smart_grid": { state: "Yellow", attributes: {} },
+        "sensor.hp_cycles_today": { state: "12", attributes: {} },
+        "sensor.hp_defrosts_today": { state: "1", attributes: {} },
+      }};
+      const root = card.shadowRoot;
+      const chips = [...root.querySelectorAll(".hpfc-status-chip")].filter((c) => c.style.display !== "none");
+      return {
+        chips: chips.map((c) => c.querySelector("text").textContent),
+        redPanel: root.querySelector(".hpfc-heatpump").classList.contains("hpfc-alarm"),
+        redChip: chips[0] ? chips[0].classList.contains("hpfc-alarm-on") : false,
+      };
+    };
+    const quiet = read("off", "000 - No message");
+    const fault = read("on", "Error 123 · high pressure");
+    card.remove();
+    return { quiet, fault };
+  });
+  assert.deepEqual(result.quiet.chips, ["Reason: Hot water", "SG: Yellow", "Starts today: 12", "Defrosts today: 1"]);
+  assert.equal(result.quiet.redPanel, false);
+  assert.equal(result.quiet.redChip, false);
+  assert.deepEqual(result.fault.chips, [
+    "Error 123 · high pressure",
+    "Reason: Hot water",
+    "SG: Yellow",
+    "Starts today: 12",
+    "Defrosts today: 1",
+  ]);
+  assert.equal(result.fault.redPanel, true, "the heat pump panel wears the fault");
+  assert.equal(result.fault.redChip, true);
 });
 
 test("the solar circuit shows what it sends and what comes back", async () => {

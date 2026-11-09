@@ -19,11 +19,25 @@ heatpump:
   entity: select.idm_heatpump_system_mode
   mode: select.idm_heatpump_system_mode
   power: sensor.idm_heatpump_current_heating_power
+  # Thermal output without a heat meter: electrical draw times COP,
+  # computed in the card.
+  thermal_power:
+    calculate: true
+    power: sensor.idm_heatpump_power_consumption
+    cop: sensor.idm_heatpump_calculated_cop
   cop: sensor.idm_heatpump_calculated_cop
   flow_temp: sensor.idm_heatpump_hp_flow_temperature
   return_temp: sensor.idm_heatpump_hp_return_temperature
   outside_temp: sensor.idm_heatpump_outdoor_temperature
   compressor: sensor.idm_heatpump_compressor_status_1
+  # Faults: the panel's frame turns red, the wording lands in the status strip
+  alarm: binary_sensor.idm_heatpump_hp_sum_alarm
+  message: sensor.idm_heatpump_internal_message
+  # Why it runs right now, when the integration offers it
+  reason: sensor.idm_heatpump_demand_reason_web
+  smart_grid: sensor.idm_heatpump_smart_grid_status
+  cycles_today: sensor.idm_heatpump_analysis_heat_pump_cycles_today
+  defrosts_today: sensor.idm_heatpump_analysis_defrost_starts_today
 
 buffer:
   name: Buffer tank

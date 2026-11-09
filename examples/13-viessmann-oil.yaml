@@ -1,0 +1,38 @@
+# An oil boiler instead of a heat pump - from a real report (#42): a Viessmann
+# boiler with a storage charging pump, two heating circuits and no buffer tank.
+# The card is vendor neutral: whatever reports flow and return temperatures,
+# pump feedback and a running signal can drive it.
+#
+# What the fix in v1.13.0 changed here: the stub pipes between the boiler and
+# the distributor only flow while a consumer actually draws - a burner running
+# against stopped pumps reads as the standby it is, not as flowing heat.
+type: custom:heatpump-flow-card
+title: Heating
+layout: dual
+
+heatpump:
+  name: Oil boiler
+  # burner contact: decides whether the unit is running
+  state_entity: binary_sensor.heizungskeller_viessmann_heizung_brenner
+  mode: select.betriebsart_m1
+  outside_temp: sensor.aussentemperatur
+  # no flow/return meters on the boiler itself - the circuits carry them
+
+buffer: false
+
+dhw:
+  temp: sensor.warmwassertemperatur
+  # storage charging pump: on means the tank is loading
+  pump: binary_sensor.heizungskeller_viessmann_heizung_speicherladepumpe
+
+circuits:
+  - name: Heating circuit 1
+    type: radiator
+    return_temp: sensor.heizkreis_1_rucklauftemperatur
+    pump: binary_sensor.heizungskeller_viessmann_heizung_heizungspumpe_m1
+    flow_temp: sensor.heizkreis_1_vorlauftemperatur
+  - name: Underfloor heating
+    type: underfloor
+    flow_temp: sensor.heizkreis_2_vorlauftemperatur_fussbodenheizung
+    pump: sensor.heizungspumpe_fussbodenheizung
+    valve: sensor.mischer_fussbodenheizung

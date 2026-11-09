@@ -42,13 +42,24 @@ empty, a section you set to `false` is not drawn at all.
 | `defrost` | Binary sensor that forces the defrost look, if the status text does not say it |
 | `flow_rate` | Flow rate through the heat pump, as a badge under the flow temperature |
 | `power` | Electrical or thermal power, shown next to the unit |
+| `thermal_power` | Thermal output, its own readout — a plain meter, or `{ calculate: true, power: sensor.hp_power, cop: sensor.hp_cop }` computes it from the draw times the COP |
 | `cop` | Efficiency / COP |
 | `outside_temp` | Outdoor temperature |
 | `compressor` | Compressor load in percent — also sets the fan speed |
 | `flow_temp` | Flow temperature: badge and pipe colour towards the tank |
 | `return_temp` | Return temperature: badge and pipe colour back from the tank |
 | `fan` | `false` for a brine-to-water or water-to-water unit: no outdoor fan is drawn — two brine ports instead — and defrost vapour stays hidden |
+| `alarm`, `message` | A fault (`alarm`, binary sensor) turns the panel's frame red; `message` puts the controller's wording in the status strip below the plant |
+| `reason` | Why the plant runs right now — the demand reason, as a chip in the status strip |
+| `smart_grid` | SG-Ready / smart-grid state as a chip in the status strip |
+| `cycles_today`, `defrosts_today` | The day's compressor starts and defrost starts, as small diagnostic pills in the status strip |
 | `power_threshold` | Watts above which the heat pump counts as running (default `20`) |
+
+The status strip is the slim row below the plant. It only exists when at least
+one of `alarm`, `message`, `reason`, `smart_grid`, `cycles_today`,
+`defrosts_today` is configured, and the fault chip appears only while a fault
+is actually reported — a message that says there is nothing to report counts as
+quiet. Every chip opens the more-info dialog of its entity.
 
 `cop` takes the long form too: `{ calculate: true, thermal_power: sensor.heat_output, power: sensor.hp_power }`
 divides the thermal output by the electrical draw, both normalized to watts, so

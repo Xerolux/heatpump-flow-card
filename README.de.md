@@ -340,6 +340,9 @@ Designgröße würde die Zeichnung nur größer, nicht lesbarer – auf einem 4K
 | `state_entity` | Entscheidet, ob die Wärmepumpe als laufend gilt |
 | `mode` | Betriebsart; `Heizen`/`Kühlen`/`Warmwasser`/`Abtauen`/`Bereitschaft` werden aus dem Statustext erkannt, bei `climate`-Entitäten wird `hvac_action` automatisch verwendet |
 | `power`, `cop`, `outside_temp`, `compressor` | Werte neben dem Außengerät (die ersten drei werden angezeigt, die Verdichterlast bestimmt zusätzlich die Drehzahl des Ventilators) |
+| `thermal_power` | Thermische Leistung, eigenes Readout – ein Wärmemengenzähler oder `{ calculate: true, power: sensor.wp_leistung, cop: sensor.cop }` rechnet sie aus Aufnahme mal COP (#41) |
+| `alarm`, `message` | Eine Störung rahmt das Panel rot; der Meldungstext des Reglers landet in der Statusleiste unter der Anlage |
+| `reason`, `smart_grid`, `cycles_today`, `defrosts_today` | Statusleiste unter der Anlage: warum sie läuft, der SG-Ready-Status, die Verdichter- und Abtaustarts des Tages |
 | `cop` (Langform) | `{ calculate: true, thermal_power: sensor.heizleistung, power: sensor.wp_leistung }` rechnet die Arbeitszahl direkt in der Karte aus zwei Zählern; `decimals` optional (Standard 2). Ein einfacher COP-Sensor bleibt unterstützt |
 | `fan` | `false` für Sole/Wasser- oder Wasser/Wasser-Geräte: kein Außengerät-Ventilator — stattdessen zwei Sole-Anschlüsse — und kein Abtau-Dampf |
 | `flow_temp`, `return_temp` | Färben und beschriften die Rohre zum Speicher |

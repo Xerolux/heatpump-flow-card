@@ -22,6 +22,8 @@ heatpump:
   status: sensor.alm6_15_warmepumpen_betriebsart
   state_entity: binary_sensor.alm6_15_verdichter_1
   power: sensor.alm6_15_elektrische_leistungsaufnahme_warmepumpe
+  # the thermal side, from the flow sensor's meter
+  thermal_power: sensor.alm6_15_thermische_momentanleistung
   cop: sensor.alm6_15_jahresarbeitszahl_cop_momentan
   flow_temp: sensor.alm6_15_warmepumpen_vorlauftemperatur
   return_temp: sensor.alm6_15_warmepumpen_rucklauftemperatur
@@ -31,6 +33,12 @@ heatpump:
   # the bivalent stage: shown as its own row, glowing while it carries load
   aux_heat: binary_sensor.alm6_15_zweiter_warmeerzeuger_web
   aux_heat_power: sensor.alm6_15_e_heizstab_leistung
+  # faults: red frame on the panel, wording in the status strip
+  alarm: binary_sensor.alm6_15_summenstorung
+  message: sensor.alm6_15_interne_meldung
+  # the day's diagnostics as pills in the status strip
+  cycles_today: sensor.alm6_15_warmepumpentakte_heute
+  defrosts_today: sensor.alm6_15_abtauvorgange_heute
 
 buffer:
   name: Buffer tank
