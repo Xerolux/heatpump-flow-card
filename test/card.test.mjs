@@ -1413,6 +1413,111 @@ test("a fault turns the panel red and speaks in the status strip", async () => {
   assert.equal(result.fault.redChip, true);
 });
 
+test("a cooling plant shows blue falling waves and a cool fan ring", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        state_entity: "binary_sensor.compressor",
+        status: "sensor.hp_status_cool",
+        flow_temp: "sensor.hp_flow_cool",
+        return_temp: "sensor.hp_return_cool",
+      },
+      buffer: false,
+      circuits: [
+        // reports what it does: hvac_action "cooling"
+        { name: "Underfloor", type: "underfloor", entity: "climate.circuit_cool", flow_temp: "sensor.hp_flow_cool" },
+        // follows the plant, runs by its pump
+        { name: "Radiators", type: "radiator", pump: "binary_sensor.circuit_a_pump", flow_temp: "sensor.hp_flow_cool" },
+      ],
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("de");
+    const read = (hvacAction, pump) => {
+      card.hass = { ...hass, states: { ...hass.states,
+        "binary_sensor.compressor": { state: "on", attributes: {} },
+        "sensor.hp_status_cool": { state: "cool", attributes: {} },
+        "climate.circuit_cool": { state: "cool", attributes: { hvac_action: hvacAction } },
+        "binary_sensor.circuit_a_pump": { state: pump, attributes: {} },
+      }};
+      const root = card.shadowRoot;
+      const circuits = [...root.querySelectorAll(".hpfc-circuit")];
+      const wave = circuits[0].querySelector(".hpfc-heatwave, .hpfc-wave");
+      return {
+        hpCooling: root.querySelector(".hpfc-heatpump").classList.contains("hpfc-cooling"),
+        hpChip: root.querySelector(".hpfc-heatpump .hpfc-chip text").textContent,
+        first: {
+          running: circuits[0].classList.contains("hpfc-running"),
+          cooling: circuits[0].classList.contains("hpfc-cooling"),
+          direction: wave ? getComputedStyle(wave).animationDirection : null,
+          color: wave ? getComputedStyle(wave).stroke : null,
+        },
+        second: {
+          running: circuits[1].classList.contains("hpfc-running"),
+          cooling: circuits[1].classList.contains("hpfc-cooling"),
+        },
+        pipeBlue: (() => {
+          const stop = root.querySelector("defs linearGradient stop");
+          return stop ? getComputedStyle(stop).stopColor : null;
+        })(),
+      };
+    };
+    const cooling = read("cooling", "on");
+    const idle = read("idle", "on"); // the fancoil parks; the follower still cools
+    const off = read("cooling", "off"); // the follower's pump stops: no cooling
+    card.remove();
+    return { cooling, idle, off };
+  });
+  assert.equal(result.cooling.hpCooling, true, "the plant reports cooling");
+  assert.equal(result.cooling.hpChip, "Kühlen");
+  assert.equal(result.cooling.first.running, true);
+  assert.equal(result.cooling.first.cooling, true);
+  assert.equal(result.cooling.first.direction, "reverse", "the waves fall while cooling");
+  assert.ok(result.cooling.first.color.includes("56, 189, 248") || /#38bdf8|rgb/.test(result.cooling.first.color), "the waves turn cool blue");
+  assert.equal(result.cooling.second.cooling, true, "a circuit without its own signal follows the plant");
+  assert.equal(result.idle.first.cooling, false, "hvac_action idle parks the circuit");
+  assert.equal(result.idle.second.cooling, true);
+  assert.equal(result.off.second.cooling, false, "a stopped pump means no cooling");
+  assert.ok(result.cooling.pipeBlue, "cold water colours the pipes");
+});
+
+test("an explicit cooling signal beats the status text", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        state_entity: "binary_sensor.compressor",
+        status: "sensor.hp_status",
+        cooling: "binary_sensor.hp_cooling",
+      },
+      buffer: { top: "sensor.buffer_top" },
+      circuits: [{ type: "radiator" }],
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    const read = (coolingOn) => {
+      card.hass = { ...hass, states: { ...hass.states,
+        "binary_sensor.compressor": { state: "on", attributes: {} },
+        "sensor.hp_status": { state: "Heating", attributes: {} },
+        "binary_sensor.hp_cooling": { state: coolingOn ? "on" : "off", attributes: {} },
+      }};
+      return {
+        cooling: card.shadowRoot.querySelector(".hpfc-heatpump").classList.contains("hpfc-cooling"),
+        chip: card.shadowRoot.querySelector(".hpfc-heatpump .hpfc-chip text").textContent,
+      };
+    };
+    const out = { on: read(true), off: read(false) };
+    card.remove();
+    return out;
+  });
+  assert.deepEqual(result.on, { cooling: true, chip: "Heating" });
+  assert.deepEqual(result.off, { cooling: false, chip: "Heating" });
+});
+
 test("the solar circuit shows what it sends and what comes back", async () => {
   await page.goto(`${previewUrl}?layout=full`);
   const badges = await page.evaluate(() => {

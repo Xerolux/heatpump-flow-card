@@ -231,6 +231,36 @@ window.demoStates["sensor.hp_defrosts_today"] = {
   state: "1",
   attributes: { friendly_name: "Defrost starts today" },
 };
+// A cooling pass: cold flow, cold return, and a circuit that reports it.
+window.demoStates["sensor.hp_status_cool"] = {
+  entity_id: "sensor.hp_status_cool",
+  state: "cool",
+  attributes: { friendly_name: "Operating state" },
+};
+window.demoStates["sensor.hp_flow_cool"] = {
+  entity_id: "sensor.hp_flow_cool",
+  state: "16.2",
+  attributes: { friendly_name: "Flow (cooling)", unit_of_measurement: "°C", device_class: "temperature" },
+};
+window.demoStates["sensor.hp_return_cool"] = {
+  entity_id: "sensor.hp_return_cool",
+  state: "19.8",
+  attributes: { friendly_name: "Return (cooling)", unit_of_measurement: "°C", device_class: "temperature" },
+};
+window.demoStates["climate.circuit_cool"] = {
+  entity_id: "climate.circuit_cool",
+  state: "cool",
+  attributes: {
+    friendly_name: "Cooling circuit",
+    hvac_modes: ["off", "auto", "heat", "cool"],
+    hvac_action: "cooling",
+    current_temperature: 25.4,
+    temperature: 23.0,
+    min_temp: 15,
+    max_temp: 30,
+    target_temp_step: 0.5,
+  },
+};
 window.demoStates["sensor.solar_flow_temperature"] = {
   entity_id: "sensor.solar_flow_temperature",
   state: "58.2",

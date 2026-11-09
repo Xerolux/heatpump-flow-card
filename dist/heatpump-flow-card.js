@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.13.0";
+const CARD_VERSION = "1.14.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -1540,8 +1540,17 @@ function heatPumpMode(hass, cfg) {
   return heatPumpRunning(hass, cfg) ? "heat" : "idle";
 }
 
-function heatPumpRunning(hass, cfg) {
-  if (cfg.state_entity && cfg.state_entity.entity) return isActive(hass, cfg.state_entity);
+/**
+ * Whether the plant cools right now. An explicit `cooling` signal beats
+ * everything (the way `defrost` does); otherwise the mode says it - a status
+ * or mode text of "Kühlen"/"cooling" is exactly what the heat pump reports.
+ */
+function heatPumpCooling(hass, cfg) {
+  if (cfg.cooling && cfg.cooling.entity) return isActive(hass, cfg.cooling);
+  return heatPumpMode(hass, cfg) === "cool";
+}
+
+function heatPumpRunning(hass, cfg) {  if (cfg.state_entity && cfg.state_entity.entity) return isActive(hass, cfg.state_entity);
   if (cfg.power && cfg.power.entity) {
     const value = powerWatts(hass, cfg.power);
     if (value !== null) return value > (cfg.power_threshold === undefined ? 20 : cfg.power_threshold);
@@ -1857,6 +1866,11 @@ function drawHeatPump(scene, box, cfg) {
     });
   }
 
+  // While the plant cools, the fan ring turns cool blue.
+  scene.add(() => {
+    group.classList.toggle("hpfc-cooling", heatPumpCooling(scene.hass(), cfg));
+  });
+
   // Second heat generator: the bit that quietly switches in on cold days
   if (cfg.aux_heat || cfg.aux_heat_power) {
     const auxY = box.y + baseH - 58;
@@ -1937,7 +1951,11 @@ function drawHeatPump(scene, box, cfg) {
     if (fan) fan.inner.style.animationDuration = `${duration}s`;
   });
 
-  return { group, running: (hass) => heatPumpRunning(hass, cfg) };
+  return {
+    group,
+    running: (hass) => heatPumpRunning(hass, cfg),
+    cooling: (hass) => heatPumpCooling(hass, cfg),
+  };
 }
 
 /**
@@ -3258,6 +3276,31 @@ function circuitRunning(scene, cfg) {
   };
 }
 
+/**
+ * Whether a running circuit cools rather than heats. The precedence mirrors
+ * `circuitRunning`: what a climate entity reports (`hvac_action: cooling`)
+ * decides, then the mode's own wording, and a circuit without any signal of
+ * its own follows the plant.
+ */
+function circuitCooling(scene, cfg, running) {
+  const coolWords = MODE_PATTERNS.find(([mode]) => mode === "cool")[1];
+  return (hass) => {
+    if (!running(hass)) return false;
+    if (cfg.entity) {
+      const st = hass.states[cfg.entity];
+      const action = st && st.attributes ? st.attributes.hvac_action : undefined;
+      if (action !== undefined && action !== null && action !== "") {
+        return String(action).toLowerCase() === "cooling";
+      }
+    }
+    if (cfg.mode && cfg.mode.entity) {
+      const raw = String(rawValue(hass, cfg.mode) || "").toLowerCase();
+      if (raw) return coolWords.some((word) => raw.includes(word));
+    }
+    return scene.flags.heatpumpCooling ? scene.flags.heatpumpCooling(hass) : false;
+  };
+}
+
 function drawCircuit(scene, box, cfg) {
   const texts = textsFor(scene.hass());
   const fallbackName =
@@ -3348,11 +3391,15 @@ function drawCircuit(scene, box, cfg) {
     temp: cfg.flow_temp || cfg.room_temp,
   });
 
+  const cooling = circuitCooling(scene, cfg, running);
   scene.add(() => {
     group.classList.toggle("hpfc-running", running(scene.hass()));
+    // While the circuit cools, its waves fall and turn blue - the same
+    // emitter, telling the opposite story.
+    group.classList.toggle("hpfc-cooling", cooling(scene.hass()));
   });
 
-  return { group, running };
+  return { group, running, cooling };
 }
 
 function drawDhw(scene, box, cfg) {
@@ -3552,6 +3599,7 @@ const SECTION_FIELDS = {
     "aux_heat",
     "aux_heat_power",
     "defrost",
+    "cooling",
     "flow_rate",
     "alarm",
     "message",
@@ -4003,6 +4051,7 @@ function buildScene(card) {
   // ---- nodes ------------------------------------------------------------
   const heatpump = drawHeatPump(scene, { x: hpX, y: hpY, w: G.hp.w, h: hpHeight }, config.heatpump);
   scene.flags.heatpumpRunning = heatpump.running;
+  scene.flags.heatpumpCooling = heatpump.cooling;
 
   let woodStove = null;
   if (config.wood_stove) {
@@ -4779,6 +4828,15 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-emitter-box { fill: rgba(127, 127, 127, 0.16); stroke: var(--hpfc-stroke); }
 .hpfc-wave { stroke: var(--hpfc-emitter-color, #38bdf8); stroke-width: 2.5; stroke-linecap: round; }
 
+/* cooling ---------------------------------------------------------------- */
+/* The pipes carry their colour from the temperatures they read, so cold water
+   is blue already; the emitters tell the rest: while a circuit cools, its
+   waves fall and turn the cool blue of the drawing. */
+.hpfc-heatpump.hpfc-cooling .hpfc-fan-ring { stroke: #38bdf8; }
+.hpfc-circuit.hpfc-cooling { --hpfc-emitter-color: #38bdf8; }
+.hpfc-circuit.hpfc-cooling .hpfc-heatwave,
+.hpfc-circuit.hpfc-cooling .hpfc-wave { animation-direction: reverse; }
+
 /* pump & valve ---------------------------------------------------------- */
 .hpfc-pump-body { fill: var(--hpfc-surface); stroke: var(--hpfc-stroke); stroke-width: 1.5; transition: stroke 0.5s ease; }
 .hpfc-vane { fill: var(--hpfc-muted); transition: fill 0.5s ease; }
@@ -5285,6 +5343,7 @@ const EDITOR_TEXTS = {
     ref_circuit: "Show the refrigerant circuit",
     fan: "Outdoor unit fan (off for brine or water)",
     defrost: "Defrosting (binary sensor)",
+    cooling: "Cooling (binary sensor) - forces the cooling look",
     heater: "Element in the tank",
     heater_power: "Element power",
     heater_temp: "Element temperature",
@@ -5391,6 +5450,7 @@ const EDITOR_TEXTS = {
     ref_circuit: "Kältekreis anzeigen",
     fan: "Ventilator des Außengeräts (aus für Sole oder Wasser)",
     defrost: "Abtauen (Binärsensor)",
+    cooling: "Kühlen (Binärsensor) – erzwingt die Kühl-Darstellung",
     heater: "Heizstab im Speicher",
     heater_power: "Leistung des Heizstabs",
     heater_temp: "Temperatur des Heizstabs",
@@ -5474,6 +5534,7 @@ const EDITOR_SECTIONS = {
     "aux_heat",
     "aux_heat_power",
     "defrost",
+    "cooling",
     "flow_rate",
     "alarm",
     "message",

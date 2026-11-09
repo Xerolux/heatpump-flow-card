@@ -42,6 +42,7 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `ref_suction_temp` | Sauggastemperatur, Punkt 4 |
 | `ref_circuit` | `false` blendet den Kältekreis aus. Standardmäßig wird er gezeichnet, sobald einer der vier Sensoren gesetzt ist |
 | `defrost` | Binärsensor, der die Abtau-Darstellung erzwingt, wenn der Statustext sie nicht hergibt |
+| `cooling` | Binärsensor, der die Kühl-Darstellung erzwingt – ohne ihn genügt ein Status- oder Modustext „Kühlen“/“cooling“ (siehe unten) |
 | `flow_rate` | Durchfluss durch die Wärmepumpe, als Pille unter der Vorlauftemperatur |
 | `power` | Leistung, neben dem Außengerät |
 | `thermal_power` | Thermische Leistung, eigenes Readout – ein plain Sensor oder `{ calculate: true, power: sensor.wp_leistung, cop: sensor.cop }` rechnet sie aus Aufnahme mal COP |

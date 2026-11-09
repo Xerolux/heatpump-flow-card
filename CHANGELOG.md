@@ -21,6 +21,32 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-11-09
+
+### Added
+
+- **The card can draw cooling.** Until now a cooling heat pump kept its
+  heating costume: the pipes happened to turn cold (they follow the
+  temperatures they carry), but the emitters kept rising red heat waves and
+  nothing said what the plant was doing. Now:
+  - **Detection needs no new wiring.** A status or mode text of
+    “cooling”/“Kühlen” is enough — the way defrost is recognized — and a
+    `climate` circuit that answers `hvac_action: cooling` reports itself. An
+    explicit `heatpump.cooling` binary sensor forces the look when a
+    controller has no wording for it.
+  - **While a circuit cools, its waves fall and turn cool blue** instead of
+    rising red; the heat pump's fan ring turns blue with it. A circuit
+    without a signal of its own follows the plant, exactly as it does for
+    heating — and a stopped pump still means nothing flows.
+  - The demo gains a cooling view (`preview.html?layout=cooling`) and a
+    screenshot in both READMEs, and the overlap check renders it.
+
+### Maintenance
+
+- The circuits' documentation now says how cooling is recognized: precedence
+  mirrors `running` — `hvac_action` beats the mode's wording, and a mode
+  alone says what the circuit was told, not what it does.
+
 ## [1.13.0] - 2026-11-09
 
 ### Fixed
@@ -732,7 +758,8 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.13.0...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.0...v1.11.1

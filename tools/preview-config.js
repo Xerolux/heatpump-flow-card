@@ -214,6 +214,24 @@ window.previewConfigs = {
     },
     circuits: [underfloor],
   },
+  cooling: {
+    type: "custom:heatpump-flow-card",
+    layout: "direct-dual",
+    title: "Cooling",
+    heatpump: {
+      ...heatpump,
+      status: "sensor.hp_status_cool",
+      flow_temp: "sensor.hp_flow_cool",
+      return_temp: "sensor.hp_return_cool",
+    },
+    buffer: false,
+    circuits: [
+      // reports what it does: hvac_action "cooling"
+      { name: "Cooling circuit", type: "fancoil", entity: "climate.circuit_cool", flow_temp: "sensor.hp_flow_cool" },
+      // without a signal of its own it follows the plant
+      { ...underfloor, mode: undefined, entity: undefined, pump: "binary_sensor.circuit_a_pump", flow_temp: "sensor.hp_flow_cool" },
+    ],
+  },
   dual: {
     type: "custom:heatpump-flow-card",
     layout: "dual",

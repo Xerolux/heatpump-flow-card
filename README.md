@@ -92,6 +92,10 @@ the layout brings.
 
 ![full](docs/images/full.png)
 
+**Cooling — the same plant on a summer day: cold colours, falling blue waves**
+
+![cooling](docs/images/cooling.png)
+
 **`direct-dhw` — no buffer tank: the heat pump feeds the distributor directly,
 here with four circuits including a fan coil and a pool**
 
@@ -336,6 +340,7 @@ readable, so on a 4K or 8K panel it stops there and centres instead.
 | `reason`, `smart_grid`, `cycles_today`, `defrosts_today` | Status strip below the plant: why it runs, the SG-Ready state, the day's compressor and defrost starts |
 | `cop` (long form) | `{ calculate: true, thermal_power: sensor.heat_output, power: sensor.hp_power }` computes the COP in the card from two meters; `decimals` optional (default 2). A plain COP sensor still works |
 | `fan` | `false` for a brine-to-water or water-to-water unit: no outdoor fan is drawn — two brine ports instead — and defrost vapour stays hidden |
+| `cooling` | Binary sensor forcing the cooling look; without it a status/mode text of “cooling” suffices — the pipes carry their cold colours, the emitters' waves fall in cool blue and the fan ring turns blue |
 | `flow_temp`, `return_temp` | Colour and label the pipes to the tank |
 | `power_threshold` | Watts above which the heat pump counts as running (default `20`) |
 

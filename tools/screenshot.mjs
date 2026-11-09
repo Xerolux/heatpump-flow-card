@@ -8,7 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(here, "..", "docs", "images");
 mkdirSync(out, { recursive: true });
 
-const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "advanced", "circuits", "extras", "electrics", "energy-flow", "energy-hub"];
+const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "cooling", "advanced", "circuits", "extras", "electrics", "energy-flow", "energy-hub"];
 const candidate = process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium";
 const browser = await chromium.launch(existsSync(candidate) ? { executablePath: candidate } : {});
 const errors = [];

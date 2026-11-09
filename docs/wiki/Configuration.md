@@ -40,6 +40,7 @@ empty, a section you set to `false` is not drawn at all.
 | `ref_suction_temp` | Refrigerant suction gas temperature, point 4 |
 | `ref_circuit` | `false` hides the refrigerant circuit. It is drawn by default as soon as one of the four sensors above is set |
 | `defrost` | Binary sensor that forces the defrost look, if the status text does not say it |
+| `cooling` | Binary sensor that forces the cooling look — without it, a status or mode text of “cooling”/“Kühlen” is enough (see below) |
 | `flow_rate` | Flow rate through the heat pump, as a badge under the flow temperature |
 | `power` | Electrical or thermal power, shown next to the unit |
 | `thermal_power` | Thermal output, its own readout — a plain meter, or `{ calculate: true, power: sensor.hp_power, cop: sensor.hp_cop }` computes it from the draw times the COP |

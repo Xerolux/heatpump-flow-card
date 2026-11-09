@@ -94,6 +94,10 @@ was das Layout mitbringt.
 
 ![full](docs/images/full.png)
 
+**Kühlen – dieselbe Anlage an einem Sommertag: kalte Farben, fallende blaue Wellen**
+
+![kühlen](docs/images/cooling.png)
+
 **`direct-dhw` – ohne Pufferspeicher: die Wärmepumpe speist den Verteiler
 direkt, hier mit vier Kreisen inklusive Gebläsekonvektor und Pool**
 
@@ -345,6 +349,7 @@ Designgröße würde die Zeichnung nur größer, nicht lesbarer – auf einem 4K
 | `reason`, `smart_grid`, `cycles_today`, `defrosts_today` | Statusleiste unter der Anlage: warum sie läuft, der SG-Ready-Status, die Verdichter- und Abtaustarts des Tages |
 | `cop` (Langform) | `{ calculate: true, thermal_power: sensor.heizleistung, power: sensor.wp_leistung }` rechnet die Arbeitszahl direkt in der Karte aus zwei Zählern; `decimals` optional (Standard 2). Ein einfacher COP-Sensor bleibt unterstützt |
 | `fan` | `false` für Sole/Wasser- oder Wasser/Wasser-Geräte: kein Außengerät-Ventilator — stattdessen zwei Sole-Anschlüsse — und kein Abtau-Dampf |
+| `cooling` | Binärsensor, der die Kühl-Darstellung erzwingt; ohne ihn genügt ein Status-/Modustext „Kühlen“ — die Rohre tragen ihre kalten Farben, die Wellen der Emitter fallen kühlblau, der Ventilatorring wird blau |
 | `flow_temp`, `return_temp` | Färben und beschriften die Rohre zum Speicher |
 | `power_threshold` | Watt, ab denen die Wärmepumpe als laufend gilt (Standard `20`) |
 
