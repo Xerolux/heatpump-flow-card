@@ -72,8 +72,8 @@ tank flow.
 | `entity` | Tapping the tank operates this entity |
 | `top`, `middle`, `bottom` | Layer temperatures — they fill the tank with a gradient and print as pills |
 | `charge` | Charge level, printed under the name |
-| `heater` | Electric element inside the tank — glows while it draws power, tap to operate |
-| `heater_power` | Its power, printed under the element |
+| `heater` | Electric element inside the tank — glows while it draws power, tap to operate. Can be the power sensor itself, with a `threshold` in watts |
+| `heater_power` | Its power, printed under the element — and on its own already enough to draw it |
 | `heater_temp` | Its own temperature, printed next to the power |
 | `heater_mode` | Off / automatic / boost — takes over the tap on the element |
 
@@ -82,6 +82,10 @@ The element's caption carries its `heater_mode` next to the name. A plain
 to run, which the glow and the wattage already answer, so only its *off* state
 is written out. A `select` or `climate` mode is always shown, because named
 options carry something the drawing cannot.
+
+Any one of the four fields draws the element — a plant whose only feedback is
+the AC-Thor's power meter sets `heater_power` alone and still sees the rod,
+glowing above `heater_power.threshold` watts (any positive value by default).
 
 
 Configure only `top` and `bottom` and the tank shows two pills; configure none
@@ -99,6 +103,7 @@ the circuits.
 | `mode` | Operating mode chip (`select` or `water_heater`) |
 | `boost` | Extra chip for a one-time charge (`button` or `switch`) |
 | `pump` | Charging pump |
+| `flow_rate` | Litres per minute through the fresh-water station, as a badge under the tank's inlet that pulses while water is drawn. Above 0.5 l/min (or `threshold`) the tank counts as running |
 | `charge` | Charge level |
 
 ## pv and solar

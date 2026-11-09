@@ -191,6 +191,11 @@ window.demoStates["sensor.hp_flow_rate"] = {
   state: "18.4",
   attributes: { friendly_name: "Flow rate", unit_of_measurement: "l/min" },
 };
+window.demoStates["sensor.dhw_flow_rate"] = {
+  entity_id: "sensor.dhw_flow_rate",
+  state: "7.2",
+  attributes: { friendly_name: "Hot water flow", unit_of_measurement: "l/min" },
+};
 window.demoStates["sensor.solar_flow_temperature"] = {
   entity_id: "sensor.solar_flow_temperature",
   state: "58.2",

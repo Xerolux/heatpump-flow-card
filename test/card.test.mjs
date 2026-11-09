@@ -288,6 +288,7 @@ test("the editor keeps tank element and circuit humidity fields", async () => {
       type: "custom:heatpump-flow-card",
       layout: "full",
       dhw: {
+        flow_rate: "sensor.dhw_flow_rate",
         heater: "switch.dhw_element",
         heater_power: { entity: "sensor.dhw_element_power", decimals: 0 },
         heater_temp: "sensor.dhw_element_temperature",
@@ -311,6 +312,7 @@ test("the editor keeps tank element and circuit humidity fields", async () => {
   for (const field of ["heater", "heater_power", "heater_temp", "heater_mode"]) {
     assert.ok(result.dhwFields.includes(field), `domestic hot water editor is missing ${field}`);
   }
+  assert.ok(result.dhwFields.includes("flow_rate"), "domestic hot water editor is missing flow_rate");
   assert.ok(result.circuitFields.includes("humidity"));
   assert.equal(result.roundTrip.dhw.heater, "switch.dhw_element");
   assert.deepEqual(result.roundTrip.dhw.heater_power, {
@@ -1117,6 +1119,98 @@ test("an element without a mode is switched by tapping it", async () => {
   assert.deepEqual(calls, [
     { domain: "homeassistant", service: "toggle", data: { entity_id: "switch.tank_heater" } },
   ]);
+});
+
+test("an element with only a power meter is drawn and glows above its threshold", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "single",
+      heatpump: {},
+      buffer: {
+        top: "sensor.buffer_top",
+        bottom: "sensor.buffer_bottom",
+        // no switch, no mode - the AC-Thor's meter is the only feedback
+        heater_power: { entity: "sensor.ac_thor_power", threshold: 100 },
+      },
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    const read = (watts, unit) => {
+      card.hass = {
+        ...hass,
+        states: {
+          ...hass.states,
+          "sensor.ac_thor_power": {
+            state: String(watts),
+            attributes: { unit_of_measurement: unit },
+          },
+        },
+      };
+      const heater = card.shadowRoot.querySelector(".hpfc-heater");
+      return {
+        drawn: Boolean(heater),
+        running: heater && heater.classList.contains("hpfc-on"),
+        value: heater && heater.querySelector(".hpfc-heater-value").textContent,
+      };
+    };
+    const at1800W = read(1800, "W");
+    const at50W = read(50, "W"); // below the threshold: drawn, but not glowing
+    const at09kW = read(0.9, "kW"); // a kW meter counts as 900 W
+    card.remove();
+    return { at1800W, at50W, at09kW };
+  });
+  assert.deepEqual(result.at1800W, { drawn: true, running: true, value: "1,800 W" });
+  assert.deepEqual(result.at50W, { drawn: true, running: false, value: "50 W" });
+  assert.deepEqual(result.at09kW, { drawn: true, running: true, value: "0.9 kW" });
+});
+
+test("the hot water litres appear as a badge and run the tank while water is drawn", async () => {
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dhw",
+      heatpump: {},
+      buffer: { top: "sensor.buffer_top", bottom: "sensor.buffer_bottom" },
+      dhw: {
+        temp: "sensor.dhw_temperature",
+        flow_rate: "sensor.dhw_flow_rate",
+      },
+      circuits: [{ type: "radiator" }],
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    const read = (litres) => {
+      card.hass = {
+        ...hass,
+        states: {
+          ...hass.states,
+          "sensor.dhw_flow_rate": {
+            state: String(litres),
+            attributes: { unit_of_measurement: "l/min" },
+          },
+          // the circulation pump rests while water is drawn from the tap
+          "binary_sensor.dhw_pump": { state: "off", attributes: {} },
+        },
+      };
+      const root = card.shadowRoot;
+      const badge = root.querySelector('[data-part="dhw-flow"]');
+      return {
+        badge: Boolean(badge),
+        value: badge && badge.querySelector("text").textContent,
+        flowing: badge && badge.classList.contains("hpfc-flowing"),
+        tankRunning: root.querySelector(".hpfc-dhw").classList.contains("hpfc-running"),
+      };
+    };
+    const drawing = read(7.4);
+    const closed = read(0.2); // below the deadband: quiet tank, plain badge
+    card.remove();
+    return { drawing, closed };
+  });
+  assert.deepEqual(result.drawing, { badge: true, value: "7.4 l/min", flowing: true, tankRunning: true });
+  assert.deepEqual(result.closed, { badge: true, value: "0.2 l/min", flowing: false, tankRunning: false });
 });
 
 test("the solar circuit shows what it sends and what comes back", async () => {

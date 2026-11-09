@@ -74,8 +74,8 @@ fließen.
 | `entity` | Klick auf den Speicher bedient diese Entität |
 | `top`, `middle`, `bottom` | Schichttemperaturen – füllen den Speicher mit Verlauf und erscheinen als Pillen |
 | `charge` | Ladezustand, unter dem Namen |
-| `heater` | Heizstab im Speicher – glüht, solange er Leistung zieht, Klick bedient ihn |
-| `heater_power` | Dessen Leistung, unter dem Heizstab |
+| `heater` | Heizstab im Speicher – glüht, solange er Leistung zieht, Klick bedient ihn. Darf auch der Leistungssensor selbst sein, mit `threshold` in Watt |
+| `heater_power` | Dessen Leistung, unter dem Heizstab – und allein schon genug, um ihn zu zeichnen |
 | `heater_temp` | Seine eigene Temperatur, neben der Leistung |
 | `heater_mode` | Aus / Automatik / Boost – übernimmt den Klick auf den Heizstab |
 
@@ -86,6 +86,11 @@ wird nur sein *Aus* ausgeschrieben. Eine `select`- oder `climate`-Betriebsart
 steht immer da, weil benannte Optionen etwas tragen, das die Zeichnung nicht
 zeigen kann.
 
+Jedes der vier Felder zeichnet den Heizstab bereits – eine Anlage, deren einzige
+Rückmeldung das Leistungsmesser des AC-Thor ist, setzt nur `heater_power` und
+sieht den Stab trotzdem, glühend ab `heater_power.threshold` Watt (standardmäßig
+jeder positive Wert).
+
 
 Nur `top` und `bottom` konfiguriert → zwei Pillen. Gar nichts → drei leere.
 `buffer: false` verrohrt die Wärmepumpe direkt auf die Heizkreise.
@@ -93,8 +98,10 @@ Nur `top` und `bottom` konfiguriert → zwei Pillen. Gar nichts → drei leere.
 ## dhw
 
 `name`, `entity`, `temp`, `target_temp` (Klick öffnet das Stellfeld), `mode`
-(Betriebsart-Chip), `boost` (Chip für die Einmalladung), `pump`, `charge`,
-`heater`, `heater_power`.
+(Betriebsart-Chip), `boost` (Chip für die Einmalladung), `pump`,
+`flow_rate` (Liter pro Minute durch die Warmwasserstation, als Badge unter
+dem Tanks-Einlass; über 0,5 l/min – oder `threshold` – zählt der Tank als
+laufend, während Wasser gezapft wird), `charge`, `heater`, `heater_power`.
 
 ## pv und solar
 

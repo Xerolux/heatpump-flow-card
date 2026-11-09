@@ -29,6 +29,16 @@ buffer:
   name: Buffer tank
   top: sensor.idm_heatpump_storage_tank_temperature
   bottom: sensor.idm_heatpump_cold_storage_temperature
+  # An electric element in the tank - here a my-PV AC-Thor on its own
+  # integration. Any one of these fields draws the rod; `heater` can be the
+  # power sensor itself with a threshold in watts, and the element glows
+  # while it draws.
+  heater:
+    entity: sensor.ac_thor_power
+    threshold: 20
+  heater_power: sensor.ac_thor_power
+  heater_temp: sensor.ac_thor_temp1
+  heater_mode: switch.ac_thor_betriebsmodus
 
 dhw:
   name: Hot water
@@ -36,6 +46,9 @@ dhw:
   mode: water_heater.idm_heatpump
   temp: sensor.idm_heatpump_dhw_temp_top
   target_temp: number.idm_heatpump_dhw_setpoint
+  # Litres through the fresh-water station while someone draws water - shown
+  # as a badge under the tank's inlet, pulsing while the tap is open.
+  flow_rate: sensor.idm_heatpump_hotwater_station_flow_web
   boost: switch.idm_heatpump_demand_onetime_dhw
 
 pv:

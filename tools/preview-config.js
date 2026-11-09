@@ -91,6 +91,7 @@ window.previewConfigs = {
       temp: "sensor.dhw_temperature",
       target_temp: "number.dhw_setpoint",
       pump: "binary_sensor.dhw_pump",
+      flow_rate: "sensor.dhw_flow_rate",
       boost: "button.dhw_boost",
     },
     circuits: [radiators, underfloor],
@@ -221,6 +222,7 @@ window.previewConfigs = {
       temp: "sensor.dhw_temperature",
       target_temp: "number.dhw_setpoint",
       pump: "binary_sensor.dhw_pump",
+      flow_rate: "sensor.dhw_flow_rate",
       boost: "button.dhw_boost",
     },
     pv: {

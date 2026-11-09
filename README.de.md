@@ -225,11 +225,14 @@ schlecht erklären kann:
   `compressor`, wenn gesetzt, sonst nach dem Zustand der Wärmepumpe. Ein Sensor
   genügt, um ihn anzuzeigen; fehlende bleiben leer, und mit `ref_circuit: false`
   ist er wieder aus.
-* **Ein Heizstab im Speicher.** `heater` und `heater_power` bei `buffer` oder
-  `dhw` zeichnen einen Heizstab in den Speicher – ein my-PV AC-Thor, ein
-  Booster, eine Notheizung –, der glüht, solange er Leistung zieht,
-  beschriftet mit Namen, Leistung und – über `heater_temp` – seiner eigenen
-  Temperatur. Mit `heater_mode` bietet ein Klick Aus / Automatik / Boost an.
+* **Ein Heizstab im Speicher.** Ein Heizstab bei `buffer` oder `dhw` – ein my-PV
+  AC-Thor, ein Booster, eine Notheizung – wird gezeichnet, sobald *eines* der
+  Felder `heater`, `heater_power`, `heater_temp`, `heater_mode` gesetzt ist:
+  Eine Anlage, deren einzige Rückmeldung das Leistungsmesser des Stabs ist,
+  setzt nur `heater_power`. Er glüht, solange er Leistung zieht (ab
+  `heater_power.threshold` Watt), beschriftet mit Namen, Leistung und – über
+  `heater_temp` – seiner eigenen Temperatur. Mit `heater_mode` bietet ein Klick
+  Aus / Automatik / Boost an.
 
 ```yaml
 heatpump:
@@ -356,7 +359,12 @@ die Heizkreise direkt.
 
 ### `dhw`
 
-`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`, `mode`, `boost`
+`name`, `entity`, `temp`, `target_temp`, `charge`, `pump`, `flow_rate`, `mode`,
+`boost`, `heater`, `heater_power`
+
+`flow_rate` sind die Liter pro Minute der Warmwasserstation – eine Badge unter
+dem Tanks-Einlass, die pulsiert, während Wasser gezapft wird; über 0,5 l/min
+(oder `threshold`) zählt der Tank als laufend.
 
 ### `pv` / `solar`
 
