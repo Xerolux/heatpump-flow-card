@@ -33,7 +33,9 @@ live values right where they belong on the drawing.
   YAML too.
 * **Nothing is mandatory.** Leave a sensor out and the card simply draws that
   spot empty instead of breaking.
-* German and English labels, light and dark theme, and it respects
+* German and English labels — plus French, Italian, Dutch and Polish since
+  1.15.0, with English as the fallback for anything a translation has not
+  reached yet — light and dark theme, and it respects
   `prefers-reduced-motion`.
 
 ## Layouts
@@ -62,6 +64,13 @@ own block or removed with `false`.
 | `direct` | | | | | 1 |
 | `direct-dual` | | | | | 2 |
 | `direct-dhw` | | ● | | | 2 |
+| `narrow` | ● | ○ | | | 2 |
+
+`narrow` stacks the plant in one column — heat pump and tank at the top, hot
+water and the circuits below — for dashboard columns half a phone wide. ○ means
+it is there as soon as you configure it; a narrow card with photovoltaics,
+solar thermal or a wood stove falls back to the wide scene, because those need
+the width.
 
 Up to **seven** circuits are supported (A–G) — `circuits:` wins over whatever
 the layout brings.
@@ -92,9 +101,15 @@ the layout brings.
 
 ![full](docs/images/full.png)
 
-**Cooling — the same plant on a summer day: cold colours, falling blue waves**
+**Cooling — the same plant on a summer day: cold colours, falling blue waves —
+here passively, so the fan stands still and an EER replaces the COP**
 
 ![cooling](docs/images/cooling.png)
+
+**`narrow` — the same plant in one column, for dashboard columns half a phone
+wide**
+
+![narrow](docs/images/narrow.png)
 
 **`direct-dhw` — no buffer tank: the heat pump feeds the distributor directly,
 here with four circuits including a fan coil and a pool**
@@ -339,6 +354,11 @@ readable, so on a 4K or 8K panel it stops there and centres instead.
 | `alarm`, `message` | A fault turns the panel's frame red; the controller's wording lands in the status strip below the plant |
 | `reason`, `smart_grid`, `cycles_today`, `defrosts_today` | Status strip below the plant: why it runs, the SG-Ready state, the day's compressor and defrost starts |
 | `cop` (long form) | `{ calculate: true, thermal_power: sensor.heat_output, power: sensor.hp_power }` computes the COP in the card from two meters; `decimals` optional (default 2). A plain COP sensor still works |
+| `eer` | The cooling twin of the COP — a plain sensor, or `{ calculate: true, power: …, thermal_power: … }` from two meters |
+| `passive_cooling` | Binary sensor (or a status text of “natural/passive cooling”) — the fan stands still and the waves fall gently, because no compressor is running |
+| `energy_thermal`, `energy_electric` | The day's balance as status chips: a plain today-counter (kWh), or `{ entity: <lifetime total>, today: true }` sums the recorder's buckets since midnight |
+| `spf` (or `jaz`) | The seasonal performance factor as a status chip: `{ thermal: <kWh counter>, electric: <kWh counter>, period: day\|week\|month\|year }` — one energy sum over another |
+| `sparkline` (long form) | `sparkline: true` (or `{ hours: n }`, 1–168) on any numeric value draws its recent history as a quiet curve behind the readout — the recorder's hourly statistics, or a ring buffer of live readings while there are none. A calculated COP divides its two series bucket by bucket |
 | `fan` | `false` for a brine-to-water or water-to-water unit: no outdoor fan is drawn — two brine ports instead — and defrost vapour stays hidden |
 | `cooling` | Binary sensor forcing the cooling look; without it a status/mode text of “cooling” suffices — the pipes carry their cold colours, the emitters' waves fall in cool blue and the fan ring turns blue |
 | `flow_temp`, `return_temp` | Colour and label the pipes to the tank |
@@ -502,9 +522,17 @@ heatpump:
     decimals: 0
     unit: W
     attribute: null        # read an attribute instead of the state
+    sparkline: true        # draw the last 24 h behind the value
     tap_action:
       action: more-info
 ```
+
+`sparkline` (or `sparkline: { hours: 12 }`) pulls the field's hourly
+long-term statistics from the recorder and draws them behind label and value;
+while the statistics are missing the card keeps its own minute-by-minute
+record. A hover on the curve names the window, the average and the range. A
+field fed by a whole string of entities draws no curve — there is no single
+series to plot.
 
 `tap_action` and `hold_action` follow the usual Home Assistant action syntax
 (`more-info`, `toggle`, `navigate`, `url`, `perform-action`, `none`) and can be
@@ -525,7 +553,7 @@ red-flow / blue-return scheme.
   in your browser, no Home Assistant needed
 * **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** — installation,
   every option, controls, troubleshooting, development
-* **[Examples](examples)** — ten ready-made configurations, including a whole
+* **[Examples](examples)** — fourteen ready-made configurations, including a whole
   dashboard view
 
 ## Development

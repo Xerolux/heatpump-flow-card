@@ -220,7 +220,10 @@ window.previewConfigs = {
     title: "Cooling",
     heatpump: {
       ...heatpump,
-      status: "sensor.hp_status_cool",
+      status: "sensor.hp_status_passive",
+      passive_cooling: "binary_sensor.hp_passive_cooling",
+      cop: undefined,
+      eer: { calculate: true, power: "sensor.hp_power", thermal_power: "sensor.hp_thermal_power", sparkline: true },
       flow_temp: "sensor.hp_flow_cool",
       return_temp: "sensor.hp_return_cool",
     },
@@ -246,7 +249,16 @@ window.previewConfigs = {
     title: "Heating plant",
     heatpump: {
       ...heatpump,
-      thermal_power: "sensor.hp_thermal_power",
+      power: { entity: "sensor.hp_power", sparkline: true },
+      thermal_power: { entity: "sensor.hp_thermal_power", sparkline: true },
+      outside_temp: { entity: "sensor.outside_temperature", day_min_max: true },
+      energy_thermal: "sensor.hp_energy_thermal_today",
+      energy_electric: "sensor.hp_energy_electric_today",
+      spf: {
+        thermal: "sensor.hp_thermal_energy_total",
+        electric: "sensor.hp_electric_energy_total",
+        period: "year",
+      },
       reason: "sensor.hp_reason",
       smart_grid: "sensor.hp_smart_grid",
       cycles_today: "sensor.hp_cycles_today",
@@ -384,4 +396,15 @@ window.previewConfigs["energy-hub"] = {
     flow_threshold: 25, consumers: [{ entity: "sensor.hub_airco", name: "Airco" }],
   },
   circuits: [underfloor],
+};
+
+// One column: the plant stacked, for dashboard columns half a phone wide.
+window.previewConfigs.narrow = {
+  type: "custom:heatpump-flow-card",
+  layout: "narrow",
+  title: "Heating plant, one column",
+  heatpump: window.previewConfigs.full.heatpump,
+  buffer,
+  dhw: window.previewConfigs.full.dhw,
+  circuits: [radiators, underfloor],
 };

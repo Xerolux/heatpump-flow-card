@@ -41,11 +41,13 @@ empty, a section you set to `false` is not drawn at all.
 | `ref_circuit` | `false` hides the refrigerant circuit. It is drawn by default as soon as one of the four sensors above is set |
 | `defrost` | Binary sensor that forces the defrost look, if the status text does not say it |
 | `cooling` | Binary sensor that forces the cooling look — without it, a status or mode text of “cooling”/“Kühlen” is enough (see below) |
+| `passive_cooling` | Binary sensor (or a status text of “natural/passive cooling” / „natürliche oder passive Kühlung“) — the fan stands still and the waves fall gently: no compressor is running, only the cold is carried |
 | `flow_rate` | Flow rate through the heat pump, as a badge under the flow temperature |
 | `power` | Electrical or thermal power, shown next to the unit |
 | `thermal_power` | Thermal output, its own readout — a plain meter, or `{ calculate: true, power: sensor.hp_power, cop: sensor.hp_cop }` computes it from the draw times the COP |
 | `cop` | Efficiency / COP |
-| `outside_temp` | Outdoor temperature |
+| `eer` | The cooling twin of the COP — a plain sensor, or the same `{ calculate: true, power: …, thermal_power: … }` long form. Carries a sparkline like any numeric field |
+| `outside_temp` | Outdoor temperature. In long form, `day_min_max: true` adds the day's range as a status chip |
 | `compressor` | Compressor load in percent — also sets the fan speed |
 | `flow_temp` | Flow temperature: badge and pipe colour towards the tank |
 | `return_temp` | Return temperature: badge and pipe colour back from the tank |
@@ -54,13 +56,17 @@ empty, a section you set to `false` is not drawn at all.
 | `reason` | Why the plant runs right now — the demand reason, as a chip in the status strip |
 | `smart_grid` | SG-Ready / smart-grid state as a chip in the status strip |
 | `cycles_today`, `defrosts_today` | The day's compressor starts and defrost starts, as small diagnostic pills in the status strip |
+| `energy_thermal`, `energy_electric` | The day's balance as status chips: a plain today-counter in kWh shows its value, or `{ entity: <lifetime counter>, today: true }` sums the recorder's buckets since midnight |
+| `spf` | The seasonal performance factor as a status chip: `{ thermal: <kWh counter>, electric: <kWh counter>, period: day\|week\|month\|year }` (alias `jaz`). One energy sum over another, from the recorder |
 | `power_threshold` | Watts above which the heat pump counts as running (default `20`) |
 
 The status strip is the slim row below the plant. It only exists when at least
 one of `alarm`, `message`, `reason`, `smart_grid`, `cycles_today`,
-`defrosts_today` is configured, and the fault chip appears only while a fault
-is actually reported — a message that says there is nothing to report counts as
-quiet. Every chip opens the more-info dialog of its entity.
+`defrosts_today`, `energy_thermal`, `energy_electric`, `spf` or an outside
+temperature with `day_min_max` is configured, and the fault chip appears only
+while a fault is actually reported — a message that says there is nothing to
+report counts as quiet. Every chip opens the more-info dialog of its entity,
+and the statistics chips say nothing at all while the recorder has no answer.
 
 `cop` takes the long form too: `{ calculate: true, thermal_power: sensor.heat_output, power: sensor.hp_power }`
 divides the thermal output by the electrical draw, both normalized to watts, so
@@ -322,6 +328,7 @@ power:
   decimals: 0          # digits after the decimal point
   unit: W              # overrides the unit
   attribute: null      # read an attribute instead of the state
+  sparkline: true      # the last 24 h as a curve behind the value
   tap_action: ...      # see Controls
   hold_action: ...
 ```
@@ -330,6 +337,30 @@ A `climate` or `water_heater` entity used as `target_temp`, `temp` or
 `room_temp` reads the matching attribute by itself, so
 `target_temp: climate.circuit_a` shows the setpoint rather than the word
 “heat”.
+
+## Sparklines
+
+`sparkline: true` — or `sparkline: { hours: 12 }` for a window of your own,
+from 1 to 168 hours — draws a field's recent history as a quiet band behind
+its label and value. No extra row, no wider panel: the curve lives in the
+space the readout already has.
+
+* **The curve comes from the recorder**: the hourly long-term statistics over
+  the window, refreshed every ten minutes. Powers are normalized to watts, so
+  a kW meter and a W meter come out right, and the last bucket — still
+  running — says what the sensor says now.
+* **Without statistics the card keeps its own record**: a ring buffer of live
+  readings, one point per minute. It grows even on a plant whose sensors have
+  no long-term statistics yet, and is replaced by the real curve as soon as
+  the recorder answers.
+* **A calculated COP gets its curve too**: `cop: { calculate: true,
+  thermal_power: …, power: …, sparkline: true }` divides the thermal series
+  by the electrical one, bucket by bucket — the curve is the day's
+  efficiency, not a guess from two live numbers.
+* A hover (or a screen reader) gets the wording: window, average, minimum,
+  maximum.
+* A field fed by a whole list of entities draws no curve — there is no
+  single series to plot.
 
 ## One value out of several entities
 

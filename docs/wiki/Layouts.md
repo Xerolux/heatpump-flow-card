@@ -24,10 +24,16 @@ anything in: every section you configure is drawn, every section you set to
 | `direct` | | | | | 1 |
 | `direct-dual` | | | | | 2 |
 | `direct-dhw` | | ● | | | 2 |
+| `narrow` | ● | ○ | | | 2 |
 
 The two `compact` layouts also draw a shorter tank so the card fits into a
 narrow column. `circuits:` always wins over the number a layout brings, up to
 seven circuits (A–G).
+
+`narrow` stacks the plant in one column — the heat pump and its tank at the
+top, hot water and the circuits below at full width — for dashboard columns
+half a phone wide. A narrow card that configures photovoltaics, solar thermal
+or a wood stove falls back to the wide scene: those need the width.
 
 ## compact
 

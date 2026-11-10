@@ -1,0 +1,37 @@
+# The day's history right on the card: sparklines behind the power readouts,
+# the day's energy balance and the seasonal performance factor as chips.
+type: custom:heatpump-flow-card
+layout: dual
+title: Jahresarbeitszahl
+heatpump:
+  entity: switch.heat_pump
+  state_entity: binary_sensor.compressor
+  power:
+    entity: sensor.hp_power
+    sparkline: true          # die letzten 24 h hinter dem Wert
+  thermal_power:
+    entity: sensor.hp_thermal_power
+    sparkline: { hours: 12 } # ein eigenes Fenster
+  cop:
+    calculate: true
+    power: sensor.hp_power
+    thermal_power: sensor.hp_thermal_power
+    decimals: 1
+  outside_temp:
+    entity: sensor.outside_temperature
+    day_min_max: true        # die Tagesspanne als Chip
+  energy_thermal: sensor.hp_energy_thermal_today
+  energy_electric: sensor.hp_energy_electric_today
+  spf:
+    thermal: sensor.hp_thermal_energy_total
+    electric: sensor.hp_electric_energy_total
+    period: year
+buffer:
+  top: sensor.buffer_top
+  middle: sensor.buffer_middle
+  bottom: sensor.buffer_bottom
+circuits:
+  - type: radiator
+    flow_temp: sensor.circuit_a_flow
+    return_temp: sensor.circuit_a_return
+    pump: binary_sensor.circuit_a_pump

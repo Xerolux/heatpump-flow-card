@@ -19,6 +19,7 @@ and can be pasted into a manual card editor as they are.
 | `11-energy-bus-flow-wood-stove.yaml` | The energy bus in the light flow style, with a wood stove beside the heat pump |
 | `12-energy-hub.yaml` | The hub style: PV, grid, battery and the devices joined by curved connections |
 | `13-viessmann-oil.yaml` | A Viessmann oil boiler instead of a heat pump, without a buffer tank — vendor neutral |
+| `14-history.yaml` | Sparklines behind the readouts, the day's energy chips and the seasonal performance factor |
 
 ## Every circuit keeps its own state
 

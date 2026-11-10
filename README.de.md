@@ -35,7 +35,9 @@ die Live-Werte genau dort dar, wo sie hingehören.
 * **Grafischer Editor** – YAML ist möglich, aber nicht nötig.
 * **Nichts ist Pflicht.** Fehlt ein Sensor, bleibt die Stelle einfach leer,
   statt dass die Karte kaputtgeht.
-* Deutsche und englische Beschriftung, helles und dunkles Theme, und
+* Deutsche und englische Beschriftung – seit 1.15.0 zusätzlich Französisch,
+  Italienisch, Niederländisch und Polnisch, mit Englisch als Rückfall für alles,
+  was eine Übersetzung noch nicht erreicht hat –, helles und dunkles Theme, und
   `prefers-reduced-motion` wird respektiert.
 
 ## Layouts
@@ -64,6 +66,13 @@ lässt sich mit einem eigenen Block ergänzen oder mit `false` entfernen.
 | `direct` | | | | | 1 |
 | `direct-dual` | | | | | 2 |
 | `direct-dhw` | | ● | | | 2 |
+| `narrow` | ● | ○ | | | 2 |
+
+`narrow` stapelt die Anlage in eine Spalte – Wärmepumpe und Speicher oben,
+Warmwasser und Heizkreise darunter – für Dashboard-Spalten halber Handybreite.
+○ heißt: da, sobald konfiguriert; eine schmale Karte mit Photovoltaik,
+Solarthermie oder Holzofen fällt auf die breite Szene zurück, denn die brauchen
+die Breite.
 
 Bis zu **sieben** Heizkreise (A–G) sind möglich – `circuits:` sticht immer das,
 was das Layout mitbringt.
@@ -94,9 +103,16 @@ was das Layout mitbringt.
 
 ![full](docs/images/full.png)
 
-**Kühlen – dieselbe Anlage an einem Sommertag: kalte Farben, fallende blaue Wellen**
+**Kühlen – dieselbe Anlage an einem Sommertag: kalte Farben, fallende blaue
+Wellen – hier passiv, der Ventilator steht still und eine EER ersetzt die
+Arbeitszahl**
 
 ![kühlen](docs/images/cooling.png)
+
+**`narrow` – dieselbe Anlage in einer Spalte, für Dashboard-Spalten halber
+Handybreite**
+
+![schmal](docs/images/narrow.png)
 
 **`direct-dhw` – ohne Pufferspeicher: die Wärmepumpe speist den Verteiler
 direkt, hier mit vier Kreisen inklusive Gebläsekonvektor und Pool**
@@ -348,6 +364,11 @@ Designgröße würde die Zeichnung nur größer, nicht lesbarer – auf einem 4K
 | `alarm`, `message` | Eine Störung rahmt das Panel rot; der Meldungstext des Reglers landet in der Statusleiste unter der Anlage |
 | `reason`, `smart_grid`, `cycles_today`, `defrosts_today` | Statusleiste unter der Anlage: warum sie läuft, der SG-Ready-Status, die Verdichter- und Abtaustarts des Tages |
 | `cop` (Langform) | `{ calculate: true, thermal_power: sensor.heizleistung, power: sensor.wp_leistung }` rechnet die Arbeitszahl direkt in der Karte aus zwei Zählern; `decimals` optional (Standard 2). Ein einfacher COP-Sensor bleibt unterstützt |
+| `sparkline` (Langform) | `sparkline: true` (oder `{ hours: n }`, 1–168) zeichnet hinter jeden Zahlenwert seine jüngste Historie als leise Kurve — die Stundenscheiben des Recorders, solange die fehlen eine Minute-für-Minute-Aufzeichnung der Karte. Eine berechnete Arbeitszahl teilt ihre beiden Serien Scheibe für Scheibe |
+| `eer` | Das Kühl-Pendant zur Arbeitszahl — ein einfacher Sensor, oder `{ calculate: true, power: …, thermal_power: … }` aus zwei Zählern |
+| `passive_cooling` | Binärsensor (oder ein Statustext „natürliche/passive Kühlung“) — der Ventilator steht still und die Wellen fallen sanft, weil kein Verdichter läuft |
+| `energy_thermal`, `energy_electric` | Die Tagesbilanz als Status-Chips: ein einfacher Heute-Zähler (kWh), oder `{ entity: <Lebenszähler>, today: true }` summiert die Rekorder-Scheiben seit Mitternacht |
+| `spf` (oder `jaz`) | Die Jahresarbeitszahl als Status-Chip: `{ thermal: <kWh-Zähler>, electric: <kWh-Zähler>, period: day\|week\|month\|year }` — die eine Energiesumme durch die andere |
 | `fan` | `false` für Sole/Wasser- oder Wasser/Wasser-Geräte: kein Außengerät-Ventilator — stattdessen zwei Sole-Anschlüsse — und kein Abtau-Dampf |
 | `cooling` | Binärsensor, der die Kühl-Darstellung erzwingt; ohne ihn genügt ein Status-/Modustext „Kühlen“ — die Rohre tragen ihre kalten Farben, die Wellen der Emitter fallen kühlblau, der Ventilatorring wird blau |
 | `flow_temp`, `return_temp` | Färben und beschriften die Rohre zum Speicher |
@@ -513,9 +534,17 @@ heatpump:
     decimals: 0
     unit: W
     attribute: null        # statt des Zustands ein Attribut lesen
+    sparkline: true        # die letzten 24 h hinter den Wert zeichnen
     tap_action:
       action: more-info
 ```
+
+`sparkline` (oder `sparkline: { hours: 12 }`) holt die Stundenscheiben der
+Langzeit-Statistik aus dem Recorder und zeichnet sie hinter Bezeichnung und
+Wert; solange es keine Statistik gibt, führt die Karte selbst Minute für
+Minute Buch. Ein Hover über die Kurve nennt Fenster, Mittel und Spanne. Ein
+Wert, der aus einer ganzen Reihe von Entitäten gespeist wird, zeichnet keine
+Kurve – es gäbe keine eine Serie.
 
 `tap_action` und `hold_action` folgen der üblichen Home-Assistant-Syntax
 (`more-info`, `toggle`, `navigate`, `url`, `perform-action`, `none`) und lassen
@@ -537,7 +566,7 @@ Schema Vorlauf rot / Rücklauf blau.
   Karte im Browser, ganz ohne Home Assistant
 * **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** – Installation,
   alle Optionen, Bedienung, Problemlösung, Entwicklung
-* **[Beispiele](examples)** – zehn fertige Konfigurationen, darunter ein
+* **[Beispiele](examples)** – vierzehn fertige Konfigurationen, darunter ein
   komplettes Dashboard
 
 ## Entwicklung

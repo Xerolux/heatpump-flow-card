@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.14.0";
+const CARD_VERSION = "1.15.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -227,6 +227,347 @@ function powerWatts(hass, field) {
  */
 function signedPower(hass, field) {
   return powerWatts(hass, field);
+}
+
+/* ---- sparklines: the day's curve behind a readout ------------------------
+ *
+ * A readout whose long form carries `sparkline: true` (or
+ * `sparkline: { hours: n }`) draws the field's recent history as a quiet
+ * area behind its label and value. The curve comes from the recorder's
+ * long-term statistics - hourly buckets, refreshed every ten minutes - and
+ * while those are missing (no recorder, no statistics recorded yet) the card
+ * falls back to a ring buffer of live readings, one point per minute.
+ * Whatever arrives is normalized when it is fetched: powers to watts, a
+ * calculated COP to the quotient of two watt-normalized series, bucket by
+ * bucket. So the live tip, drawn from the current state, always lands on
+ * the same scale as the curve it closes.
+ */
+
+const SPARK_DEFAULT_HOURS = 24;
+const SPARK_MIN_HOURS = 1;
+const SPARK_MAX_HOURS = 168;
+const SPARK_REFRESH_MS = 10 * 60 * 1000;
+const SPARK_BUFFER_STEP_MS = 60 * 1000;
+
+/** Test seam: the preview can freeze time to exercise the ring buffer. */
+function sparkNow() {
+  return typeof window !== "undefined" && typeof window.__hpfcSparkNow === "function"
+    ? window.__hpfcSparkNow()
+    : Date.now();
+}
+
+function sparklineHours(field) {
+  const option = field && field.sparkline;
+  if (option && typeof option === "object" && Number.isFinite(option.hours)) {
+    return Math.min(SPARK_MAX_HOURS, Math.max(SPARK_MIN_HOURS, option.hours));
+  }
+  return SPARK_DEFAULT_HOURS;
+}
+
+/**
+ * Whether a curve exists for this field: one entity behind it, or a
+ * calculated COP over exactly one thermal and one electrical meter.
+ * A string of entities has no single statistics series to plot.
+ */
+function sparkAvailable(field) {
+  if (!field || !field.sparkline) return false;
+  if (field.calculate === true) {
+    if (!field.thermal_power || !field.power) return false;
+    return fieldEntities(field.thermal_power).length === 1 && fieldEntities(field.power).length === 1;
+  }
+  return fieldEntities(field).length === 1;
+}
+
+/** Stable identity across renders: the entities behind the curve. */
+function sparkKey(field) {
+  if (field.calculate === true) {
+    return `cop:${fieldEntities(field.thermal_power)[0]}/${fieldEntities(field.power)[0]}`;
+  }
+  const entity = fieldEntities(field)[0];
+  return `${entity}${field.attribute ? `#${field.attribute}` : ""}`;
+}
+
+/** One bucket timestamp in milliseconds, whatever the recorder handed over. */
+function statTime(value) {
+  const num = typeof value === "number" ? value : Number(value);
+  if (Number.isFinite(num)) return num < 1e12 ? num * 1000 : num;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** The mean of one statistics bucket, in whatever unit it was recorded. */
+function statMean(row) {
+  if (row.mean !== undefined && row.mean !== null) return row.mean;
+  if (row.state !== undefined && row.state !== null) return Number(row.state);
+  if (row.min !== undefined && row.max !== undefined) return (Number(row.min) + Number(row.max)) / 2;
+  return null;
+}
+
+/**
+ * Rows to normalized points, oldest first. Powers are brought to watts -
+ * by the rows' own unit when they carry one, otherwise by the entity's -
+ * so a kW meter and a W meter come out on the same scale.
+ */
+function statPoints(rows, fallbackUnit) {
+  const points = [];
+  let factor;
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const t = statTime(row.start);
+    const raw = statMean(row);
+    if (t === null || raw === null || !Number.isFinite(raw)) continue;
+    if (factor === undefined && typeof row.unit === "string") {
+      factor = POWER_UNIT_FACTORS[row.unit] !== undefined ? POWER_UNIT_FACTORS[row.unit] : 1;
+    }
+    const scale = factor !== undefined ? factor : POWER_UNIT_FACTORS[fallbackUnit] || 1;
+    points.push({ t, v: raw * scale });
+  }
+  points.sort((a, b) => a.t - b.t);
+  return points;
+}
+
+/** A calculated COP per bucket: thermal watts over electrical watts. */
+function copPoints(thermalRows, electricRows, thermalUnit, electricUnit) {
+  const electric = new Map();
+  let electricFactor;
+  for (const row of Array.isArray(electricRows) ? electricRows : []) {
+    const t = statTime(row.start);
+    const raw = statMean(row);
+    if (t === null || raw === null || !Number.isFinite(raw)) continue;
+    if (electricFactor === undefined && typeof row.unit === "string") {
+      electricFactor = POWER_UNIT_FACTORS[row.unit] !== undefined ? POWER_UNIT_FACTORS[row.unit] : 1;
+    }
+    const scale = electricFactor !== undefined ? electricFactor : POWER_UNIT_FACTORS[electricUnit] || 1;
+    electric.set(t, raw * scale);
+  }
+  const points = [];
+  let thermalFactor;
+  for (const row of Array.isArray(thermalRows) ? thermalRows : []) {
+    const t = statTime(row.start);
+    const raw = statMean(row);
+    if (t === null || raw === null || !Number.isFinite(raw)) continue;
+    if (thermalFactor === undefined && typeof row.unit === "string") {
+      thermalFactor = POWER_UNIT_FACTORS[row.unit] !== undefined ? POWER_UNIT_FACTORS[row.unit] : 1;
+    }
+    const scale = thermalFactor !== undefined ? thermalFactor : POWER_UNIT_FACTORS[thermalUnit] || 1;
+    const denominator = t === null ? null : electric.get(t);
+    if (!denominator || denominator <= 0) continue;
+    points.push({ t, v: (raw * scale) / denominator });
+  }
+  points.sort((a, b) => a.t - b.t);
+  return points;
+}
+
+/** The recorder's answer, or null when it has nothing to say. */
+async function fetchStatSeries(hass, entities, start, end, period) {
+  const response = await hass.callWS({
+    type: "recorder/statistics_during_period",
+    start_time: new Date(start).toISOString(),
+    end_time: new Date(end).toISOString(),
+    period: period || "hour",
+    statistic_ids: entities,
+  });
+  return response || {};
+}
+
+/** The curve's live value, on the same normalized scale as its points. */
+function sparkLive(hass, field) {
+  if (field.calculate === true) {
+    const heat = powerWatts(hass, field.thermal_power);
+    const electric = powerWatts(hass, field.power);
+    if (heat === null || electric === null || electric <= 0) return null;
+    return heat / electric;
+  }
+  const unit = unitOf(hass, field);
+  if (POWER_UNIT_FACTORS[unit] !== undefined) return powerWatts(hass, field);
+  return numberValue(hass, field);
+}
+
+/** One field's points, held by the card so a re-render keeps them. */
+function sparkStoreEntry(card, key, field) {
+  if (!card._sparkStore) card._sparkStore = {};
+  if (!card._sparkStore[key]) {
+    card._sparkStore[key] = { field, points: [], live: null, mode: null, lastFetch: 0, lastAppend: 0 };
+  }
+  return card._sparkStore[key];
+}
+
+/** Fetches one field's statistics and hands them to its curve. */
+async function fetchSparkline(card, scene, spark) {
+  const store = spark.store;
+  const field = spark.field;
+  const hass = scene.hass();
+  const thermal = field.calculate === true ? fieldEntities(field.thermal_power)[0] : null;
+  const electric = field.calculate === true ? fieldEntities(field.power)[0] : null;
+  const ids = thermal ? [thermal, electric] : fieldEntities(field);
+  let response = null;
+  try {
+    const now = sparkNow();
+    response = await fetchStatSeries(hass, ids, now - spark.hours * 3600000, now, "hour");
+  } catch (err) {
+    response = null;
+  }
+  // The card may have redrawn while we waited - the old curve is gone.
+  if (card._scene !== scene) return;
+  if (response) {
+    let points = [];
+    if (thermal) {
+      points = copPoints(
+        response[thermal] || [],
+        response[electric] || [],
+        unitOf(hass, field.thermal_power),
+        unitOf(hass, field.power)
+      );
+    } else {
+      points = statPoints(response[ids[0]] || [], unitOf(hass, field));
+    }
+    if (points.length) {
+      store.points = points;
+      store.mode = "stats";
+      spark.update(hass);
+      return;
+    }
+  }
+  // Nothing to plot from the recorder: the ring buffer takes over.
+  store.mode = "buffer";
+  spark.update(hass);
+}
+
+/**
+ * Called on every update pass: keeps the live tip moving, appends ring
+ * buffer points while statistics are missing, and refreshes the fetches
+ * often enough without ever asking twice inside one window.
+ */
+function advanceSparklines(card, scene, hass) {
+  const now = sparkNow();
+  for (const spark of scene.spark.values()) {
+    const store = spark.store;
+    store.live = sparkLive(hass, spark.field);
+    if (store.mode === "stats") {
+      // The last bucket is still running: say what it says right now.
+      if (store.points.length && store.live !== null && Number.isFinite(store.live)) {
+        store.points[store.points.length - 1].v = store.live;
+      }
+    } else if (store.live !== null && Number.isFinite(store.live) && now - store.lastAppend >= SPARK_BUFFER_STEP_MS) {
+      store.lastAppend = now;
+      store.points.push({ t: now, v: store.live });
+      const cutoff = now - spark.hours * 3600000;
+      while (store.points.length && store.points[0].t < cutoff) store.points.shift();
+    }
+    spark.update(hass);
+    if (hass.callWS && now - store.lastFetch >= SPARK_REFRESH_MS) {
+      store.lastFetch = now;
+      fetchSparkline(card, scene, spark);
+    }
+  }
+}
+
+/* ---- statistics questions ------------------------------------------------
+ *
+ * The sparkline layer asks one kind of question ("the hourly means over this
+ * window"); the chips below the plant ask others - the day's energy from the
+ * buckets' sums, an outside temperature's range from their minima and maxima,
+ * a seasonal performance factor as one sum over another. Same recorder, same
+ * ten minute cadence: a question is registered once and its answer is kept
+ * where the chip finds it on every update pass.
+ */
+
+const ENERGY_UNIT_FACTORS = { Wh: 0.001, kWh: 1, MWh: 1000, GWh: 1000000 };
+const SPF_PERIODS = ["day", "week", "month", "year"];
+
+/** Where a period begins, the way it reads on the wall: midnight, Monday,
+ * the first of the month, the first of January. */
+function startOfPeriod(period, now) {
+  const date = new Date(now);
+  date.setHours(0, 0, 0, 0);
+  if (period === "week") {
+    date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+  } else if (period === "month") {
+    date.setDate(1);
+  } else if (period === "year") {
+    date.setMonth(0, 1);
+  }
+  return date.getTime();
+}
+
+/** One bucket's energy in kWh - the recorder sums what the sensor counted. */
+function statEnergy(row, fallbackUnit) {
+  if (row.sum === undefined || row.sum === null || !Number.isFinite(row.sum)) return null;
+  const unit = typeof row.unit === "string" ? row.unit : fallbackUnit;
+  const factor = ENERGY_UNIT_FACTORS[unit] !== undefined ? ENERGY_UNIT_FACTORS[unit] : 1;
+  return row.sum * factor;
+}
+
+/** The energy a window saw, in kWh. */
+function statEnergyTotal(rows, fallbackUnit) {
+  let total = 0;
+  let seen = false;
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const energy = statEnergy(row, fallbackUnit);
+    if (energy !== null) {
+      total += energy;
+      seen = true;
+    }
+  }
+  return seen ? total : null;
+}
+
+/** The range a window covered: the smallest minimum to the largest maximum. */
+function statRange(rows) {
+  let min = null;
+  let max = null;
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const lo = row.min !== undefined && row.min !== null && Number.isFinite(row.min) ? row.min : null;
+    const hi = row.max !== undefined && row.max !== null && Number.isFinite(row.max) ? row.max : null;
+    if (lo !== null) min = min === null ? lo : Math.min(min, lo);
+    if (hi !== null) max = max === null ? hi : Math.max(max, hi);
+  }
+  return min === null || max === null ? null : { min, max };
+}
+
+/** One field's answer, held by the card so a re-render keeps it. */
+function statsStoreEntry(card, key) {
+  if (!card._statsStore) card._statsStore = {};
+  if (!card._statsStore[key]) card._statsStore[key] = { value: null, lastFetch: 0 };
+  return card._statsStore[key];
+}
+
+/**
+ * Registers one question: which entities, which window, and what the chip
+ * reads out of the answer. `read(rowsById, hass)` returns the value to show
+ * or null for "nothing to say yet". The card does the asking.
+ */
+function registerStats(scene, key, spec) {
+  const store = statsStoreEntry(scene.card, key);
+  scene.stats.set(key, { spec, store });
+  return store;
+}
+
+/** Asks one question, keeps the answer, and lets the card redraw. */
+async function fetchStats(card, scene, entry) {
+  const { spec, store } = entry;
+  const hass = scene.hass();
+  const end = sparkNow();
+  let response = null;
+  try {
+    response = await fetchStatSeries(hass, spec.ids(), spec.start(), end, spec.period || "hour");
+  } catch (err) {
+    response = null;
+  }
+  // The card may have redrawn while we waited - the old chips are gone.
+  if (card._scene !== scene) return;
+  store.value = response ? spec.read(response, hass) : null;
+  card._update();
+}
+
+/** Refreshes the registered questions, never twice inside one window. */
+function advanceStats(card, scene, hass) {
+  if (!hass.callWS) return;
+  const now = sparkNow();
+  for (const entry of scene.stats.values()) {
+    if (now - entry.store.lastFetch < SPARK_REFRESH_MS) continue;
+    entry.store.lastFetch = now;
+    fetchStats(card, scene, entry);
+  }
 }
 
 /** Truthiness of a field: on-ish states, or a number above the threshold. */
@@ -885,6 +1226,97 @@ function fitText(scene, node, text, maxWidth) {
   });
 }
 
+/**
+ * The curve behind a readout: a quiet area with the window's shape, a line
+ * on top of it and a dot on the live tip. Its points arrive asynchronously -
+ * it draws hidden until then - and the card's update pass keeps the tip
+ * moving with the value it belongs to.
+ */
+function createSparkline(scene, block, x, y, field, options) {
+  const opts = options || {};
+  const width = Math.max(32, opts.width || 96);
+  const anchor = opts.anchor || "start";
+  const left = anchor === "end" ? x - width : anchor === "middle" ? x - width / 2 : x;
+  const top = y - 7;
+  const bottom = y + 20;
+  const group = svgEl("g", { class: "hpfc-spark" });
+  const area = svgEl("path", { class: "hpfc-spark-area" });
+  const line = svgEl("path", { class: "hpfc-spark-line" });
+  const tip = svgEl("circle", { class: "hpfc-spark-tip", r: 2 });
+  const title = svgEl("title");
+  group.appendChild(area);
+  group.appendChild(line);
+  group.appendChild(tip);
+  group.appendChild(title);
+  block.insertBefore(group, block.firstChild);
+
+  const entry = {
+    field,
+    hours: sparklineHours(field),
+    store: sparkStoreEntry(scene.card, sparkKey(field), field),
+    update(hass) {
+      const points = entry.store.points;
+      if (points.length < 2) {
+        group.classList.add("hpfc-spark-empty");
+        return;
+      }
+      group.classList.remove("hpfc-spark-empty");
+      const first = points[0];
+      const last = points[points.length - 1];
+      const t0 = first.t;
+      const spanT = Math.max(1, last.t - t0);
+      const inner = width - 3;
+      let min = Infinity;
+      let max = -Infinity;
+      let sum = 0;
+      for (const point of points) {
+        if (point.v < min) min = point.v;
+        if (point.v > max) max = point.v;
+        sum += point.v;
+      }
+      const spanV = max - min;
+      const px = (point) => left + 1 + ((point.t - t0) / spanT) * inner;
+      const py = (point) =>
+        spanV === 0 ? (top + bottom) / 2 : top + 1 + (1 - (point.v - min) / spanV) * (bottom - top - 2);
+      const coords = points.map((point) => `${px(point).toFixed(1)} ${py(point).toFixed(1)}`);
+      const lastX = left + 1 + inner;
+      line.setAttribute("d", `M ${coords.join(" L ")}`);
+      area.setAttribute(
+        "d",
+        `M ${left + 1} ${bottom} L ${coords.join(" L ")} L ${lastX} ${bottom} Z`
+      );
+      const live = entry.store.live;
+      if (live !== null && live !== undefined && Number.isFinite(live)) {
+        tip.setAttribute("cx", lastX.toFixed(1));
+        tip.setAttribute(
+          "cy",
+          (spanV === 0 ? (top + bottom) / 2 : top + 1 + (1 - (live - min) / spanV) * (bottom - top - 2)).toFixed(1)
+        );
+        tip.style.display = "";
+      } else {
+        tip.style.display = "none";
+      }
+      // The wording a hover or a screen reader gets: window, average, range.
+      const texts = textsFor(hass);
+      const unit = unitOf(hass, field);
+      const decimals =
+        field.decimals !== undefined ? field.decimals : unit && POWER_UNIT_FACTORS[unit] === undefined ? 1 : 0;
+      const fmt = (value) => {
+        if (unit && POWER_UNIT_FACTORS[unit] !== undefined) {
+          return formatWatts(hass, { unit: Math.abs(value) >= 1000 ? "kW" : "W", decimals: Math.abs(value) >= 1000 ? 1 : 0 }, value);
+        }
+        const text = formatNumber(hass, value, { decimals });
+        return unit ? `${text} ${unit}` : text;
+      };
+      const avg = sum / points.length;
+      title.textContent = `${texts.spark_last} ${entry.hours} h · ⌀ ${fmt(avg)} · ↓ ${fmt(min)} · ↑ ${fmt(max)}`;
+    },
+  };
+  entry.update(scene.hass());
+  scene.spark.set(sparkKey(field), entry);
+  return entry;
+}
+
 /** Small "label over value" block. Returns nothing, registers its updater. */
 function drawReadout(scene, group, x, y, label, field, options) {
   const opts = options || {};
@@ -906,6 +1338,14 @@ function drawReadout(scene, group, x, y, label, field, options) {
   });
   block.appendChild(affordance);
   group.appendChild(block);
+
+  // The day's curve, when the field's long form asks for it.
+  if (sparkAvailable(field)) {
+    createSparkline(scene, block, x, y, field, {
+      width: opts.sparkWidth || opts.labelWidth || 96,
+      anchor,
+    });
+  }
 
   if (field && field.entity) {
     attachAction(scene, block, {
@@ -1104,6 +1544,7 @@ const TEXTS = {
     heatpump: "Heat pump",
     power: "Power",
     cop: "COP",
+    eer: "EER",
     outside: "Outside",
     flow: "Flow",
     ret: "Return",
@@ -1158,6 +1599,10 @@ const TEXTS = {
     smart_grid: "SG",
     starts_today: "Starts today",
     defrosts_today: "Defrosts today",
+    spark_last: "Last",
+    energy_thermal: "Heat",
+    energy_electric: "Electricity",
+    spf: "SPF",
     idle: "Standby",
     off: "Off",
     wood_stove: "Wood stove",
@@ -1166,6 +1611,7 @@ const TEXTS = {
     heatpump: "Wärmepumpe",
     power: "Leistung",
     cop: "COP",
+    eer: "EER",
     outside: "Außen",
     flow: "Vorlauf",
     ret: "Rücklauf",
@@ -1223,12 +1669,285 @@ const TEXTS = {
     smart_grid: "SG",
     starts_today: "Starts heute",
     defrosts_today: "Abtaustarts heute",
+    spark_last: "Letzte",
+    energy_thermal: "Wärme",
+    energy_electric: "Strom",
+    spf: "JAZ",
+  },
+  fr: {
+    heatpump: "Pompe à chaleur",
+    power: "Puissance",
+    cop: "COP",
+    eer: "EER",
+    outside: "Extérieur",
+    flow: "Départ",
+    ret: "Retour",
+    flow_rate: "Débit",
+    buffer: "Ballon tampon",
+    dhw: "Eau chaude",
+    pv: "Photovoltaïque",
+    solar: "Solaire thermique",
+    collector: "Capteur",
+    room: "Pièce",
+    target: "Consigne",
+    pump: "Pompe",
+    mixer: "Mélangeur",
+    on: "Marche",
+    opening: "Ouverture",
+    closing: "Fermeture",
+    holding: "Maintien",
+    mixer_output: "Signal de commande, pas la position",
+    circuit: "Circuit de chauffage",
+    radiators: "Radiateurs",
+    underfloor: "Plancher chauffant",
+    yield: "Production",
+    charge: "Charge",
+    top: "Haut",
+    middle: "Milieu",
+    bottom: "Bas",
+    battery: "Batterie",
+    grid: "Réseau",
+    wallbox: "Borne",
+    house: "Maison",
+    electrics: "Électricité",
+    enlarge: "Agrandir",
+    shrink: "Retour au tableau de bord",
+    current: "Actuel",
+    mode: "Mode",
+    boost: "Boost",
+    details: "Détails",
+    aux_heat: "Chauffage d'appoint",
+    discharge: "Refoulement",
+    condenser: "Condenseur",
+    liquid_line: "Ligne de liquide",
+    suction: "Gaz aspiré",
+    heater: "Résistance",
+    defrosting: "Dégivrage",
+    heat: "Chauffage",
+    cool: "Refroidissement",
+    water: "Eau chaude",
+    defrost: "Dégivrage",
+    thermal_power: "Puissance thermique",
+    fault: "Défaut",
+    reason: "Motif",
+    smart_grid: "SG",
+    starts_today: "Démarrages aujourd'hui",
+    defrosts_today: "Dégivrages aujourd'hui",
+    spark_last: "Dernières",
+    energy_thermal: "Chaleur",
+    energy_electric: "Électricité",
+    spf: "SPF",
+    idle: "Veille",
+    off: "Arrêt",
+    wood_stove: "Poêle à bois",
+  },
+  it: {
+    heatpump: "Pompa di calore",
+    power: "Potenza",
+    cop: "COP",
+    eer: "EER",
+    outside: "Esterna",
+    flow: "Mandata",
+    ret: "Ritorno",
+    flow_rate: "Portata",
+    buffer: "Puffer",
+    dhw: "Acqua calda",
+    pv: "Fotovoltaico",
+    solar: "Solare termico",
+    collector: "Collettore",
+    room: "Stanza",
+    target: "Setpoint",
+    pump: "Pompa",
+    mixer: "Miscelatore",
+    on: "On",
+    opening: "Apertura",
+    closing: "Chiusura",
+    holding: "Mantenimento",
+    mixer_output: "Segnale di comando, non la posizione",
+    circuit: "Circuito di riscaldamento",
+    radiators: "Radiatori",
+    underfloor: "Pavimento radiante",
+    yield: "Rendimento",
+    charge: "Carica",
+    top: "Alto",
+    middle: "Centro",
+    bottom: "Basso",
+    battery: "Batteria",
+    grid: "Rete",
+    wallbox: "Wallbox",
+    house: "Casa",
+    electrics: "Elettricità",
+    enlarge: "Ingrandisci",
+    shrink: "Torna alla dashboard",
+    current: "Ora",
+    mode: "Modalità",
+    boost: "Boost",
+    details: "Dettagli",
+    aux_heat: "Integrazione",
+    discharge: "Gas in mandata",
+    condenser: "Condensatore",
+    liquid_line: "Linea liquido",
+    suction: "Gas aspirato",
+    heater: "Resistenza",
+    defrosting: "Sbrinamento",
+    heat: "Riscaldamento",
+    cool: "Raffrescamento",
+    water: "Acqua calda",
+    defrost: "Sbrinamento",
+    thermal_power: "Potenza termica",
+    fault: "Guasto",
+    reason: "Motivo",
+    smart_grid: "SG",
+    starts_today: "Avvii oggi",
+    defrosts_today: "Sbrinamenti oggi",
+    spark_last: "Ultime",
+    energy_thermal: "Calore",
+    energy_electric: "Elettricità",
+    spf: "SPF",
+    idle: "Standby",
+    off: "Off",
+    wood_stove: "Stufa a legna",
+  },
+  nl: {
+    heatpump: "Warmtepomp",
+    power: "Vermogen",
+    cop: "COP",
+    eer: "EER",
+    outside: "Buiten",
+    flow: "Aanvoer",
+    ret: "Retour",
+    flow_rate: "Debiet",
+    buffer: "Buffer",
+    dhw: "Warm water",
+    pv: "Zon-PV",
+    solar: "Zonnewarmte",
+    collector: "Collector",
+    room: "Kamer",
+    target: "Doel",
+    pump: "Pomp",
+    mixer: "Menger",
+    on: "Aan",
+    opening: "Opent",
+    closing: "Sluit",
+    holding: "Houdt stand",
+    mixer_output: "Aansturing, geen klepstand",
+    circuit: "Verwarmingskring",
+    radiators: "Radiatoren",
+    underfloor: "Vloerverwarming",
+    yield: "Opbrengst",
+    charge: "Lading",
+    top: "Boven",
+    middle: "Midden",
+    bottom: "Onder",
+    battery: "Batterij",
+    grid: "Net",
+    wallbox: "Laadpaal",
+    house: "Huis",
+    electrics: "Elektriciteit",
+    enlarge: "Vergroten",
+    shrink: "Terug naar het dashboard",
+    current: "Nu",
+    mode: "Modus",
+    boost: "Boost",
+    details: "Details",
+    aux_heat: "Bijverwarming",
+    discharge: "Persgas",
+    condenser: "Condensor",
+    liquid_line: "Vloeistoflijn",
+    suction: "Zuiggas",
+    heater: "Element",
+    defrosting: "Ontdooien",
+    heat: "Verwarmen",
+    cool: "Koelen",
+    water: "Warm water",
+    defrost: "Ontdooien",
+    thermal_power: "Warmtevermogen",
+    fault: "Storing",
+    reason: "Reden",
+    smart_grid: "SG",
+    starts_today: "Starts vandaag",
+    defrosts_today: "Ontdooibeurten vandaag",
+    spark_last: "Afgelopen",
+    energy_thermal: "Warmte",
+    energy_electric: "Elektriciteit",
+    spf: "SPF",
+    idle: "Standby",
+    off: "Uit",
+    wood_stove: "Houtkachel",
+  },
+  pl: {
+    heatpump: "Pompa ciepła",
+    power: "Moc",
+    cop: "COP",
+    eer: "EER",
+    outside: "Zewnętrzna",
+    flow: "Zasilanie",
+    ret: "Powrót",
+    flow_rate: "Przepływ",
+    buffer: "Zasobnik buforowy",
+    dhw: "Ciepła woda",
+    pv: "Fotowoltaika",
+    solar: "Kolektory słoneczne",
+    collector: "Kolektor",
+    room: "Pokój",
+    target: "Zadana",
+    pump: "Pompa",
+    mixer: "Mieszacz",
+    on: "Wł.",
+    opening: "Otwiera",
+    closing: "Zamyka",
+    holding: "Utrzymuje",
+    mixer_output: "Sygnał sterowania, nie pozycja zaworu",
+    circuit: "Obieg grzewczy",
+    radiators: "Grzejniki",
+    underfloor: "Ogrzewanie podłogowe",
+    yield: "Uzysk",
+    charge: "Ładowanie",
+    top: "Góra",
+    middle: "Środek",
+    bottom: "Dół",
+    battery: "Bateria",
+    grid: "Sieć",
+    wallbox: "Ładowarka",
+    house: "Dom",
+    electrics: "Elektryczność",
+    enlarge: "Powiększ",
+    shrink: "Z powrotem do pulpitu",
+    current: "Teraz",
+    mode: "Tryb",
+    boost: "Boost",
+    details: "Szczegóły",
+    aux_heat: "Dogrzewacz",
+    discharge: "Sprężony gaz",
+    condenser: "Skraplacz",
+    liquid_line: "Linia cieczy",
+    suction: "Gaz ssany",
+    heater: "Grzałka",
+    defrosting: "Odmrażanie",
+    heat: "Grzanie",
+    cool: "Chłodzenie",
+    water: "Ciepła woda",
+    defrost: "Odmrażanie",
+    thermal_power: "Moc cieplna",
+    fault: "Awaria",
+    reason: "Powód",
+    smart_grid: "SG",
+    starts_today: "Starty dziś",
+    defrosts_today: "Odmrożenia dziś",
+    spark_last: "Ostatnie",
+    energy_thermal: "Ciepło",
+    energy_electric: "Prąd",
+    spf: "SPF",
+    idle: "Gotowość",
+    off: "Wył.",
+    wood_stove: "Piec na drewno",
   },
 };
 
 function textsFor(hass) {
   const language = hass && hass.locale && hass.locale.language ? hass.locale.language : "en";
-  return language.toLowerCase().startsWith("de") ? TEXTS.de : TEXTS.en;
+  const key = String(language).slice(0, 2).toLowerCase();
+  return TEXTS[key] || TEXTS.en;
 }
 
 /* =========================================================================
@@ -1421,6 +2140,95 @@ function drawStatusStrip(scene, box, cfg) {
   if (cfg.cycles_today) items.push({ kind: "cycles", field: cfg.cycles_today, label: texts.starts_today });
   if (cfg.defrosts_today) items.push({ kind: "defrosts", field: cfg.defrosts_today, label: texts.defrosts_today });
 
+  // The statistics chips: the day's energies, the seasonal performance factor,
+  // and the outside temperature's range. Each asks the recorder its question
+  // once and keeps the answer where its chip finds it.
+  const stats = [];
+  if (cfg.energy_thermal) {
+    items.push({ kind: "energy_thermal", field: cfg.energy_thermal, label: texts.energy_thermal });
+    if (cfg.energy_thermal.today === true && fieldEntities(cfg.energy_thermal).length === 1) {
+      const entity = fieldEntities(cfg.energy_thermal)[0];
+      items[items.length - 1].statKey = `energy:${entity}`;
+      stats.push({
+        key: `energy:${entity}`,
+        spec: {
+          ids: () => [entity],
+          start: () => startOfPeriod("day", sparkNow()),
+          read: (rows, hass) => statEnergyTotal(rows[entity], unitOf(hass, cfg.energy_thermal)),
+        },
+        apply: (store, hass) =>
+          store.value === null ? null : `${formatNumber(hass, store.value, { decimals: 1 })} kWh`,
+      });
+    }
+  }
+  if (cfg.energy_electric) {
+    items.push({ kind: "energy_electric", field: cfg.energy_electric, label: texts.energy_electric });
+    if (cfg.energy_electric.today === true && fieldEntities(cfg.energy_electric).length === 1) {
+      const entity = fieldEntities(cfg.energy_electric)[0];
+      items[items.length - 1].statKey = `energy:${entity}`;
+      stats.push({
+        key: `energy:${entity}`,
+        spec: {
+          ids: () => [entity],
+          start: () => startOfPeriod("day", sparkNow()),
+          read: (rows, hass) => statEnergyTotal(rows[entity], unitOf(hass, cfg.energy_electric)),
+        },
+        apply: (store, hass) =>
+          store.value === null ? null : `${formatNumber(hass, store.value, { decimals: 1 })} kWh`,
+      });
+    }
+  }
+  if (cfg.spf && cfg.spf.thermal && cfg.spf.electric) {
+    items.push({ kind: "spf", field: cfg.spf, label: texts.spf });
+    const thermal = fieldEntities(cfg.spf.thermal)[0];
+    const electric = fieldEntities(cfg.spf.electric)[0];
+    if (thermal && electric) {
+      items[items.length - 1].statKey = `spf:${thermal}/${electric}:${cfg.spf.period}`;
+      stats.push({
+        key: `spf:${thermal}/${electric}:${cfg.spf.period}`,
+        spec: {
+          ids: () => [thermal, electric],
+          start: () => startOfPeriod(cfg.spf.period, sparkNow()),
+          read: (rows, hass) => {
+            const heat = statEnergyTotal(rows[thermal], unitOf(hass, cfg.spf.thermal));
+            const draw = statEnergyTotal(rows[electric], unitOf(hass, cfg.spf.electric));
+            if (heat === null || draw === null || draw <= 0) return null;
+            return heat / draw;
+          },
+        },
+        apply: (store, hass) =>
+          store.value === null || !Number.isFinite(store.value)
+            ? null
+            : formatNumber(hass, store.value, { decimals: cfg.spf.decimals }),
+      });
+    }
+  }
+  if (cfg.outside_temp && cfg.outside_temp.day_min_max === true) {
+    const entities = fieldEntities(cfg.outside_temp);
+    if (entities.length === 1) {
+      items.push({ kind: "outside", field: cfg.outside_temp, label: texts.outside });
+      items[items.length - 1].statKey = `outside:${entities[0]}`;
+      stats.push({
+        key: `outside:${entities[0]}`,
+        spec: {
+          ids: () => entities,
+          start: () => startOfPeriod("day", sparkNow()),
+          read: (rows) => statRange(rows[entities[0]]),
+        },
+        apply: (store, hass) => {
+          if (!store.value) return null;
+          const unit = unitOf(hass, cfg.outside_temp) || "";
+          const lo = formatNumber(hass, store.value.min, { decimals: 1 });
+          const hi = formatNumber(hass, store.value.max, { decimals: 1 });
+          return unit ? `${lo} … ${hi} ${unit}` : `${lo} … ${hi}`;
+        },
+      });
+    }
+  }
+  const stores = {};
+  for (const entry of stats) stores[entry.key] = registerStats(scene, entry.key, entry.spec);
+  const statAnswers = new Map(stats.map((entry) => [entry.key, entry.apply]));
+
   const chips = items.map((item) => {
     const chip = svgEl("g", { class: `hpfc-status-chip hpfc-status-${item.kind}` });
     const rect = svgEl("rect", { y: box.y, height: box.h, rx: box.h / 2 });
@@ -1456,6 +2264,13 @@ function drawStatusStrip(scene, box, cfg) {
               : "";
           label = wording || texts.fault;
         }
+      } else if (item.statKey) {
+        // A statistics chip says what the recorder answered, or nothing at all.
+        const apply = statAnswers.get(item.statKey);
+        const store = stores[item.statKey];
+        const value = apply ? apply(store, hass) : null;
+        show = value !== null && value !== undefined && value !== "";
+        label = show ? `${item.label}: ${value}` : "";
       } else {
         const st = stateOf(hass, item.field);
         show = Boolean(st) && !isMissing(st);
@@ -1548,6 +2363,24 @@ function heatPumpMode(hass, cfg) {
 function heatPumpCooling(hass, cfg) {
   if (cfg.cooling && cfg.cooling.entity) return isActive(hass, cfg.cooling);
   return heatPumpMode(hass, cfg) === "cool";
+}
+
+/** How controllers word natural (passive) cooling - no compressor, just
+ * brine or water carrying the cold, the fan standing still. */
+const PASSIVE_COOLING_PATTERN =
+  /natural\s*cool|passive\s*cool|free\s*cool|nat(ü|ue)rliche[\s\S]*?k(ü|ue)hl|passiv[\s\S]*?k(ü|ue)hl|freie[\s\S]*?k(ü|ue)hl/i;
+
+/**
+ * Whether the plant cools passively right now. Counts only while it cools
+ * at all: a natural-cooling mode that is not running is a plan, not a state.
+ */
+function heatPumpPassiveCooling(hass, cfg) {
+  if (cfg.passive_cooling && cfg.passive_cooling.entity) return isActive(hass, cfg.passive_cooling);
+  if (!heatPumpCooling(hass, cfg)) return false;
+  const source = cfg.status || cfg.mode;
+  if (!source || !source.entity) return false;
+  const text = String(rawValue(hass, source) || "");
+  return PASSIVE_COOLING_PATTERN.test(text);
 }
 
 function heatPumpRunning(hass, cfg) {  if (cfg.state_entity && cfg.state_entity.entity) return isActive(hass, cfg.state_entity);
@@ -1838,6 +2671,7 @@ function drawHeatPump(scene, box, cfg) {
   // so it takes the second place; three rows fit above the mode chip that
   // closes the panel (measured: a fourth would run into it).
   const copCompute = computedCop(cfg.cop);
+  const eerCompute = computedCop(cfg.eer);
   const thermalCompute = computedThermal(cfg.thermal_power);
   const rows = [
     cfg.power ? { label: texts.power, field: cfg.power } : null,
@@ -1845,16 +2679,19 @@ function drawHeatPump(scene, box, cfg) {
       ? { label: texts.thermal_power, field: cfg.thermal_power, compute: thermalCompute }
       : null,
     cfg.cop ? { label: texts.cop, field: cfg.cop, compute: copCompute } : null,
+    cfg.eer ? { label: texts.eer, field: cfg.eer, compute: eerCompute } : null,
     cfg.outside_temp ? { label: texts.outside, field: cfg.outside_temp, colorize: true } : null,
     cfg.compressor ? { label: cfg.compressor.name || "Kompressor", field: cfg.compressor } : null,
   ].filter(Boolean);
   const startY = box.y + 52;
+  const sparkWidth = box.w - 122;
   rows.slice(0, 3).forEach((row, index) => {
     drawReadout(scene, group, box.x + 108, startY + index * 38, row.label, row.field, {
       colorize: row.colorize,
       strong: index === 0,
       compute: row.compute,
       labelWidth: cfg.flow_temp || cfg.return_temp || cfg.flow_rate ? box.w - 120 : 0,
+      sparkWidth: row.field.sparkline ? sparkWidth : 0,
     });
   });
 
@@ -1866,9 +2703,16 @@ function drawHeatPump(scene, box, cfg) {
     });
   }
 
-  // While the plant cools, the fan ring turns cool blue.
+  // While the plant cools, the fan ring turns cool blue; while it cools
+  // passively, the fan itself stands still - no compressor running, only the
+  // cold being carried - and the emitters' waves fall gently.
   scene.add(() => {
-    group.classList.toggle("hpfc-cooling", heatPumpCooling(scene.hass(), cfg));
+    const hass = scene.hass();
+    const cooling = heatPumpCooling(hass, cfg);
+    const passive = cooling && heatPumpPassiveCooling(hass, cfg);
+    group.classList.toggle("hpfc-cooling", cooling);
+    group.classList.toggle("hpfc-passive-cooling", passive);
+    scene.svg.classList.toggle("hpfc-passive", passive);
   });
 
   // Second heat generator: the bit that quietly switches in on cold days
@@ -3582,6 +4426,8 @@ const LAYOUT_PRESETS = {
   direct: { sections: [], circuits: 1 },
   "direct-dual": { sections: [], circuits: 2 },
   "direct-dhw": { sections: ["dhw"], circuits: 2 },
+  // one column: the plant stacked for dashboard columns half a phone wide
+  narrow: { sections: ["buffer"], circuits: 2, dense: true },
 };
 
 const SECTION_FIELDS = {
@@ -3589,6 +4435,7 @@ const SECTION_FIELDS = {
     "power",
     "thermal_power",
     "cop",
+    "eer",
     "outside_temp",
     "flow_temp",
     "return_temp",
@@ -3600,6 +4447,7 @@ const SECTION_FIELDS = {
     "aux_heat_power",
     "defrost",
     "cooling",
+    "passive_cooling",
     "flow_rate",
     "alarm",
     "message",
@@ -3607,6 +4455,9 @@ const SECTION_FIELDS = {
     "smart_grid",
     "cycles_today",
     "defrosts_today",
+    "energy_thermal",
+    "energy_electric",
+    "spf",
     ...REF_CIRCUIT_FIELDS,
   ],
   pv: ["power", "battery", "grid", "battery_power", "grid_power", "wallbox", "house", "consumers"],
@@ -3653,6 +4504,9 @@ const FIELD_ALIASES = {
   room_temperature: "room_temp",
   collector: "collector_temp",
   mixer: "valve",
+  jaz: "spf",
+  thermal_energy: "energy_thermal",
+  electric_energy: "energy_electric",
 };
 
 const PASSTHROUGH_KEYS = ["name", "entity", "type", "tap_action", "hold_action", "power_threshold", "threshold", "fan"];
@@ -3676,11 +4530,27 @@ function normalizeSection(raw, fields) {
   for (const key of Object.keys(raw)) {
     const target = FIELD_ALIASES[key] || key;
     if (!fields.includes(target)) continue;
+    // A seasonal performance factor is no sensor at all: two energy counters
+    // divided over a period, taken from the recorder's sums.
+    if (target === "spf" && raw[key] && typeof raw[key] === "object") {
+      const thermal = asField(raw[key].thermal || raw[key].thermal_energy);
+      const electric = asField(raw[key].electric || raw[key].electric_energy || raw[key].energy);
+      if (thermal && electric) {
+        result.spf = {
+          thermal,
+          electric,
+          period: SPF_PERIODS.includes(raw[key].period) ? raw[key].period : "year",
+          decimals: raw[key].decimals !== undefined ? raw[key].decimals : 2,
+        };
+        continue;
+      }
+    }
     let field = asField(raw[key]);
     if (!field) continue;
-    // A calculated COP is not a sensor reading: it divides the thermal output
-    // by the electrical power, both given as fields of their own.
-    if (target === "cop" && field.calculate === true) {
+    // A calculated COP (or EER, its cooling twin) is not a sensor reading: it
+    // divides the thermal output by the electrical power, both given as
+    // fields of their own.
+    if ((target === "cop" || target === "eer") && field.calculate === true) {
       const thermal = asField(field.thermal_power || field.heat_output);
       const electric = asField(field.power);
       if (thermal && electric) {
@@ -3690,6 +4560,7 @@ function normalizeSection(raw, fields) {
           power: electric,
           decimals: field.decimals !== undefined ? field.decimals : 2,
         };
+        if (field.sparkline) result[target].sparkline = field.sparkline;
         continue;
       }
     }
@@ -3705,6 +4576,7 @@ function normalizeSection(raw, fields) {
           cop,
           decimals: field.decimals !== undefined ? field.decimals : 1,
         };
+        if (field.sparkline) result[target].sparkline = field.sparkline;
         continue;
       }
     }
@@ -3866,6 +4738,11 @@ function collectFieldEntities(field, out) {
     collectFieldEntities(field.heat_output, out);
     collectFieldEntities(field.power, out);
   }
+  // A seasonal performance factor names its two energy counters.
+  if (field.thermal !== undefined || field.electric !== undefined) {
+    collectFieldEntities(field.thermal, out);
+    collectFieldEntities(field.electric, out);
+  }
 }
 
 /** Every entity the card reads anywhere in its normalized config. */
@@ -3930,8 +4807,299 @@ const GEOMETRY = {
   gapY: 16,
 };
 
+/**
+ * The narrow scene: the plant in one column, for dashboard columns half a
+ * phone wide. The heat pump and its tank sit side by side at the top, the
+ * consumers stack below at full width, and the distribution rails run down
+ * the right edge. Photovoltaics, solar thermal and a wood stove keep their
+ * horizontal claims - a narrow card that configures them falls back to the
+ * wide scene rather than squeezing them.
+ */
+function buildNarrowScene(card, config) {
+  const G = GEOMETRY;
+  const circuitHeight = config.dense ? 118 : 134;
+  const dhwHeight = 118;
+  const hpHeight =
+    G.hp.h +
+    (config.heatpump.aux_heat || config.heatpump.aux_heat_power ? 34 : 0) +
+    (refCircuitShown(config.heatpump) ? REF_CIRCUIT_HEIGHT : 0);
+
+  // Top row: the heat pump, its tank close enough for the pipes' badges.
+  const hpX = G.pad;
+  const hpY = G.pad;
+  const tankGap = 64;
+  const bufX = config.buffer ? hpX + G.hp.w + tankGap : null;
+  const bufH = config.buffer ? Math.min(hpHeight - 4, G.buffer.max) : 0;
+  const bufY = hpY + 2;
+  const flowRailX = (config.buffer ? bufX + G.buffer.w : hpX + G.hp.w) + 34;
+  const returnRailX = flowRailX + 30;
+  const width = returnRailX + G.pad + 4;
+  const consumerW = flowRailX - 12 - G.pad;
+
+  const consumers = [];
+  if (config.dhw) consumers.push({ kind: "dhw", cfg: config.dhw, h: dhwHeight });
+  for (const circuit of config.circuits) consumers.push({ kind: "circuit", cfg: circuit, h: circuitHeight });
+
+  const statusStrip =
+    [
+      config.heatpump.alarm,
+      config.heatpump.message,
+      config.heatpump.reason,
+      config.heatpump.smart_grid,
+      config.heatpump.cycles_today,
+      config.heatpump.defrosts_today,
+      config.heatpump.energy_thermal,
+      config.heatpump.energy_electric,
+      config.heatpump.spf,
+      config.heatpump.outside_temp && config.heatpump.outside_temp.day_min_max === true,
+    ].some(Boolean);
+
+  const topH = Math.max(hpHeight, config.buffer ? bufH : 0);
+  let cursorY = hpY + topH + (statusStrip ? 36 : G.gapY);
+  const electrics = hasElectrics(config) ? electricNodes(config) : [];
+  const showElectrics = electrics.length > 1;
+  const electricsHeight = config.electrics_style === "hub" ? hubHeight(electrics) : 110;
+
+  const height =
+    consumers.reduce((sum, item) => sum + item.h + G.gapY, 0) + cursorY + (showElectrics ? electricsHeight : 0);
+
+  // ---- scene scaffolding ----------------------------------------------
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${Math.round(width)} ${Math.round(height)}`,
+    preserveAspectRatio: "xMidYMid meet",
+    class: "hpfc-svg",
+    role: config.controls === false ? "img" : "group",
+  });
+  const defs = svgEl("defs");
+  const pipeLayer = svgEl("g", { class: "hpfc-pipes" });
+  const nodeLayer = svgEl("g", { class: "hpfc-nodes" });
+  svg.appendChild(defs);
+  svg.appendChild(pipeLayer);
+  svg.appendChild(nodeLayer);
+
+  const scene = {
+    card,
+    config,
+    svg,
+    defs,
+    pipeLayer,
+    root: nodeLayer,
+    updaters: [],
+    flags: {},
+    hass: () => card._hass,
+    spark: new Map(),
+    stats: new Map(),
+    add(fn) {
+      this.updaters.push(fn);
+    },
+  };
+
+  if (statusStrip) {
+    drawStatusStrip(scene, { x: G.pad, y: hpY + topH + 4, w: width - G.pad * 2, h: 24 }, config.heatpump);
+  }
+
+  // ---- nodes ------------------------------------------------------------
+  const heatpump = drawHeatPump(scene, { x: hpX, y: hpY, w: G.hp.w, h: hpHeight }, config.heatpump);
+  scene.flags.heatpumpRunning = heatpump.running;
+  scene.flags.heatpumpCooling = heatpump.cooling;
+
+  if (config.buffer) {
+    const texts = textsFor(scene.hass());
+    const keys = ["top", "middle", "bottom"];
+    const configured = keys.filter((key) => config.buffer[key]);
+    const used = configured.length ? configured : keys;
+    drawTank(scene, { x: bufX, y: bufY, w: G.buffer.w, h: bufH }, config.buffer, {
+      heater: config.buffer.heater,
+      heaterPower: config.buffer.heater_power,
+      heaterTemp: config.buffer.heater_temp,
+      heaterMode: config.buffer.heater_mode,
+      heaterLabel: texts.heater,
+      title: config.buffer.name || texts.buffer,
+      subtitle: config.buffer.charge ? { label: texts.charge, field: config.buffer.charge } : null,
+      coil: false,
+      charging: heatpump.running,
+      entity: config.buffer.entity,
+      tap_action: config.buffer.tap_action,
+      layers: used.map((key) => ({ label: texts[key], field: config.buffer[key] })),
+    });
+  }
+
+  consumers.forEach((item, index) => {
+    const box = { x: G.pad, y: cursorY, w: consumerW, h: item.h };
+    const drawn =
+      item.kind === "dhw" ? drawDhw(scene, box, item.cfg) : drawCircuit(scene, box, item.cfg);
+    drawn.group.setAttribute(
+      "data-part",
+      item.kind === "dhw" ? "dhw" : `circuit-${index + (config.dhw ? 0 : 1)}`
+    );
+    item.running = drawn.running;
+    item.y = cursorY;
+    item.inletY = item.y + 40;
+    item.outletY = item.y + item.h - 30;
+    cursorY += item.h + G.gapY;
+  });
+
+  // ---- pipes ------------------------------------------------------------
+  const hpRight = hpX + G.hp.w;
+  const hpFlowY = hpY + 66;
+  const hpReturnY = hpY + 130;
+  const anyConsumer = (hass) => consumers.some((item) => item.running && item.running(hass));
+  const bufferFlowY = config.buffer ? bufY + 56 : hpFlowY;
+  const bufferReturnY = config.buffer ? bufY + bufH - 56 : hpReturnY;
+
+  if (config.buffer) {
+    const mid = hpRight + 30;
+    drawPipe(scene, {
+      points: [
+        [hpRight, hpFlowY],
+        [mid, hpFlowY],
+        [mid, bufferFlowY],
+        [bufX, bufferFlowY],
+      ],
+      role: "flow",
+      from: config.heatpump.flow_temp,
+      to: config.buffer.top,
+      active: heatpump.running,
+    });
+    drawPipe(scene, {
+      points: [
+        [bufX, bufferReturnY],
+        [mid + 26, bufferReturnY],
+        [mid + 26, hpReturnY],
+        [hpRight, hpReturnY],
+      ],
+      role: "return",
+      from: config.buffer.bottom,
+      to: config.heatpump.return_temp,
+      active: heatpump.running,
+    });
+  } else if (consumers.length) {
+    // the same agreement as the wide scene: no distribution on the generator
+    // alone, it takes a consumer that actually draws (#42)
+    const distributing = (hass) => heatpump.running(hass) && anyConsumer(hass);
+    drawPipe(scene, {
+      points: [
+        [hpRight, hpFlowY],
+        [flowRailX, hpFlowY],
+      ],
+      role: "flow",
+      from: config.heatpump.flow_temp,
+      to: null,
+      active: distributing,
+    });
+    drawPipe(scene, {
+      points: [
+        [returnRailX, hpReturnY],
+        [hpRight, hpReturnY],
+      ],
+      role: "return",
+      from: null,
+      to: config.heatpump.return_temp,
+      active: distributing,
+    });
+  }
+
+  if (config.heatpump.flow_temp) {
+    drawBadge(scene, hpRight + 28, hpFlowY - 16, config.heatpump.flow_temp, {
+      label: textsFor(scene.hass()).flow,
+    });
+  }
+  if (config.heatpump.return_temp) {
+    drawBadge(scene, hpRight + 28, hpReturnY + 17, config.heatpump.return_temp, {
+      label: textsFor(scene.hass()).ret,
+    });
+  }
+  if (config.heatpump.flow_rate) {
+    drawBadge(scene, hpRight + 28, hpFlowY + 17, config.heatpump.flow_rate, {
+      label: textsFor(scene.hass()).flow_rate,
+    });
+  }
+
+  // The distribution rails run down the right edge and hand each consumer
+  // its share on the way.
+  if (consumers.length) {
+    const source = config.buffer ? bufX + G.buffer.w : hpRight;
+    drawPipe(scene, {
+      points: [
+        [source, bufferFlowY],
+        [flowRailX, bufferFlowY],
+        [flowRailX, Math.max(...consumers.map((item) => item.inletY))],
+      ],
+      role: "flow",
+      part: "flow-spine",
+      from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
+      active: anyConsumer,
+    });
+    drawPipe(scene, {
+      points: [
+        [returnRailX, Math.max(...consumers.map((item) => item.outletY))],
+        [returnRailX, bufferReturnY],
+        [source, bufferReturnY],
+      ],
+      role: "return",
+      part: "return-spine",
+      from: consumers[0] ? consumers[0].cfg.return_temp || consumers[0].cfg.flow_temp : null,
+      to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
+      active: anyConsumer,
+    });
+    consumers.forEach((item, index) => {
+      const part = item.kind === "dhw" ? "dhw" : `circuit-${index + (config.dhw ? 0 : 1)}`;
+      drawPipe(scene, {
+        points: [
+          [flowRailX, item.inletY],
+          [G.pad + consumerW, item.inletY],
+        ],
+        role: "flow",
+        part: `flow-${part}`,
+        from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
+        to: item.cfg.flow_temp || item.cfg.temp,
+        active: item.running,
+      });
+      drawPipe(scene, {
+        points: [
+          [G.pad + consumerW, item.outletY],
+          [returnRailX, item.outletY],
+        ],
+        role: "return",
+        part: `return-${part}`,
+        from: item.cfg.return_temp || item.cfg.flow_temp,
+        to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
+        active: item.running,
+      });
+      if (item.kind === "dhw" && item.cfg.flow_rate && item.cfg.flow_rate.entity) {
+        const flowBadge = drawBadge(scene, G.pad + consumerW - 46, item.inletY + 17, item.cfg.flow_rate, {
+          label: textsFor(scene.hass()).flow_rate,
+          rightEdge: G.pad + consumerW - 8,
+        });
+        flowBadge.setAttribute("data-part", "dhw-flow");
+        const deadband =
+          item.cfg.flow_rate.threshold !== undefined ? item.cfg.flow_rate.threshold : 0.5;
+        scene.add(() => {
+          const value = numberValue(scene.hass(), item.cfg.flow_rate);
+          flowBadge.classList.toggle("hpfc-flowing", value !== null && value > deadband);
+        });
+      }
+    });
+  }
+
+  if (showElectrics) {
+    drawElectrics(
+      scene,
+      { x: G.pad, y: cursorY + G.gapY, w: width - G.pad * 2, h: electricsHeight },
+      electrics
+    );
+  }
+
+  return scene;
+}
+
 function buildScene(card) {
   const config = card._config;
+  // One column when the card is narrow - unless sources or a wood stove ask
+  // for the width only the wide scene can give them.
+  if (config.layout === "narrow" && !config.pv && !config.solar && !config.wood_stove) {
+    return buildNarrowScene(card, config);
+  }
   const G = GEOMETRY;
   const consumerWidth = config.dense ? 268 : 304;
   const circuitHeight = config.dense ? 118 : 134;
@@ -3990,16 +5158,22 @@ function buildScene(card) {
   const electrics = hasElectrics(config) ? electricNodes(config) : [];
   const showElectrics = electrics.length > 1;
 
-  // The status strip: fault wording, demand reason, smart-grid state, and the
-  // day's diagnostics - only drawn when at least one of them is configured.
-  const statusStrip = [
-    config.heatpump.alarm,
-    config.heatpump.message,
-    config.heatpump.reason,
-    config.heatpump.smart_grid,
-    config.heatpump.cycles_today,
-    config.heatpump.defrosts_today,
-  ].some(Boolean);
+  // The status strip: fault wording, demand reason, smart-grid state, the
+  // day's diagnostics and the statistics chips - only drawn when at least one
+  // of them is configured.
+  const statusStrip =
+    [
+      config.heatpump.alarm,
+      config.heatpump.message,
+      config.heatpump.reason,
+      config.heatpump.smart_grid,
+      config.heatpump.cycles_today,
+      config.heatpump.defrosts_today,
+      config.heatpump.energy_thermal,
+      config.heatpump.energy_electric,
+      config.heatpump.spf,
+      config.heatpump.outside_temp && config.heatpump.outside_temp.day_min_max === true,
+    ].some(Boolean);
   const statusH = statusStrip ? 32 : 0;
 
   const stripY = G.pad + contentH + statusH + (solarLanes ? 88 : G.pad);
@@ -4034,6 +5208,8 @@ function buildScene(card) {
     root: nodeLayer,    updaters: [],
     flags: {},
     hass: () => card._hass,
+    spark: new Map(),
+    stats: new Map(),
     add(fn) {
       this.updaters.push(fn);
     },
@@ -4702,6 +5878,12 @@ ha-card.hpfc-has-title { padding-top: 4px; }
 .hpfc-chip-active text { fill: var(--success-color, #43a047); }
 .hpfc-chevron { stroke: var(--hpfc-muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .hpfc-affordance { stroke: var(--hpfc-muted); stroke-width: 1.2; stroke-dasharray: 2 2; opacity: 0.55; }
+/* The curve behind a readout: quiet enough to read the value on top of it. */
+.hpfc-spark { pointer-events: none; }
+.hpfc-spark-area { fill: var(--hpfc-muted); opacity: 0.12; }
+.hpfc-spark-line { fill: none; stroke: var(--hpfc-muted); stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; opacity: 0.6; }
+.hpfc-spark-tip { fill: var(--hpfc-muted); opacity: 0.85; }
+.hpfc-spark-empty, .hpfc-readout.hpfc-unset .hpfc-spark { display: none; }
 .hpfc-mode-heat rect { fill: rgba(249, 115, 22, 0.2); } .hpfc-mode-heat text { fill: #f97316; }
 .hpfc-mode-cool rect { fill: rgba(14, 165, 233, 0.2); } .hpfc-mode-cool text { fill: #0ea5e9; }
 .hpfc-mode-water rect { fill: rgba(245, 158, 11, 0.2); } .hpfc-mode-water text { fill: #d97706; }
@@ -4833,6 +6015,11 @@ ha-card.hpfc-has-title { padding-top: 4px; }
    is blue already; the emitters tell the rest: while a circuit cools, its
    waves fall and turn the cool blue of the drawing. */
 .hpfc-heatpump.hpfc-cooling .hpfc-fan-ring { stroke: #38bdf8; }
+/* Natural cooling runs no compressor: the fan stands still while the cold is
+   carried, and what falls from the emitters falls gently - cold air sinks. */
+.hpfc-heatpump.hpfc-passive-cooling .hpfc-fan { animation-play-state: paused; }
+svg.hpfc-passive .hpfc-circuit.hpfc-cooling .hpfc-heatwave,
+svg.hpfc-passive .hpfc-circuit.hpfc-cooling .hpfc-wave { animation-duration: 5.6s; }
 .hpfc-circuit.hpfc-cooling { --hpfc-emitter-color: #38bdf8; }
 .hpfc-circuit.hpfc-cooling .hpfc-heatwave,
 .hpfc-circuit.hpfc-cooling .hpfc-wave { animation-direction: reverse; }
@@ -4894,6 +6081,9 @@ class HeatpumpFlowCard extends HTMLElement {
     this._entities = collectWatchedEntities(this._config);
     this._signature = null;
     this._scene = null;
+    // A new configuration must not inherit another one's curves and answers.
+    this._sparkStore = {};
+    this._statsStore = {};
     if (this._hass) this._render();
   }
 
@@ -4989,6 +6179,21 @@ class HeatpumpFlowCard extends HTMLElement {
       }
     }
     this._refreshControl();
+    this._advanceSparklines();
+  }
+
+  /* ---- sparklines ---- */
+
+  /** Keeps the curves moving, and their fetches from ever overlapping. */
+  _advanceSparklines() {
+    if (!this._scene || !this._hass) return;
+    try {
+      if (this._scene.spark.size) advanceSparklines(this, this._scene, this._hass);
+      if (this._scene.stats.size) advanceStats(this, this._scene, this._hass);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("heatpump-flow-card sparkline failed", err);
+    }
   }
 
   /* ---- inline controls ---- */
@@ -5344,6 +6549,11 @@ const EDITOR_TEXTS = {
     fan: "Outdoor unit fan (off for brine or water)",
     defrost: "Defrosting (binary sensor)",
     cooling: "Cooling (binary sensor) - forces the cooling look",
+    passive_cooling: "Natural / passive cooling (binary sensor or status text)",
+    eer: "EER (cooling efficiency)",
+    energy_thermal: "Thermal energy today (kWh sensor)",
+    energy_electric: "Electrical energy today (kWh sensor)",
+    sparkline: "Sparkline",
     heater: "Element in the tank",
     heater_power: "Element power",
     heater_temp: "Element temperature",
@@ -5451,6 +6661,11 @@ const EDITOR_TEXTS = {
     fan: "Ventilator des Außengeräts (aus für Sole oder Wasser)",
     defrost: "Abtauen (Binärsensor)",
     cooling: "Kühlen (Binärsensor) – erzwingt die Kühl-Darstellung",
+    passive_cooling: "Natürliche/passive Kühlung (Binärsensor oder Statustext)",
+    eer: "EER (Kälte-Leistungszahl)",
+    energy_thermal: "Wärmeenergie heute (kWh-Sensor)",
+    energy_electric: "Elektrische Energie heute (kWh-Sensor)",
+    sparkline: "Verlaufskurve",
     heater: "Heizstab im Speicher",
     heater_power: "Leistung des Heizstabs",
     heater_temp: "Temperatur des Heizstabs",
@@ -5517,7 +6732,459 @@ const EDITOR_TEXTS = {
       generic: "Allgemein",
     },
   },
+  fr: {
+    title: "Titre de la carte",
+    layout: "Disposition",
+    animation: "Animer le flux",
+    temperature_colors: "Couleurs des tuyaux selon la température",
+    controls: "Piloter les entités depuis la carte",
+    zoom: "Bouton pour agrandir la carte",
+    flow_speed: "Vitesse du flux",
+    electrics_style: "Style du bus d'énergie",
+    style_tiles: "Tuiles (classique)",
+    flow_threshold: "Zone morte du flux (W)",
+    style_flow: "Nœuds ronds sur une ligne",
+    show_buffer: "Afficher le ballon tampon",
+    show_dhw: "Afficher l'eau chaude sanitaire",
+    show_pv: "Afficher le photovoltaïque",
+    show_solar: "Afficher le solaire thermique",
+    show_wood_stove: "Afficher le poêle à bois",
+    circuit_count: "Circuits de chauffage",
+    heatpump: "Pompe à chaleur",
+    wood_stove: "Poêle à bois",
+    buffer: "Ballon tampon",
+    dhw: "Eau chaude sanitaire",
+    pv: "Photovoltaïque",
+    solar: "Solaire thermique",
+    circuit: "Circuit de chauffage",
+    name: "Nom",
+    entity: "Entité (toucher pour commuter)",
+    state_entity: "En marche (capteur binaire)",
+    mode: "Mode de fonctionnement (select / climate)",
+    status: "État signalé (dégivrage, eau chaude …)",
+    boost: "Boost (bouton / interrupteur)",
+    aux_heat: "Second générateur de chaleur",
+    aux_heat_power: "Second générateur de chaleur, puissance",
+    ref_discharge_temp: "Frigorigène, température de refoulement",
+    ref_condenser_temp: "Frigorigène, température du condenseur",
+    ref_liquid_temp: "Frigorigène, température de la ligne de liquide",
+    ref_suction_temp: "Frigorigène, température du gaz aspiré",
+    ref_circuit: "Afficher le circuit frigorifique",
+    fan: "Ventilateur de l'unité extérieure (désactivé pour géo-eau)",
+    defrost: "Dégivrage (capteur binaire)",
+    cooling: "Refroidissement (capteur binaire) – force l'affichage froid",
+    passive_cooling: "Refroidissement naturel / passif (capteur binaire ou texte d'état)",
+    eer: "EER (efficacité en refroidissement)",
+    energy_thermal: "Énergie thermique du jour (capteur kWh)",
+    energy_electric: "Énergie électrique du jour (capteur kWh)",
+    sparkline: "Courbe de tendance",
+    heater: "Résistance dans le ballon",
+    heater_power: "Puissance de la résistance",
+    heater_temp: "Température de la résistance",
+    heater_mode: "Mode de la résistance",
+    power: "Puissance",
+    cop: "COP / efficacité",
+    flow_temp: "Température de départ",
+    return_temp: "Température de retour",
+    outside_temp: "Température extérieure",
+    compressor: "Charge du compresseur",
+    thermal_power: "Puissance thermique (ou { calculate: true, power: …, cop: … })",
+    alarm: "Défaut (capteur binaire)",
+    message: "Message de défaut (capteur texte)",
+    reason: "Motif d'appel – pourquoi ça tourne",
+    smart_grid: "État Smart grid / SG-Ready",
+    cycles_today: "Démarrages du compresseur aujourd'hui",
+    defrosts_today: "Dégivrages aujourd'hui",
+    flow_rate: "Débit",
+    top: "Température en haut",
+    middle: "Température au milieu",
+    bottom: "Température en bas",
+    charge: "Niveau de charge",
+    temp: "Température",
+    target_temp: "Température de consigne",
+    pump: "Pompe de circulation",
+    valve: "Vanne de mélange",
+    room_temp: "Température ambiante",
+    battery: "Batterie",
+    battery_power: "Puissance batterie (+ charge)",
+    grid: "Réseau",
+    grid_power: "Puissance réseau (+ import)",
+    wallbox: "Puissance de la borne",
+    house: "Consommation de la maison",
+    collector_temp: "Température du capteur",
+    yield: "Production",
+    type: "Type d'émetteur",
+    humidity: "Humidité",
+    yaml_only: "Configuré en YAML",
+    layouts: {
+      compact: "Compact · ballon · 1 circuit",
+      "compact-dual": "Compact · ballon · 2 circuits",
+      single: "Ballon · 1 circuit",
+      dual: "Ballon · 2 circuits",
+      triple: "Ballon · 3 circuits",
+      quad: "Ballon · 4 circuits",
+      dhw: "Ballon · eau chaude · 1 circuit",
+      "dhw-dual": "Ballon · eau chaude · 2 circuits",
+      "dhw-quad": "Ballon · eau chaude · 4 circuits",
+      "pv-single": "PV · ballon · 1 circuit",
+      "pv-dual": "PV · ballon · 2 circuits",
+      "pv-dhw-dual": "PV · ballon · eau chaude · 2 circuits",
+      "solar-dual": "Solaire · ballon · eau chaude · 2 circuits",
+      full: "Tout · PV · solaire · eau chaude · 2 circuits",
+      "full-quad": "Tout · 4 circuits",
+      direct: "Sans ballon · 1 circuit",
+      "direct-dual": "Sans ballon · 2 circuits",
+      "direct-dhw": "Sans ballon · eau chaude · 2 circuits",
+    },
+    types: {
+      radiator: "Radiateurs",
+      underfloor: "Plancher chauffant",
+      fancoil: "Ventilo-convecteur",
+      pool: "Piscine",
+      generic: "Générique",
+    },
+  },
+  it: {
+    title: "Titolo della carta",
+    layout: "Layout",
+    animation: "Anima il flusso",
+    temperature_colors: "Colora le tubazioni secondo la temperatura",
+    controls: "Comanda le entità dalla carta",
+    zoom: "Pulsante per ingrandire la carta",
+    flow_speed: "Velocità del flusso",
+    electrics_style: "Stile del bus energetico",
+    style_tiles: "Riquadri (classico)",
+    flow_threshold: "Zona morta del flusso (W)",
+    style_flow: "Nodi rotondi su una linea",
+    show_buffer: "Mostra il puffer",
+    show_dhw: "Mostra l'acqua calda",
+    show_pv: "Mostra il fotovoltaico",
+    show_solar: "Mostra il solare termico",
+    show_wood_stove: "Mostra la stufa a legna",
+    circuit_count: "Circuiti di riscaldamento",
+    heatpump: "Pompa di calore",
+    wood_stove: "Stufa a legna",
+    buffer: "Puffer",
+    dhw: "Acqua calda sanitaria",
+    pv: "Fotovoltaico",
+    solar: "Solare termico",
+    circuit: "Circuito di riscaldamento",
+    name: "Nome",
+    entity: "Entità (tocca per commutare)",
+    state_entity: "In funzione (sensore binario)",
+    mode: "Modalità di funzionamento (select / climate)",
+    status: "Stato riportato (sbrinamento, acqua calda …)",
+    boost: "Boost (pulsante / interruttore)",
+    aux_heat: "Secondo generatore di calore",
+    aux_heat_power: "Secondo generatore di calore, potenza",
+    ref_discharge_temp: "Refrigerante, temperatura gas in mandata",
+    ref_condenser_temp: "Refrigerante, temperatura condensatore",
+    ref_liquid_temp: "Refrigerante, temperatura linea liquido",
+    ref_suction_temp: "Refrigerante, temperatura gas aspirato",
+    ref_circuit: "Mostra il circuito frigorifero",
+    fan: "Ventilatore unità esterna (off per sonde geotermiche)",
+    defrost: "Sbrinamento (sensore binario)",
+    cooling: "Raffrescamento (sensore binario) – forza l'aspetto raffrescamento",
+    passive_cooling: "Raffrescamento naturale / passivo (sensore binario o testo di stato)",
+    eer: "EER (efficienza in raffrescamento)",
+    energy_thermal: "Energia termica di oggi (sensore kWh)",
+    energy_electric: "Energia elettrica di oggi (sensore kWh)",
+    sparkline: "Curva di tendenza",
+    heater: "Resistenza nel puffer",
+    heater_power: "Potenza della resistenza",
+    heater_temp: "Temperatura della resistenza",
+    heater_mode: "Modalità della resistenza",
+    power: "Potenza",
+    cop: "COP / efficienza",
+    flow_temp: "Temperatura di mandata",
+    return_temp: "Temperatura di ritorno",
+    outside_temp: "Temperatura esterna",
+    compressor: "Carico del compressore",
+    thermal_power: "Potenza termica (oppure { calculate: true, power: …, cop: … })",
+    alarm: "Guasto (sensore binario)",
+    message: "Messaggio di guasto (sensore testo)",
+    reason: "Motivo di funzionamento – perché gira",
+    smart_grid: "Stato Smart grid / SG-Ready",
+    cycles_today: "Avvii compressore oggi",
+    defrosts_today: "Sbrinamenti oggi",
+    flow_rate: "Portata",
+    top: "Temperatura in alto",
+    middle: "Temperatura al centro",
+    bottom: "Temperatura in basso",
+    charge: "Livello di carica",
+    temp: "Temperatura",
+    target_temp: "Temperatura desiderata",
+    pump: "Pompa di circolazione",
+    valve: "Valvola miscelatrice",
+    room_temp: "Temperatura ambiente",
+    battery: "Batteria",
+    battery_power: "Potenza batteria (+ carica)",
+    grid: "Rete",
+    grid_power: "Potenza rete (+ prelievo)",
+    wallbox: "Potenza wallbox",
+    house: "Consumi casa",
+    collector_temp: "Temperatura collettore",
+    yield: "Rendimento",
+    type: "Tipo di emettitore",
+    humidity: "Umidità",
+    yaml_only: "Configurato in YAML",
+    layouts: {
+      compact: "Compatto · puffer · 1 circuito",
+      "compact-dual": "Compatto · puffer · 2 circuiti",
+      single: "Puffer · 1 circuito",
+      dual: "Puffer · 2 circuiti",
+      triple: "Puffer · 3 circuiti",
+      quad: "Puffer · 4 circuiti",
+      dhw: "Puffer · acqua calda · 1 circuito",
+      "dhw-dual": "Puffer · acqua calda · 2 circuiti",
+      "dhw-quad": "Puffer · acqua calda · 4 circuiti",
+      "pv-single": "PV · puffer · 1 circuito",
+      "pv-dual": "PV · puffer · 2 circuiti",
+      "pv-dhw-dual": "PV · puffer · acqua calda · 2 circuiti",
+      "solar-dual": "Solare · puffer · acqua calda · 2 circuiti",
+      full: "Tutto · PV · solare · acqua calda · 2 circuiti",
+      "full-quad": "Tutto · 4 circuiti",
+      direct: "Senza puffer · 1 circuito",
+      "direct-dual": "Senza puffer · 2 circuiti",
+      "direct-dhw": "Senza puffer · acqua calda · 2 circuiti",
+    },
+    types: {
+      radiator: "Radiatori",
+      underfloor: "Pavimento radiante",
+      fancoil: "Ventilconvettore",
+      pool: "Piscina",
+      generic: "Generico",
+    },
+  },
+  nl: {
+    title: "Kaarttitel",
+    layout: "Layout",
+    animation: "Animatie van de stroom",
+    temperature_colors: "Kleur leidingen op temperatuur",
+    controls: "Bedien entiteiten vanaf de kaart",
+    zoom: "Knop om de kaart te vergroten",
+    flow_speed: "Stroomsnelheid",
+    electrics_style: "Stijl van de energiebus",
+    style_tiles: "Tegels (klassiek)",
+    flow_threshold: "Dode zone van de stroom (W)",
+    style_flow: "Ronde knooppunten op een lijn",
+    show_buffer: "Toon buffervat",
+    show_dhw: "Toon warm water",
+    show_pv: "Toon zonnepanelen",
+    show_solar: "Toon zonnewarmte",
+    show_wood_stove: "Toon houtkachel",
+    circuit_count: "Verwarmingskringen",
+    heatpump: "Warmtepomp",
+    wood_stove: "Houtkachel",
+    buffer: "Buffervat",
+    dhw: "Warm tapwater",
+    pv: "Zonnepanelen",
+    solar: "Zonnewarmte",
+    circuit: "Verwarmingskring",
+    name: "Naam",
+    entity: "Entiteit (tikken om te schakelen)",
+    state_entity: "In bedrijf (binaire sensor)",
+    mode: "Bedrijfsmodus (select / climate)",
+    status: "Gerapporteerde status (ontdooien, warm water …)",
+    boost: "Boost (knop / schakelaar)",
+    aux_heat: "Tweede warmtebron",
+    aux_heat_power: "Tweede warmtebron, vermogen",
+    ref_discharge_temp: "Koudemiddel, persgastemperatuur",
+    ref_condenser_temp: "Koudemiddel, condensortemperatuur",
+    ref_liquid_temp: "Koudemiddel, vloeistoflijntemperatuur",
+    ref_suction_temp: "Koudemiddel, zuiggastemperatuur",
+    ref_circuit: "Toon het koudemiddelcircuit",
+    fan: "Ventilator van het buitenunit (uit bij bodem- of waterwarmte)",
+    defrost: "Ontdooien (binaire sensor)",
+    cooling: "Koelen (binaire sensor) – forceert de koelweergave",
+    passive_cooling: "Natuurlijk / passief koelen (binaire sensor of statustekst)",
+    eer: "EER (koelrendement)",
+    energy_thermal: "Warmte-energie vandaag (kWh-sensor)",
+    energy_electric: "Elektrische energie vandaag (kWh-sensor)",
+    sparkline: "Trendlijn",
+    heater: "Element in het vat",
+    heater_power: "Vermogen van het element",
+    heater_temp: "Temperatuur van het element",
+    heater_mode: "Modus van het element",
+    power: "Vermogen",
+    cop: "COP / rendement",
+    flow_temp: "Aanvoertemperatuur",
+    return_temp: "Retourtemperatuur",
+    outside_temp: "Buitentemperatuur",
+    compressor: "Compressorbelasting",
+    thermal_power: "Warmtevermogen (of { calculate: true, power: …, cop: … })",
+    alarm: "Storing (binaire sensor)",
+    message: "Storingsmelding (tekstsensor)",
+    reason: "Aanleiding – waarom hij draait",
+    smart_grid: "Smart grid / SG-Ready-status",
+    cycles_today: "Compressorstarts vandaag",
+    defrosts_today: "Ontdooibeurten vandaag",
+    flow_rate: "Debiet",
+    top: "Temperatuur boven",
+    middle: "Temperatuur midden",
+    bottom: "Temperatuur onder",
+    charge: "Laadstand",
+    temp: "Temperatuur",
+    target_temp: "Gewenste temperatuur",
+    pump: "Circulatiepomp",
+    valve: "Mengklep",
+    room_temp: "Kamertemperatuur",
+    battery: "Batterij",
+    battery_power: "Batterijvermogen (+ laden)",
+    grid: "Net",
+    grid_power: "Netvermogen (+ afname)",
+    wallbox: "Laadpaalvermogen",
+    house: "Huisverbruik",
+    collector_temp: "Collectortemperatuur",
+    yield: "Opbrengst",
+    type: "Afgifetype",
+    humidity: "Vochtigheid",
+    yaml_only: "In YAML ingesteld",
+    layouts: {
+      compact: "Compact · vat · 1 kring",
+      "compact-dual": "Compact · vat · 2 kringen",
+      single: "Vat · 1 kring",
+      dual: "Vat · 2 kringen",
+      triple: "Vat · 3 kringen",
+      quad: "Vat · 4 kringen",
+      dhw: "Vat · warm water · 1 kring",
+      "dhw-dual": "Vat · warm water · 2 kringen",
+      "dhw-quad": "Vat · warm water · 4 kringen",
+      "pv-single": "PV · vat · 1 kring",
+      "pv-dual": "PV · vat · 2 kringen",
+      "pv-dhw-dual": "PV · vat · warm water · 2 kringen",
+      "solar-dual": "Zonnewarmte · vat · warm water · 2 kringen",
+      full: "Alles · PV · zonnewarmte · warm water · 2 kringen",
+      "full-quad": "Alles · 4 kringen",
+      direct: "Zonder vat · 1 kring",
+      "direct-dual": "Zonder vat · 2 kringen",
+      "direct-dhw": "Zonder vat · warm water · 2 kringen",
+    },
+    types: {
+      radiator: "Radiatoren",
+      underfloor: "Vloerverwarming",
+      fancoil: "Fancoil",
+      pool: "Zwembad",
+      generic: "Algemeen",
+    },
+  },
+  pl: {
+    title: "Tytuł karty",
+    layout: "Układ",
+    animation: "Animuj przepływ",
+    temperature_colors: "Koloruj rury według temperatury",
+    controls: "Steruj encjami z karty",
+    zoom: "Przycisk powiększenia karty",
+    flow_speed: "Prędkość przepływu",
+    electrics_style: "Styl magistrali energetycznej",
+    style_tiles: "Kafelki (klasycznie)",
+    flow_threshold: "Strefa martwa przepływu (W)",
+    style_flow: "Okrągłe węzły na linii",
+    show_buffer: "Pokaż zasobnik buforowy",
+    show_dhw: "Pokaż ciepłą wodę użytkową",
+    show_pv: "Pokaż fotowoltaikę",
+    show_solar: "Pokaż kolektory słoneczne",
+    show_wood_stove: "Pokaż piec na drewno",
+    circuit_count: "Obiegi grzewcze",
+    heatpump: "Pompa ciepła",
+    wood_stove: "Piec na drewno",
+    buffer: "Zasobnik buforowy",
+    dhw: "Ciepła woda użytkowa",
+    pv: "Fotowoltaika",
+    solar: "Kolektory słoneczne",
+    circuit: "Obieg grzewczy",
+    name: "Nazwa",
+    entity: "Encja (stuknij, aby przełączyć)",
+    state_entity: "Praca (sensor binarny)",
+    mode: "Tryb pracy (select / climate)",
+    status: "Zgłaszany stan (odmrażanie, ciepła woda …)",
+    boost: "Boost (przycisk / przełącznik)",
+    aux_heat: "Drugie źródło ciepła",
+    aux_heat_power: "Drugie źródło ciepła, moc",
+    ref_discharge_temp: "Czynnik, temperatura gazu tłocznego",
+    ref_condenser_temp: "Czynnik, temperatura skraplacza",
+    ref_liquid_temp: "Czynnik, temperatura linii cieczy",
+    ref_suction_temp: "Czynnik, temperatura gazu ssanego",
+    ref_circuit: "Pokaż obieg czynnika",
+    fan: "Wentylator jednostki zewnętrznej (wyłączony dla pomp glikol/woda)",
+    defrost: "Odmrażanie (sensor binarny)",
+    cooling: "Chłodzenie (sensor binarny) – wymusza wygląd chłodzenia",
+    passive_cooling: "Chłodzenie naturalne / pasywne (sensor binarny lub tekst stanu)",
+    eer: "EER (sprawność chłodnicza)",
+    energy_thermal: "Energia cieplna dzisiaj (sensor kWh)",
+    energy_electric: "Energia elektryczna dzisiaj (sensor kWh)",
+    sparkline: "Krzywa trendu",
+    heater: "Grzałka w zasobniku",
+    heater_power: "Moc grzałki",
+    heater_temp: "Temperatura grzałki",
+    heater_mode: "Tryb grzałki",
+    power: "Moc",
+    cop: "COP / sprawność",
+    flow_temp: "Temperatura zasilania",
+    return_temp: "Temperatura powrotu",
+    outside_temp: "Temperatura zewnętrzna",
+    compressor: "Obciążenie sprężarki",
+    thermal_power: "Moc cieplna (lub { calculate: true, power: …, cop: … })",
+    alarm: "Awaria (sensor binarny)",
+    message: "Komunikat awarii (sensor tekstowy)",
+    reason: "Powód pracy – dlaczego działa",
+    smart_grid: "Stan Smart grid / SG-Ready",
+    cycles_today: "Starty sprężarki dzisiaj",
+    defrosts_today: "Odmrożenia dzisiaj",
+    flow_rate: "Przepływ",
+    top: "Temperatura u góry",
+    middle: "Temperatura w środku",
+    bottom: "Temperatura na dole",
+    charge: "Poziom naładowania",
+    temp: "Temperatura",
+    target_temp: "Temperatura zadana",
+    pump: "Pompa obiegowa",
+    valve: "Zawór mieszający",
+    room_temp: "Temperatura w pomieszczeniu",
+    battery: "Bateria",
+    battery_power: "Moc baterii (+ ładowanie)",
+    grid: "Sieć",
+    grid_power: "Moc sieci (+ pobór)",
+    wallbox: "Moc ładowarki",
+    house: "Zużycie domu",
+    collector_temp: "Temperatura kolektora",
+    yield: "Uzysk",
+    type: "Typ grzejnika",
+    humidity: "Wilgotność",
+    yaml_only: "Skonfigurowane w YAML",
+    layouts: {
+      compact: "Kompaktowo · zasobnik · 1 obieg",
+      "compact-dual": "Kompaktowo · zasobnik · 2 obiegi",
+      single: "Zasobnik · 1 obieg",
+      dual: "Zasobnik · 2 obiegi",
+      triple: "Zasobnik · 3 obiegi",
+      quad: "Zasobnik · 4 obiegi",
+      dhw: "Zasobnik · c.w.u. · 1 obieg",
+      "dhw-dual": "Zasobnik · c.w.u. · 2 obiegi",
+      "dhw-quad": "Zasobnik · c.w.u. · 4 obiegi",
+      "pv-single": "PV · zasobnik · 1 obieg",
+      "pv-dual": "PV · zasobnik · 2 obiegi",
+      "pv-dhw-dual": "PV · zasobnik · c.w.u. · 2 obiegi",
+      "solar-dual": "Kolektory · zasobnik · c.w.u. · 2 obiegi",
+      full: "Wszystko · PV · kolektory · c.w.u. · 2 obiegi",
+      "full-quad": "Wszystko · 4 obiegi",
+      direct: "Bez zasobnika · 1 obieg",
+      "direct-dual": "Bez zasobnika · 2 obiegi",
+      "direct-dhw": "Bez zasobnika · c.w.u. · 2 obiegi",
+    },
+    types: {
+      radiator: "Grzejniki",
+      underfloor: "Ogrzewanie podłogowe",
+      fancoil: "Wentylator konwektorowy",
+      pool: "Basen",
+      generic: "Ogólny",
+    },
+  },
 };
+
+/** The readout fields a sparkline can sit behind, in the editor's reach:
+ * plain single-entity fields, the ones the form shows as entity ids. */
+const SPARKLINE_FIELDS = ["power", "thermal_power", "cop", "eer", "outside_temp"];
 
 const EDITOR_SECTIONS = {
   heatpump: [
@@ -5527,6 +7194,7 @@ const EDITOR_SECTIONS = {
     "power",
     "thermal_power",
     "cop",
+    "eer",
     "flow_temp",
     "return_temp",
     "outside_temp",
@@ -5535,6 +7203,7 @@ const EDITOR_SECTIONS = {
     "aux_heat_power",
     "defrost",
     "cooling",
+    "passive_cooling",
     "flow_rate",
     "alarm",
     "message",
@@ -5542,6 +7211,8 @@ const EDITOR_SECTIONS = {
     "smart_grid",
     "cycles_today",
     "defrosts_today",
+    "energy_thermal",
+    "energy_electric",
     ...REF_CIRCUIT_FIELDS,
   ],
   buffer: ["top", "middle", "bottom", "charge", "heater", "heater_power", "heater_temp", "heater_mode"],
@@ -5609,7 +7280,11 @@ class HeatpumpFlowCardEditor extends HTMLElement {
 
   get _texts() {
     const language = this._hass && this._hass.locale ? this._hass.locale.language : "en";
-    return String(language).toLowerCase().startsWith("de") ? EDITOR_TEXTS.de : EDITOR_TEXTS.en;
+    const key = String(language).slice(0, 2).toLowerCase();
+    const table = EDITOR_TEXTS[key];
+    // A translation covers what it covers; the rest stays English rather
+    // than falling apart.
+    return table ? { ...EDITOR_TEXTS.en, ...table } : EDITOR_TEXTS.en;
   }
 
   _render() {
@@ -5640,6 +7315,18 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       ];
       if (key === "heatpump" && REF_CIRCUIT_FIELDS.some((field) => data.heatpump && data.heatpump[field])) {
         rows.push({ name: "ref_circuit", selector: { boolean: {} } });
+      }
+      // One sparkline switch per configured plain readout - the curve behind
+      // the value, without leaving the form for YAML.
+      if (key === "heatpump" && data.heatpump) {
+        const sparkRows = SPARKLINE_FIELDS.filter(
+          (field) => typeof data.heatpump[field] === "string" && data.heatpump[field]
+        ).map((field) => ({
+          name: `${field}_sparkline`,
+          selector: { boolean: {} },
+          label: `${texts.sparkline}: ${texts[field] || field}`,
+        }));
+        if (sparkRows.length) rows.push({ type: "grid", schema: sparkRows });
       }
       // The fan switch only appears once the configuration says something
       // about it, so an untouched card keeps its untouched round-trip.
@@ -5785,6 +7472,15 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     };
 
     data.heatpump = simplify(config.heatpump, "heatpump");
+    // The sparkline switches, one per readout the form shows as a plain
+    // entity id - a long form beyond the toggle stays YAML's to own.
+    for (const field of SPARKLINE_FIELDS) {
+      const raw = config.heatpump && config.heatpump[field];
+      if (typeof data.heatpump[field] === "string" && data.heatpump[field]) {
+        data.heatpump[`${field}_sparkline`] =
+          raw && typeof raw === "object" && raw.sparkline !== undefined ? raw.sparkline === true : false;
+      }
+    }
     if (REF_CIRCUIT_FIELDS.some((field) => data.heatpump[field])) {
       data.heatpump.ref_circuit = data.heatpump.ref_circuit !== false;
     }
@@ -5850,6 +7546,15 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     };
 
     config.heatpump = clean(data.heatpump, "heatpump");
+    // The toggles turn a plain entity id into its sparklined long form; off
+    // leaves whatever the configuration had. Either way the switch itself is
+    // form vocabulary, not card configuration, and never survives here.
+    for (const field of SPARKLINE_FIELDS) {
+      if (data.heatpump[`${field}_sparkline`] && typeof config.heatpump[field] === "string") {
+        config.heatpump[field] = { entity: config.heatpump[field], sparkline: true };
+      }
+      delete config.heatpump[`${field}_sparkline`];
+    }
     if (config.heatpump.ref_circuit !== false) delete config.heatpump.ref_circuit;
     if (config.heatpump.fan !== false) delete config.heatpump.fan;
     for (const key of ["buffer", "dhw", "pv", "solar", "wood_stove"]) {

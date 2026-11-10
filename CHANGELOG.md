@@ -21,6 +21,70 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-11-10
+
+### Added
+
+- **A readout can carry its own history.** Any numeric field in long form
+  accepts `sparkline: true` (or `{ hours: n }` for a window of your own, 1 to
+  168), and the value draws the field's recent curve as a quiet band behind
+  its label and value — the day's shape of the thermal output, the electrical
+  draw, a COP, an outside temperature, without a single extra row of layout.
+  - **The curve comes from the recorder** — hourly long-term statistics over
+    the window, refreshed every ten minutes, normalized to watts where the
+    field is a power so a kW meter and a W meter come out right. While the
+    last bucket is still running, its point says what the sensor says now.
+  - **Without statistics, the card keeps its own record** — a ring buffer of
+    live readings, one point per minute, so the curve grows even on a plant
+    whose sensors have no long-term statistics yet.
+  - **A calculated COP gets its curve too**: `cop: { calculate: true, …,
+    sparkline: true }` divides the thermal series by the electrical one,
+    bucket by bucket, so the curve is the day's efficiency, not a guess from
+    two live numbers.
+  - A hover (or screen reader) gets the wording: window, average, minimum,
+    maximum. A field fed by a string of entities draws no curve — there is
+    no single series to plot. In the visual editor, a switch per readout
+    turns the curve on without touching YAML.
+
+- **The day's balance is on the status strip.** Three new chips, all optional:
+  - `energy_thermal` / `energy_electric` — the day's heat and draw in kWh. A
+    plain today-counter shows its own value; `{ today: true }` behind a
+    lifetime total sums the recorder's buckets since midnight.
+  - `spf` (or `jaz`) — the seasonal performance factor: one energy sum over
+    another, over a `period` of day, week, month or year. The number every
+    heat pump owner actually wants to know.
+  - `outside_temp: { day_min_max: true }` — the day's outside range as
+    “−4.1 … 7.9 °C”, straight from the statistics' minima and maxima.
+
+- **Cooling is now a first-class citizen.**
+  - `eer` — the cooling twin of the COP, its own readout: a plain sensor, or
+    `{ calculate: true, power: …, thermal_power: … }` divides the two meters.
+    It carries a sparkline like any numeric field.
+  - **Natural (passive) cooling reads as what it is**: no compressor running,
+    only the cold being carried. A status text of “natural/passive cooling”
+  (“natürliche/passive Kühlung”) suffices, or a `passive_cooling` binary
+  sensor — the fan stands still and the emitters' waves fall gently.
+
+- **Five more languages.** The card now speaks English, German, French,
+  Italian, Dutch and Polish — the drawing's labels and the visual editor
+  both, with English as the fallback for anything a translation has not
+  reached yet. Contributions welcome.
+
+- **A narrow layout.** `layout: narrow` stacks the plant in one column — the
+  heat pump and its tank side by side at the top, hot water and the circuits
+  below at full width — for dashboard columns half a phone wide. A narrow
+  card that configures photovoltaics, solar thermal or a wood stove falls
+  back to the wide scene, because those need the width.
+
+### Maintenance
+
+- The preview's `full` layout draws sparklines behind both power readouts and
+  the new status chips, `cooling` shows a passively cooling plant with an
+  EER, and `narrow` joins the overlap check. The demo stand-in serves
+  statistics the way the recorder does — W rows without a unit against kW
+  rows with one, epoch seconds against ISO timestamps, sums and minima and
+  maxima — so every normalization path stays covered by the tests.
+
 ## [1.14.0] - 2026-11-09
 
 ### Added

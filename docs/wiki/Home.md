@@ -51,8 +51,10 @@ circuits:
 Nothing is mandatory. Leave a sensor out and that spot stays empty instead of
 breaking the card.
 
-Labels follow the language of your Home Assistant — English by default, German
-when Home Assistant speaks German. Any `name:` you set wins over both.
+Labels follow the language of your Home Assistant — English by default, German,
+French, Italian, Dutch or Polish when Home Assistant speaks one of them, with
+English as the fallback for anything a translation has not reached yet. Any
+`name:` you set wins over all of them.
 
 ## What makes it different
 

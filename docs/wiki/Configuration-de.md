@@ -43,11 +43,13 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `ref_circuit` | `false` blendet den Kältekreis aus. Standardmäßig wird er gezeichnet, sobald einer der vier Sensoren gesetzt ist |
 | `defrost` | Binärsensor, der die Abtau-Darstellung erzwingt, wenn der Statustext sie nicht hergibt |
 | `cooling` | Binärsensor, der die Kühl-Darstellung erzwingt – ohne ihn genügt ein Status- oder Modustext „Kühlen“/“cooling“ (siehe unten) |
+| `passive_cooling` | Binärsensor (oder ein Statustext „natürliche/passive Kühlung“) – der Ventilator steht still und die Wellen fallen sanft: Es läuft kein Verdichter, nur das Kalte wird getragen |
 | `flow_rate` | Durchfluss durch die Wärmepumpe, als Pille unter der Vorlauftemperatur |
 | `power` | Leistung, neben dem Außengerät |
 | `thermal_power` | Thermische Leistung, eigenes Readout – ein plain Sensor oder `{ calculate: true, power: sensor.wp_leistung, cop: sensor.cop }` rechnet sie aus Aufnahme mal COP |
 | `cop` | Arbeitszahl / COP |
-| `outside_temp` | Außentemperatur |
+| `eer` | Das Kühl-Pendant zur Arbeitszahl – ein einfacher Sensor oder dieselbe Langform `{ calculate: true, power: …, thermal_power: … }`. Trägt eine Verlaufskurve wie jedes Zahlenfeld |
+| `outside_temp` | Außentemperatur. In der Langform fügt `day_min_max: true` die Tagesspanne als Status-Chip hinzu |
 | `compressor` | Verdichterlast in Prozent – bestimmt auch die Drehzahl des Ventilators |
 | `flow_temp` | Vorlauf: Pille und Rohrfarbe Richtung Speicher |
 | `return_temp` | Rücklauf: Pille und Rohrfarbe zurück |
@@ -56,13 +58,17 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `reason` | Warum sie gerade läuft – der Anforderungsgrund, als Chip in der Statusleiste |
 | `smart_grid` | SG-Ready-/Smart-Grid-Status als Chip in der Statusleiste |
 | `cycles_today`, `defrosts_today` | Die Starts des Verdichters und die Abtaustarts des Tages, als kleine Diagnose-Pillen in der Statusleiste |
+| `energy_thermal`, `energy_electric` | Die Tagesbilanz als Status-Chips: ein einfacher Heute-Zähler in kWh zeigt seinen Wert, oder `{ entity: <Lebenszähler>, today: true }` summiert die Rekorder-Scheiben seit Mitternacht |
+| `spf` | Die Jahresarbeitszahl als Status-Chip: `{ thermal: <kWh-Zähler>, electric: <kWh-Zähler>, period: day\|week\|month\|year }` (Alias `jaz`). Die eine Energiesumme durch die andere, aus dem Recorder |
 | `power_threshold` | Watt, ab denen die Wärmepumpe als laufend gilt (Standard `20`) |
 
 Die Statusleiste ist die schmale Zeile unter der Anlage. Sie existiert nur, wenn
 mindestens eines von `alarm`, `message`, `reason`, `smart_grid`,
-`cycles_today`, `defrosts_today` gesetzt ist; der Störungs-Chip erscheint nur,
-solange wirklich eine Störung gemeldet wird – eine Meldung „keine Meldung“
-zählt als still. Jeder Chip öffnet das More-Info seiner Entität.
+`cycles_today`, `defrosts_today`, `energy_thermal`, `energy_electric`, `spf`
+oder eine Außentemperatur mit `day_min_max` gesetzt ist; der Störungs-Chip
+erscheint nur, solange wirklich eine Störung gemeldet wird – eine Meldung „keine
+Meldung“ zählt als still. Jeder Chip öffnet das More-Info seiner Entität, und
+die Statistik-Chips bleiben stumm, solange der Recorder keine Antwort hat.
 
 `cop` kennt auch die Langform: `{ calculate: true, thermal_power: sensor.heizleistung, power: sensor.wp_leistung }`
 teilt die Heizleistung durch die elektrische Aufnahme, beide vorher einheitlich
@@ -221,6 +227,7 @@ power:
   decimals: 0          # Nachkommastellen
   unit: W              # überschreibt die Einheit
   attribute: null      # statt des Zustands ein Attribut lesen
+  sparkline: true      # die letzten 24 h als Kurve hinter dem Wert
   tap_action: ...      # siehe Bedienung
   hold_action: ...
 ```
@@ -228,6 +235,30 @@ power:
 Eine `climate`- oder `water_heater`-Entität als `target_temp`, `temp` oder
 `room_temp` liest automatisch das passende Attribut – `target_temp:
 climate.hk_a` zeigt also den Sollwert und nicht das Wort „heat“.
+
+## Verlaufskurven
+
+`sparkline: true` – oder `sparkline: { hours: 12 }` für ein eigenes Fenster
+von 1 bis 168 Stunden – zeichnet die jüngste Historie eines Werts als leises
+Band hinter Bezeichnung und Wert. Keine zusätzliche Zeile, kein breiteres
+Panel: Die Kurve lebt in dem Platz, den der Wert ohnehin hat.
+
+* **Die Kurve kommt aus dem Recorder**: die stündlichen Langzeit-Statistiken
+  über das Fenster, alle zehn Minuten aufgefrischt. Leistungen werden auf
+  Watt normiert, sodass kW gegen W aufgeht, und die letzte, noch laufende
+  Scheibe sagt, was der Sensor jetzt sagt.
+* **Ohne Statistik führt die Karte selbst Buch**: ein Ringpuffer aus
+  Live-Werten, eine Punkt pro Minute. Er wächst auch auf Anlagen, deren
+  Sensoren noch keine Langzeit-Statistik haben, und weicht der echten Kurve,
+  sobald der Recorder antwortet.
+* **Eine berechnete Arbeitszahl bekommt ihre Kurve ebenfalls**: `cop:
+  { calculate: true, thermal_power: …, power: …, sparkline: true }` teilt die
+  Wärmeserie durch die elektrische, Scheibe für Scheibe – die Kurve ist der
+  Wirkungsgrad des Tages, nicht eine Schätzung aus zwei Live-Werten.
+* Ein Hover (oder ein Screenreader) bekommt den Wortlaut: Fenster, Mittel,
+  Minimum, Maximum.
+* Ein Wert, der aus einer ganzen Liste von Entitäten gespeist wird, zeichnet
+  keine Kurve – es gäbe keine eine Serie.
 
 ## Was sich zwischendurch zuschaltet
 

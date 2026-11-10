@@ -277,7 +277,109 @@ window.demoStates["select.tank_heater_mode"] = {
   attributes: { friendly_name: "Element mode", options: ["Off", "Automatic", "Boost"] },
 };
 
+// Energy counters for the day's balance and the seasonal performance
+// factor: today's counters as plain sensors, lifetime totals whose window
+// work the card does itself, from the recorder's sums.
+window.demoStates["sensor.hp_energy_thermal_today"] = {
+  entity_id: "sensor.hp_energy_thermal_today",
+  state: "12.4",
+  attributes: { friendly_name: "Thermal energy today", unit_of_measurement: "kWh", device_class: "energy", state_class: "total_increasing" },
+};
+window.demoStates["sensor.hp_energy_electric_today"] = {
+  entity_id: "sensor.hp_energy_electric_today",
+  state: "4.1",
+  attributes: { friendly_name: "Electrical energy today", unit_of_measurement: "kWh", device_class: "energy", state_class: "total_increasing" },
+};
+window.demoStates["sensor.hp_thermal_energy_total"] = {
+  entity_id: "sensor.hp_thermal_energy_total",
+  state: "8420.5",
+  attributes: { friendly_name: "Thermal energy total", unit_of_measurement: "kWh", device_class: "energy", state_class: "total_increasing" },
+};
+window.demoStates["sensor.hp_electric_energy_total"] = {
+  entity_id: "sensor.hp_electric_energy_total",
+  state: "2210.3",
+  attributes: { friendly_name: "Electrical energy total", unit_of_measurement: "kWh", device_class: "energy", state_class: "total_increasing" },
+};
+window.demoStates["sensor.hp_eer"] = {
+  entity_id: "sensor.hp_eer",
+  state: "3.4",
+  attributes: { friendly_name: "EER", unit_of_measurement: "" },
+};
+// Natural cooling: the compressor sleeps, only the cold is carried.
+window.demoStates["sensor.hp_status_passive"] = {
+  entity_id: "sensor.hp_status_passive",
+  state: "Natural cooling",
+  attributes: { friendly_name: "Operating state" },
+};
+window.demoStates["binary_sensor.hp_passive_cooling"] = {
+  entity_id: "binary_sensor.hp_passive_cooling",
+  state: "on",
+  attributes: { friendly_name: "Natural cooling active" },
+};
+
 window.serviceCalls = [];
+
+// Long-term statistics the way the recorder serves them: one series per
+// entity, hourly buckets. The two demo meters deliberately differ - W rows
+// without a unit against kW rows with one, epoch-second timestamps against
+// ISO strings - so every normalization path the card knows stays covered.
+window.demoStatistics = (ids, startTime, endTime) => {
+  // The recorder's buckets are aligned, so the demo's are too: whole minutes,
+  // whichever timestamp format a row then carries.
+  const end = Math.floor((endTime ? Date.parse(endTime) : Date.now()) / 60000) * 60000;
+  const start = Math.floor((startTime ? Date.parse(startTime) : end - 24 * 3600000) / 60000) * 60000;
+  const shapes = {
+    "sensor.hp_power": { kind: "power", base: 400, amp: 1900, unit: null, time: "s" },
+    "sensor.hp_thermal_power": { kind: "power", base: 1.4, amp: 4.9, unit: "kW", time: "iso" },
+    // Energy totals answer in sums: what each bucket added to the counter.
+    "sensor.hp_thermal_energy_total": { kind: "energy", base: 1.4, amp: 0.9, unit: "kWh", time: "ms" },
+    "sensor.hp_electric_energy_total": { kind: "energy", base: 0.45, amp: 0.25, unit: "kWh", time: "s" },
+    // A temperature answers in minima and maxima per bucket.
+    "sensor.outside_temperature": { kind: "temp", base: 6, amp: 2.2, unit: null, time: "iso" },
+  };
+  const result = {};
+  for (const id of ids || []) {
+    const shape = shapes[id];
+    if (!shape) {
+      result[id] = [];
+      continue;
+    }
+    const rows = [];
+    const hours = Math.max(1, Math.round((end - start) / 3600000));
+    for (let i = hours; i >= 1; i--) {
+      const t = end - i * 3600000;
+      // A day of compressor cycles: quiet at night, busy around noon.
+      const phase = Math.max(0, Math.sin(((hours - i) / hours) * Math.PI * 2 - Math.PI / 2));
+      const row = {
+        start:
+          shape.time === "s"
+            ? Math.round(t / 1000)
+            : shape.time === "iso"
+              ? new Date(t).toISOString()
+              : Math.round(t),
+      };
+      if (shape.kind === "power") {
+        const mean = shape.base + shape.amp * phase;
+        row.mean = Number(mean.toFixed(2));
+        row.min = Number((mean * 0.9).toFixed(2));
+        row.max = Number((mean * 1.1).toFixed(2));
+      } else if (shape.kind === "energy") {
+        // the counter grows while the plant runs, and stands still at night
+        row.sum = Number((shape.base * (0.25 + phase) + shape.amp * phase * phase).toFixed(3));
+      } else if (shape.kind === "temp") {
+        // the day's swing: cold at six, mild at three
+        const angle = ((hours - i) / hours) * Math.PI * 2 - Math.PI / 2;
+        row.min = Number((shape.base - shape.amp + shape.amp * Math.max(0, Math.sin(angle))).toFixed(1));
+        row.max = Number((shape.base + shape.amp * Math.max(0, Math.sin(angle))).toFixed(1));
+        row.mean = Number(((row.min + row.max) / 2).toFixed(1));
+      }
+      if (shape.unit) row.unit = shape.unit;
+      rows.push(row);
+    }
+    result[id] = rows;
+  }
+  return result;
+};
 
 window.makeHass = (language) => ({
   locale: { language: language || "en" },
@@ -287,6 +389,12 @@ window.makeHass = (language) => ({
   callService: (domain, service, data) => {
     window.serviceCalls.push({ domain, service, data });
     return Promise.resolve();
+  },
+  callWS: (msg) => {
+    if (msg && msg.type === "recorder/statistics_during_period") {
+      return Promise.resolve(window.demoStatistics(msg.statistic_ids, msg.start_time, msg.end_time));
+    }
+    return Promise.reject(new Error(`demo: unsupported websocket message ${msg && msg.type}`));
   },
   formatEntityState: (stateObj) => {
     const unit = stateObj.attributes && stateObj.attributes.unit_of_measurement;

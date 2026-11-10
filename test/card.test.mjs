@@ -2544,3 +2544,459 @@ test("a taken element name gets a fallback instead of a broken card", async () =
   assert.equal(result.registered, true);
   assert.equal(result.drawn, true, "the aliased card renders");
 });
+
+test("a sparkline draws the recorder's statistics behind its readout", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.id = "card-spark";
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        entity: "switch.heat_pump",
+        power: { entity: "sensor.hp_power", sparkline: true },
+        thermal_power: { entity: "sensor.hp_thermal_power", sparkline: { hours: 6 } },
+      },
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+  });
+  // The curves arrive when the recorder's answer does.
+  await page.waitForFunction(() => {
+    const card = document.getElementById("card-spark");
+    const sparks = card.shadowRoot.querySelectorAll(".hpfc-readout .hpfc-spark");
+    return sparks.length === 2 && [...sparks].every((s) => !s.classList.contains("hpfc-spark-empty"));
+  });
+  const result = await page.evaluate(() => {
+    const card = document.getElementById("card-spark");
+    const sparks = [...card.shadowRoot.querySelectorAll(".hpfc-readout .hpfc-spark")];
+    return sparks.map((group) => ({
+      line: group.querySelector(".hpfc-spark-line").getAttribute("d") || "",
+      area: group.querySelector(".hpfc-spark-area").getAttribute("d") || "",
+      tipCx: group.querySelector(".hpfc-spark-tip").getAttribute("cx"),
+      tipDisplay: group.querySelector(".hpfc-spark-tip").style.display,
+      title: group.querySelector("title").textContent,
+    }));
+  });
+  await page.evaluate(() => document.getElementById("card-spark").remove());
+  // 24 hourly buckets, drawn as 24 points on one line
+  assert.equal(result[0].line.split(" L ").length, 24);
+  // the kW rows of the thermal meter are normalized onto the same watts scale
+  assert.equal(result[1].line.split(" L ").length, 6);
+  for (const curve of result) {
+    assert.match(curve.area, / Z$/, "the area closes on the band's baseline");
+    assert.match(curve.title, /Last \d+ h · ⌀ /);
+    assert.match(curve.title, /kW/);
+    assert.notEqual(curve.tipCx, null);
+    assert.notEqual(curve.tipDisplay, "none", "the live tip is drawn");
+  }
+  assert.match(result[0].title, /Last 24 h/);
+  assert.match(result[1].title, /Last 6 h/);
+  assert.deepEqual(pageErrors, []);
+});
+
+test("a calculated COP sparkline divides its two series bucket by bucket", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.id = "card-spark-cop";
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        entity: "switch.heat_pump",
+        cop: {
+          calculate: true,
+          power: "sensor.hp_power",
+          thermal_power: "sensor.hp_thermal_power",
+          sparkline: true,
+        },
+      },
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+  });
+  await page.waitForFunction(() => {
+    const card = document.getElementById("card-spark-cop");
+    const sparks = card.shadowRoot.querySelectorAll(".hpfc-readout .hpfc-spark");
+    return sparks.length === 1 && !sparks[0].classList.contains("hpfc-spark-empty");
+  });
+  const result = await page.evaluate(() => {
+    const card = document.getElementById("card-spark-cop");
+    const group = card.shadowRoot.querySelector(".hpfc-readout .hpfc-spark");
+    return {
+      points: (group.querySelector(".hpfc-spark-line").getAttribute("d") || "").split(" L ").length,
+      title: group.querySelector("title").textContent,
+      value: card.shadowRoot.querySelector(".hpfc-readout .hpfc-value").textContent,
+    };
+  });
+  await page.evaluate(() => document.getElementById("card-spark-cop").remove());
+  assert.equal(result.points, 24);
+  // a COP has no unit - the wording must not invent one
+  assert.doesNotMatch(result.title, /kW|W /);
+  assert.match(result.title, /Last 24 h · ⌀ \d+\.\d+ ·/);
+  assert.equal(result.value, "2.90");
+  assert.deepEqual(pageErrors, []);
+});
+
+test("without statistics the sparkline keeps a ring buffer of live readings", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  const result = await page.evaluate(() => {
+    const hass = window.makeHass("en");
+    // the recorder has nothing to say here
+    delete hass.callWS;
+    let now = Date.now();
+    window.__hpfcSparkNow = () => now;
+    const card = document.createElement("heatpump-flow-card");
+    card.id = "card-spark-buffer";
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: { entity: "switch.heat_pump", power: { entity: "sensor.hp_power", sparkline: true } },
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    const spark = () => card.shadowRoot.querySelector(".hpfc-readout .hpfc-spark");
+    card.hass = hass;
+    const before = spark().classList.contains("hpfc-spark-empty");
+    // three minutes pass; the pump draws differently each minute
+    for (const watts of [1800, 400, 2200]) {
+      now += 61000;
+      card.hass = {
+        ...hass,
+        states: {
+          ...hass.states,
+          "sensor.hp_power": {
+            entity_id: "sensor.hp_power",
+            state: String(watts),
+            attributes: { unit_of_measurement: "W", device_class: "power" },
+          },
+        },
+      };
+    }
+    const group = spark();
+    const out = {
+      before,
+      drawn: !group.classList.contains("hpfc-spark-empty"),
+      points: (group.querySelector(".hpfc-spark-line").getAttribute("d") || "").split(" L ").length,
+      title: group.querySelector("title").textContent,
+      tipDrawn: group.querySelector(".hpfc-spark-tip").style.display !== "none",
+    };
+    card.remove();
+    delete window.__hpfcSparkNow;
+    return out;
+  });
+  assert.equal(result.before, true, "one reading is not a curve yet");
+  assert.equal(result.drawn, true, "the buffer grows into a curve");
+  assert.equal(result.points, 4, "the initial reading plus one per minute");
+  assert.match(result.title, /Last 24 h · ⌀ [\d.,]+ ?kW ·/);
+  assert.equal(result.tipDrawn, true, "the live tip follows the last reading");
+  assert.deepEqual(pageErrors, []);
+});
+
+test("the editor keeps a field's sparkline option", async () => {
+  const result = await page.evaluate(() => {
+    const editor = document.createElement("heatpump-flow-card-editor");
+    const config = {
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        power: { entity: "sensor.hp_power", sparkline: { hours: 12 } },
+        cop: {
+          calculate: true,
+          power: "sensor.hp_power",
+          thermal_power: "sensor.hp_thermal_power",
+          sparkline: true,
+        },
+      },
+    };
+    editor.setConfig(config);
+    const data = editor._toData(config);
+    return { roundTrip: editor._toConfig(data) };
+  });
+  assert.deepEqual(result.roundTrip.heatpump.power, {
+    entity: "sensor.hp_power",
+    sparkline: { hours: 12 },
+  });
+  assert.deepEqual(result.roundTrip.heatpump.cop, {
+    calculate: true,
+    power: "sensor.hp_power",
+    thermal_power: "sensor.hp_thermal_power",
+    sparkline: true,
+  });
+});
+
+test("the status strip shows the day's energies, the SPF and the outside range", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.id = "card-stats";
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        entity: "switch.heat_pump",
+        outside_temp: { entity: "sensor.outside_temperature", day_min_max: true },
+        energy_thermal: "sensor.hp_energy_thermal_today",
+        energy_electric: { entity: "sensor.hp_electric_energy_total", today: true },
+        spf: { thermal: "sensor.hp_thermal_energy_total", electric: "sensor.hp_electric_energy_total" },
+      },
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+  });
+  // The recorder's answers arrive asynchronously.
+  await page.waitForFunction(() => {
+    const card = document.getElementById("card-stats");
+    const chips = [...card.shadowRoot.querySelectorAll(".hpfc-status-chip")];
+    return chips.length === 4 && chips.every((chip) => chip.style.display !== "none");
+  });
+  const labels = await page.evaluate(() =>
+    [...document.getElementById("card-stats").shadowRoot.querySelectorAll(".hpfc-status-chip")].map(
+      (chip) => chip.querySelector("text").textContent
+    )
+  );
+  await page.evaluate(() => document.getElementById("card-stats").remove());
+  // plain sensors show their own value
+  assert.equal(labels[0], "Heat: 12.4 kWh");
+  // { today: true } sums the recorder's buckets since midnight
+  assert.match(labels[1], /^Electricity: \d+\.\d kWh$/);
+  // the SPF is one energy sum over another, over the period
+  assert.match(labels[2], /^SPF: \d+\.\d\d$/);
+  assert.deepEqual(pageErrors, []);
+});
+
+test("an outside temperature without statistics hides its range chip", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  const result = await page.evaluate(() => {
+    const hass = window.makeHass("en");
+    delete hass.callWS;
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        entity: "switch.heat_pump",
+        outside_temp: { entity: "sensor.outside_temperature", day_min_max: true },
+      },
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    card.hass = hass;
+    const chip = card.shadowRoot.querySelector(".hpfc-status-outside");
+    const out = { hidden: !chip || chip.style.display === "none", drawn: Boolean(card.shadowRoot.querySelector("svg")) };
+    card.remove();
+    return out;
+  });
+  assert.equal(result.drawn, true);
+  assert.equal(result.hidden, true, "no statistics, no range to show");
+  assert.deepEqual(pageErrors, []);
+});
+
+test("cooling reads an EER and pauses the fan while it cools passively", async () => {
+  await page.goto(`${previewUrl}?layout=cooling`);
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.id = "card-passive";
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        entity: "switch.heat_pump",
+        status: "sensor.hp_status_passive",
+        passive_cooling: "binary_sensor.hp_passive_cooling",
+        power: "sensor.hp_power",
+        eer: {
+          calculate: true,
+          power: "sensor.hp_power",
+          thermal_power: "sensor.hp_thermal_power",
+        },
+        outside_temp: "sensor.outside_temperature",
+      },
+      buffer: {},
+      circuits: [{ type: "fancoil", entity: "climate.circuit_cool", flow_temp: "sensor.hp_flow_cool" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const hp = card.shadowRoot.querySelector(".hpfc-heatpump");
+    const fan = hp.querySelector(".hpfc-fan");
+    const readouts = [...hp.querySelectorAll(".hpfc-readout")].map(
+      (r) => r.querySelector(".hpfc-label").textContent + "=" + r.querySelector(".hpfc-value").textContent
+    );
+    const out = {
+      cooling: hp.classList.contains("hpfc-cooling"),
+      passive: hp.classList.contains("hpfc-passive-cooling"),
+      svgPassive: card.shadowRoot.querySelector("svg").classList.contains("hpfc-passive"),
+      fanState: getComputedStyle(fan).animationPlayState,
+      readouts,
+    };
+    card.remove();
+    return out;
+  });
+  assert.equal(result.cooling, true);
+  assert.equal(result.passive, true, "the status text says natural cooling");
+  assert.equal(result.svgPassive, true);
+  assert.equal(result.fanState, "paused", "no compressor running, the fan stands still");
+  assert.deepEqual(result.readouts, ["Power=2,140 W", "EER=2.90", "Outside=-2.5 °C"]);
+  assert.deepEqual(pageErrors, []);
+});
+
+test("passive cooling also reads from the status text alone", async () => {
+  await page.goto(`${previewUrl}?layout=cooling`);
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: { entity: "switch.heat_pump", status: "sensor.hp_status_passive" },
+      buffer: {},
+      circuits: [{ type: "fancoil", pump: "binary_sensor.circuit_a_pump", flow_temp: "sensor.hp_flow_cool" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const hp = card.shadowRoot.querySelector(".hpfc-heatpump");
+    const out = {
+      passive: hp.classList.contains("hpfc-passive-cooling"),
+      fanState: getComputedStyle(hp.querySelector(".hpfc-fan")).animationPlayState,
+    };
+    card.remove();
+    return out;
+  });
+  assert.equal(result.passive, true, "natural cooling is wording the controller uses");
+  assert.equal(result.fanState, "paused");
+  assert.deepEqual(pageErrors, []);
+});
+
+test("every built-in language draws its own words", async () => {
+  await page.goto(`${previewUrl}?layout=dual`);
+  const expected = {
+    de: "Leistung",
+    fr: "Puissance",
+    it: "Potenza",
+    nl: "Vermogen",
+    pl: "Moc",
+    es: "Power",
+  };
+  const results = await page.evaluate(async (expected) => {
+    const out = {};
+    for (const lang of Object.keys(expected)) {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "dual",
+        heatpump: { entity: "switch.heat_pump", power: "sensor.hp_power" },
+        buffer: {},
+        circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+      });
+      document.body.appendChild(card);
+      card.hass = window.makeHass(lang);
+      out[lang] = card.shadowRoot.querySelector(".hpfc-readout .hpfc-label").textContent;
+      card.remove();
+    }
+    return out;
+  }, expected);
+  for (const [lang, label] of Object.entries(expected)) {
+    assert.equal(results[lang], label, `${lang} shows its own translation`);
+  }
+  assert.deepEqual(pageErrors, []);
+});
+
+test("the editor offers sparkline switches and keeps the new fields", async () => {
+  const result = await page.evaluate(() => {
+    const editor = document.createElement("heatpump-flow-card-editor");
+    const config = {
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        power: "sensor.hp_power",
+        thermal_power: "sensor.hp_thermal_power",
+        eer: "sensor.hp_eer",
+        passive_cooling: "binary_sensor.hp_passive_cooling",
+        energy_thermal: "sensor.hp_energy_thermal_today",
+        spf: { thermal: "sensor.hp_thermal_energy_total", electric: "sensor.hp_electric_energy_total", period: "month" },
+      },
+    };
+    editor.setConfig(config);
+    const data = editor._toData(config);
+    const schema = editor._schema(data, editor._texts);
+    const hpRow = schema.find((row) => row.name === "heatpump");
+    const hpFields = hpRow.schema.flatMap((row) => (row.type === "grid" ? row.schema.map((f) => f.name) : [row.name]));
+    // flip the switches as the form would
+    const toggled = { ...data, heatpump: { ...data.heatpump, power_sparkline: true, thermal_power_sparkline: true } };
+    return { data, hpFields, roundTrip: editor._toConfig(toggled) };
+  });
+  assert.equal(result.data.heatpump.power_sparkline, false, "off until the form says otherwise");
+  for (const field of ["power_sparkline", "thermal_power_sparkline", "eer", "passive_cooling", "energy_thermal"]) {
+    assert.ok(result.hpFields.includes(field), `editor is missing ${field}`);
+  }
+  assert.deepEqual(result.roundTrip.heatpump.power, { entity: "sensor.hp_power", sparkline: true });
+  assert.deepEqual(result.roundTrip.heatpump.thermal_power, {
+    entity: "sensor.hp_thermal_power",
+    sparkline: true,
+  });
+  assert.equal(result.roundTrip.heatpump.eer, "sensor.hp_eer");
+  assert.equal(result.roundTrip.heatpump.passive_cooling, "binary_sensor.hp_passive_cooling");
+  assert.equal(result.roundTrip.heatpump.energy_thermal, "sensor.hp_energy_thermal_today");
+  assert.deepEqual(result.roundTrip.heatpump.spf, {
+    thermal: "sensor.hp_thermal_energy_total",
+    electric: "sensor.hp_electric_energy_total",
+    period: "month",
+  });
+  assert.equal(result.roundTrip.heatpump.power_sparkline, undefined, "the switch is not card vocabulary");
+});
+
+test("the narrow layout stacks the plant in one column", async () => {
+  await page.goto(`${previewUrl}?layout=narrow`);
+  const result = await page.evaluate(() => {
+    const card = document.getElementById("card-narrow");
+    const svg = card.shadowRoot.querySelector("svg");
+    const [x, y, w, h] = svg.getAttribute("viewBox").split(" ").map(Number);
+    const hp = card.shadowRoot.querySelector(".hpfc-heatpump .hpfc-panel").getBBox();
+    return {
+      viewBox: svg.getAttribute("viewBox"),
+      taller: h > w,
+      panels: svg.querySelectorAll(".hpfc-panel").length,
+      pipes: svg.querySelectorAll(".hpfc-pipe").length,
+      topRow: hp.y < 20,
+    };
+  });
+  assert.equal(result.taller, true, "a narrow card grows downwards, not sideways");
+  assert.ok(result.panels >= 4, "heat pump, tank, hot water and circuits all draw");
+  assert.ok(result.pipes >= 8);
+  assert.equal(result.topRow, true, "the heat pump leads the column");
+  assert.deepEqual(pageErrors, []);
+});
+
+test("a narrow card with sources falls back to the wide scene", async () => {
+  await page.goto(`${previewUrl}?layout=full`);
+  const result = await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "narrow",
+      heatpump: { entity: "switch.heat_pump", power: "sensor.hp_power" },
+      buffer: {},
+      pv: { power: "sensor.pv_power" },
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+    const svg = card.shadowRoot.querySelector("svg");
+    const [x, y, w, h] = svg.getAttribute("viewBox").split(" ").map(Number);
+    const out = { wider: w > h, panels: svg.querySelectorAll(".hpfc-panel").length };
+    card.remove();
+    return out;
+  });
+  assert.equal(result.wider, true, "photovoltaics need the width, so the wide scene draws");
+  assert.ok(result.panels >= 3);
+  assert.deepEqual(pageErrors, []);
+});
