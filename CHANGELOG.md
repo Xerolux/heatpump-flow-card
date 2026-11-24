@@ -21,6 +21,33 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.16.1] - 2026-11-24
+
+The release notes get a fixed shape, the one the iDM heat-pump integration
+already uses: an intro that says why a release matters, the upgrade notes
+first, and short readable bullets. A test pins the style, so it survives the
+releases to come without anyone having to remember it.
+
+### ⚠️ Upgrade notes
+
+- **Nothing changes on the card.** Documentation and tests only. Rolling back
+  to 1.16.0 keeps every drawing, setting and entity exactly as it was.
+
+### 💼 Maintenance
+
+- **Release notes follow a closed style from here on.** Every section opens
+  with one or two sentences on why the release matters, then `⚠️ Upgrade
+  notes` first, and groups the rest under `✨ New`, `🐛 Bugfixes`, `💼
+  Maintenance` and `❤️ Thanks`. Each bullet leads with a bold phrase and
+  stays around 60 words; issues are linked, not retold.
+- **A test pins the contract.** `test/changelog-style.test.mjs` fails the
+  build when a new section opens without the upgrade block, uses a header
+  outside the set or carries a bullet past the word budget — and leaves
+  released history untouched.
+- **The style is documented where the releases are.** `docs/wiki/Development.md`
+  states the rules beside the release steps, and the test derives the allowed
+  headers from that page, so documentation and test cannot drift apart.
+
 ## [1.16.0] - 2026-11-24
 
 ### Fixed
