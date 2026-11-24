@@ -26,8 +26,9 @@ live values right where they belong on the drawing.
   mode chip to pick heating, cooling or hot water, tap a setpoint for a
   plus/minus stepper. Long press always opens the more-info dialog.
 * **Every circuit answers for itself.** Circuit A running says nothing about
-  circuit D: each panel, pump and pipe shows its own state.
-* **Eighteen ready-made layouts**, from a compact card with one circuit to the
+  circuit D: each panel, pump and pipe shows its own state — and a rail
+  stretch stops where the water stops, at the last circuit that draws.
+* **Nineteen ready-made layouts**, from a compact card with one circuit to the
   complete plant — with or without hot water, PV, solar thermal or a buffer tank.
 * **A visual editor** — no YAML required, though every option is available in
   YAML too.
@@ -88,6 +89,12 @@ the layout brings.
 **`dual` — radiators and underfloor heating**
 
 ![dual](docs/images/dual.png)
+
+**A hydraulic separation (#44) — the heat pump's intermediate circuit and the
+heating circuit it feeds through a heat exchanger, each with its own pair of
+temperatures**
+
+![intermediate circuit](docs/images/intermediate.png)
 
 **`dhw-dual` — hot water and two circuits, no PV, no solar thermal**
 
@@ -358,10 +365,11 @@ readable, so on a 4K or 8K panel it stops there and centres instead.
 | `passive_cooling` | Binary sensor (or a status text of “natural/passive cooling”) — the fan stands still and the waves fall gently, because no compressor is running |
 | `energy_thermal`, `energy_electric` | The day's balance as status chips: a plain today-counter (kWh), or `{ entity: <lifetime total>, today: true }` sums the recorder's buckets since midnight |
 | `spf` (or `jaz`) | The seasonal performance factor as a status chip: `{ thermal: <kWh counter>, electric: <kWh counter>, period: day\|week\|month\|year }` — one energy sum over another |
-| `sparkline` (long form) | `sparkline: true` (or `{ hours: n }`, 1–168) on any numeric value draws its recent history as a quiet curve behind the readout — the recorder's hourly statistics, or a ring buffer of live readings while there are none. A calculated COP divides its two series bucket by bucket |
+| `sparkline` (long form) | `sparkline: true` (or `{ hours: n }`, 1–168) on any numeric value draws its recent history as a quiet curve behind the readout — the recorder's hourly statistics, or a ring buffer of live readings while there are none. A calculated COP divides its two series bucket by bucket, a calculated thermal output multiplies its two |
 | `fan` | `false` for a brine-to-water or water-to-water unit: no outdoor fan is drawn — two brine ports instead — and defrost vapour stays hidden |
 | `cooling` | Binary sensor forcing the cooling look; without it a status/mode text of “cooling” suffices — the pipes carry their cold colours, the emitters' waves fall in cool blue and the fan ring turns blue |
 | `flow_temp`, `return_temp` | Colour and label the pipes to the tank |
+| `intermediate_flow_temp`, `intermediate_return_temp` | For a plant with a hydraulic separation (#44): the heat pump's own circuit, between the heat pump and the heat exchanger. The pair sits on the pipes from the heat pump to the tank and colours them; `flow_temp` / `return_temp` then move to the tank's outlet and show what the heating circuit receives. Needs a buffer tank |
 | `power_threshold` | Watts above which the heat pump counts as running (default `20`) |
 
 Without `state_entity` the card falls back to `power` > threshold, then
@@ -534,6 +542,9 @@ record. A hover on the curve names the window, the average and the range. A
 field fed by a whole string of entities draws no curve — there is no single
 series to plot.
 
+`attribute` reads an attribute instead of the state, and the card watches it
+the way it watches a state: the value follows the attribute.
+
 `tap_action` and `hold_action` follow the usual Home Assistant action syntax
 (`more-info`, `toggle`, `navigate`, `url`, `perform-action`, `none`) and can be
 set on any element — the heat pump, a tank, a circuit or a single value.
@@ -553,7 +564,7 @@ red-flow / blue-return scheme.
   in your browser, no Home Assistant needed
 * **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** — installation,
   every option, controls, troubleshooting, development
-* **[Examples](examples)** — fourteen ready-made configurations, including a whole
+* **[Examples](examples)** — fifteen ready-made configurations, including a whole
   dashboard view
 
 ## Development

@@ -1,9 +1,8 @@
-/* The four layouts, wired to the demo entities from demo-hass.js. */
+/* The layouts, wired to the demo entities from demo-hass.js. */
 const heatpump = {
   name: "Heat pump",
   entity: "switch.heat_pump",
   state_entity: "binary_sensor.compressor",
-  mode: "sensor.hp_operating_mode",
   power: "sensor.hp_power",
   cop: "sensor.hp_cop",
   flow_temp: "sensor.hp_flow_temperature",
@@ -13,8 +12,6 @@ const heatpump = {
   mode: "select.system_mode",
   flow_rate: "sensor.hp_flow_rate",
 };
-
-
 
 const buffer = {
   name: "Buffer tank",
@@ -406,5 +403,23 @@ window.previewConfigs.narrow = {
   heatpump: window.previewConfigs.full.heatpump,
   buffer,
   dhw: window.previewConfigs.full.dhw,
+  circuits: [radiators, underfloor],
+};
+
+// A hydraulic separation: the heat pump fills the tank through a heat
+// exchanger, so there are two circuits and four temperatures to show (#44).
+window.previewConfigs.intermediate = {
+  type: "custom:heatpump-flow-card",
+  layout: "dual",
+  title: "Intermediate circuit, hydraulically separated",
+  heatpump: {
+    ...heatpump,
+    name: "iDM AERO ALM 6–15",
+    flow_temp: "sensor.heating_flow_temperature",
+    return_temp: "sensor.heating_return_temperature",
+    intermediate_flow_temp: "sensor.intermediate_flow_temperature",
+    intermediate_return_temp: "sensor.intermediate_return_temperature",
+  },
+  buffer,
   circuits: [radiators, underfloor],
 };

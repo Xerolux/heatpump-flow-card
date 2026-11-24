@@ -53,6 +53,23 @@ Ein Kreis mit Pumpen-Entität auf `off` bleibt also aus, während die Wärmepump
 läuft – und genau das ist der Sinn: dass Kreis A läuft, sagt nichts über
 Kreis D.
 
+## Ein Rohr bewegt sich, obwohl seine Pumpe aus ist
+
+Jeder Abschnitt des Verteilers gehört den Verbrauchern dahinter: Laufen die
+Heizkörper und ist das Warmwasser aus, endet die Schiene am Abzweig der
+Heizkörper. Bewegt sich das Rohr zu einem ausgeschalteten Verbraucher trotzdem,
+gilt entweder dieser Verbraucher als laufend – siehe die Reihenfolge oben – oder
+im Browser läuft eine andere Version der Karte als gedacht. Die Konsole meldet
+`HEATPUMP-FLOW-CARD v…`, wenn die Datei lädt; hart neu laden und HACS nochmals
+laden lassen.
+
+## Die Tagesenergie ist viel zu hoch
+
+Bis 1.15.0 summierten die Chips mit `today: true` und die `spf` die laufenden
+Summen des Recorders statt dessen, was jede Stunde dazukam – bei einem
+Lebenszähler eine Zahl im Tausenden. Seit 1.16.0 zählen sie den Zuwachs je
+Scheibe.
+
 ## Die Wärmepumpe wirkt nie in Betrieb
 
 Ohne `state_entity` prüft die Karte `power` über `power_threshold` (Standard

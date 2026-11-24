@@ -97,7 +97,10 @@ The card computes its own canvas from what you configured:
 * **Right column** — hot water first, then the heating circuits, stacked.
 
 Two vertical rails between the tank and the right column act as flow and return
-distributors; every consumer branches off them. The card scales to the width of
+distributors; every consumer branches off them. A stretch of rail between two
+branches carries water only while a consumer beyond it draws — with the
+radiators running and the hot water off, the rail stops at the radiators' branch.
+The card scales to the width of
 its dashboard column, so a wide layout in a narrow column simply gets smaller —
 if the text becomes too small, pick a smaller layout or give the card more
 columns in a sections view.

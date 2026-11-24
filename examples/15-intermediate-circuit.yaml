@@ -1,0 +1,49 @@
+# A hydraulic separation: the heat pump and the heating circuit are two
+# circuits, divided by a heat exchanger - the way iDM and others build it.
+# Each circuit has a pair of temperature probes of its own.
+#
+#   intermediate_flow_temp / intermediate_return_temp
+#       the heat pump's own circuit. Shown on the pipes from the heat pump
+#       to the tank, which take their colour from it.
+#   flow_temp / return_temp
+#       the heating circuit behind the exchanger. Shown where it leaves the
+#       tank for the heating circuits.
+#
+# The four readings need a buffer tank: it is what separates the two circuits
+# on the drawing. The entity ids follow the IDM heat pump integration
+# (https://github.com/Xerolux/idm-heatpump-hass); the card reads any
+# temperature sensor.
+type: custom:heatpump-flow-card
+layout: dual
+title: iDM AERO ALM 6-15
+
+heatpump:
+  name: iDM AERO ALM 6-15
+  state_entity: binary_sensor.idm_warmepumpe_kompressor
+  mode: select.idm_warmepumpe_systembetriebsart
+  power: sensor.idm_warmepumpe_leistung
+  cop: sensor.idm_warmepumpe_cop
+  # The heat pump's side of the exchanger
+  intermediate_flow_temp: sensor.idm_warmepumpe_vorlauftemperatur_zwischenkreis_web
+  intermediate_return_temp: sensor.idm_warmepumpe_rucklauftemperatur_zwischenkreis_web
+  # The heating circuit's side
+  flow_temp: sensor.idm_warmepumpe_vorlauftemperatur_warmesenke_b125
+  return_temp: sensor.idm_warmepumpe_rucklauftemperatur_warmesenke_b124
+  outside_temp: sensor.aussentemperatur
+
+buffer:
+  name: Heating buffer 300 l
+  top: sensor.idm_warmepumpe_speichersensor_s1_oben
+  bottom: sensor.idm_warmepumpe_speichersensor_s4_unten
+
+circuits:
+  - name: Heating circuit A
+    type: radiator
+    flow_temp: sensor.idm_warmepumpe_vorlauftemperatur_hk_a
+    return_temp: sensor.idm_warmepumpe_rucklauftemperatur_hk_a
+    pump: binary_sensor.idm_warmepumpe_heizkreispumpe_hk_a
+  - name: Heating circuit C
+    type: radiator
+    flow_temp: sensor.idm_warmepumpe_vorlauftemperatur_hk_c
+    return_temp: sensor.idm_warmepumpe_rucklauftemperatur_hk_c
+    pump: binary_sensor.idm_warmepumpe_heizkreispumpe_hk_c

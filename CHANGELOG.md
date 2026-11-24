@@ -21,6 +21,72 @@ changes shipped with the next tagged release.
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-11-24
+
+### Fixed
+
+- **A rail stretch stops where the water stops (#42).** 1.13.0 kept the stubs
+  between the heat pump and the distributor still until a consumer drew — but
+  the distributor itself was still drawn as one path per side. With the
+  radiators running and the hot water off, the rail kept moving past the
+  radiators' branch all the way up to the tank, as if water were flowing
+  there. Every stretch between two branches now belongs to the consumers
+  beyond it: it carries water only while one of them actually draws, in the
+  wide scene and in the narrow one.
+- **The day's energy and the seasonal performance factor are right on a real
+  recorder.** `{ today: true }` behind a lifetime counter and the `spf` chip
+  added up the recorder's running `sum` of every hourly bucket — the lifetime
+  total, counted once per hour. The recorder hands every row a running sum
+  and the `change` that led to it; the card now takes the change, understands
+  a counter that was reset inside the window, and reads a power meter's
+  statistics as energy too (the recorder sums them in watt-hours), so two
+  `W` sensors make a working seasonal performance factor.
+- **A readout fed by an attribute follows that attribute.** The card redraws
+  when something it reads changes, and it did not count `attribute:` among
+  the things it reads: `cop: { entity: sensor.hp, attribute: cop }` kept its
+  first value until an unrelated entity changed. The same went for the COP
+  sensor behind a calculated thermal output.
+- **No pipe runs through the status chips.** In the `full` layout the solar
+  circuit's pipes dropped from the collector straight through the first
+  chips; in the narrow one the distribution rails crossed the last chip and
+  everything after it was hidden. The strip now sits below the solar lanes,
+  and wraps inside the consumers' width.
+- **A calculated thermal output draws its sparkline.**
+  `thermal_power: { calculate: true, power: …, cop: …, sparkline: true }` was
+  accepted and silently ignored. Its curve is now the electrical series
+  times the COP of each hour, in kilowatts like the value it sits behind.
+- A mode of “Automatic” no longer reads as “Standby” on the mode chip.
+
+### Added
+
+- **Two circuits, four temperatures (#44).** A plant with a hydraulic
+  separation — a heat exchanger between the heat pump and the heating
+  circuit, the way iDM and others build it — has two circuits where the
+  drawing had one pair of pipes. `heatpump.intermediate_flow_temp` and
+  `intermediate_return_temp` name the heat pump's own circuit: they sit on
+  the pipes from the heat pump to the tank, which take their colour from
+  them, while `flow_temp` and `return_temp` move to the tank's outlet and
+  show what the heating circuit receives. The difference between the two
+  circuits is readable at a glance. The readings need a buffer tank, it is
+  what separates the circuits on the drawing; one of the two is enough to
+  move that side. In the visual editor, and in both scenes.
+- **The status strip wraps.** More chips than fit on one line continue on the
+  next instead of being cut short or left out; the plant makes room for
+  every line they need. The fault stays first, so it is never the chip that
+  gives way.
+- The editor names the narrow layout and the energy hub in every language,
+  and the compressor readout, the hub's captions, the automatic mode and the
+  heating modes of the control popover are no longer German or English for
+  everyone.
+
+### Maintenance
+
+- The demo's statistics are served the way the recorder serves them — a
+  running `sum` with the `change` beside it — so a test that passes against
+  the demo passes against Home Assistant. The overlap check also reports a
+  pipe through a status chip, `intermediate` joins the checked layouts, and
+  the reduced-motion setting now stills the defrost vapour and every glow.
+
 ## [1.15.0] - 2026-11-10
 
 ### Added
@@ -822,7 +888,9 @@ Every contribution is a huge motivation. Thank you!
 controller that reports to Home Assistant
 **License:** MIT
 
-[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.14.0...HEAD
+[Unreleased]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.16.0...HEAD
+[1.16.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.15.0...v1.16.0
+[1.15.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/Xerolux/heatpump-flow-card/compare/v1.11.1...v1.12.0

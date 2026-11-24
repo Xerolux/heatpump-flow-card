@@ -10,7 +10,7 @@
 (() => {
 "use strict";
 
-const CARD_VERSION = "1.15.0";
+const CARD_VERSION = "1.16.0";
 
 console.info(
   `%c HEATPUMP-FLOW-CARD %c v${CARD_VERSION} `,
@@ -265,15 +265,27 @@ function sparklineHours(field) {
 }
 
 /**
+ * The two series a calculated field is made of: a COP's thermal and
+ * electrical meter, or a thermal output's draw and COP. Empty for a plain
+ * field.
+ */
+function sparkInputs(field) {
+  if (!field || field.calculate !== true) return [];
+  if (field.thermal_power && field.power) return [field.thermal_power, field.power];
+  if (field.power && field.cop) return [field.power, field.cop];
+  return [];
+}
+
+/**
  * Whether a curve exists for this field: one entity behind it, or a
- * calculated COP over exactly one thermal and one electrical meter.
+ * calculated value over exactly two single-entity inputs.
  * A string of entities has no single statistics series to plot.
  */
 function sparkAvailable(field) {
   if (!field || !field.sparkline) return false;
   if (field.calculate === true) {
-    if (!field.thermal_power || !field.power) return false;
-    return fieldEntities(field.thermal_power).length === 1 && fieldEntities(field.power).length === 1;
+    const inputs = sparkInputs(field);
+    return inputs.length === 2 && inputs.every((input) => fieldEntities(input).length === 1);
   }
   return fieldEntities(field).length === 1;
 }
@@ -281,7 +293,8 @@ function sparkAvailable(field) {
 /** Stable identity across renders: the entities behind the curve. */
 function sparkKey(field) {
   if (field.calculate === true) {
-    return `cop:${fieldEntities(field.thermal_power)[0]}/${fieldEntities(field.power)[0]}`;
+    const [first, second] = sparkInputs(field).map((input) => fieldEntities(input)[0]);
+    return `${field.thermal_power ? "cop" : "th"}:${first}/${second}`;
   }
   const entity = fieldEntities(field)[0];
   return `${entity}${field.attribute ? `#${field.attribute}` : ""}`;
@@ -304,16 +317,16 @@ function statMean(row) {
 }
 
 /**
- * Rows to normalized points, oldest first. Powers are brought to watts -
- * by the rows' own unit when they carry one, otherwise by the entity's -
- * so a kW meter and a W meter come out on the same scale.
+ * Rows to points, oldest first, one number per bucket. Powers are brought to
+ * watts - by the rows' own unit when they carry one, otherwise by the
+ * entity's - so a kW meter and a W meter come out on the same scale.
  */
-function statPoints(rows, fallbackUnit) {
+function statSeries(rows, fallbackUnit, pick) {
   const points = [];
   let factor;
   for (const row of Array.isArray(rows) ? rows : []) {
     const t = statTime(row.start);
-    const raw = statMean(row);
+    const raw = pick(row);
     if (t === null || raw === null || !Number.isFinite(raw)) continue;
     if (factor === undefined && typeof row.unit === "string") {
       factor = POWER_UNIT_FACTORS[row.unit] !== undefined ? POWER_UNIT_FACTORS[row.unit] : 1;
@@ -325,36 +338,35 @@ function statPoints(rows, fallbackUnit) {
   return points;
 }
 
+function statPoints(rows, fallbackUnit) {
+  return statSeries(rows, fallbackUnit, statMean);
+}
+
+/** Two series joined bucket by bucket, where both have a number. */
+function joinedSeries(rows, otherRows, fallbackUnit, otherUnit, combine) {
+  const other = new Map();
+  for (const point of statSeries(otherRows, otherUnit, statMean)) other.set(point.t, point.v);
+  const points = [];
+  for (const point of statSeries(rows, fallbackUnit, statMean)) {
+    if (!other.has(point.t)) continue;
+    const value = combine(point.v, other.get(point.t));
+    if (value !== null) points.push({ t: point.t, v: value });
+  }
+  return points;
+}
+
 /** A calculated COP per bucket: thermal watts over electrical watts. */
 function copPoints(thermalRows, electricRows, thermalUnit, electricUnit) {
-  const electric = new Map();
-  let electricFactor;
-  for (const row of Array.isArray(electricRows) ? electricRows : []) {
-    const t = statTime(row.start);
-    const raw = statMean(row);
-    if (t === null || raw === null || !Number.isFinite(raw)) continue;
-    if (electricFactor === undefined && typeof row.unit === "string") {
-      electricFactor = POWER_UNIT_FACTORS[row.unit] !== undefined ? POWER_UNIT_FACTORS[row.unit] : 1;
-    }
-    const scale = electricFactor !== undefined ? electricFactor : POWER_UNIT_FACTORS[electricUnit] || 1;
-    electric.set(t, raw * scale);
-  }
-  const points = [];
-  let thermalFactor;
-  for (const row of Array.isArray(thermalRows) ? thermalRows : []) {
-    const t = statTime(row.start);
-    const raw = statMean(row);
-    if (t === null || raw === null || !Number.isFinite(raw)) continue;
-    if (thermalFactor === undefined && typeof row.unit === "string") {
-      thermalFactor = POWER_UNIT_FACTORS[row.unit] !== undefined ? POWER_UNIT_FACTORS[row.unit] : 1;
-    }
-    const scale = thermalFactor !== undefined ? thermalFactor : POWER_UNIT_FACTORS[thermalUnit] || 1;
-    const denominator = t === null ? null : electric.get(t);
-    if (!denominator || denominator <= 0) continue;
-    points.push({ t, v: (raw * scale) / denominator });
-  }
-  points.sort((a, b) => a.t - b.t);
-  return points;
+  return joinedSeries(thermalRows, electricRows, thermalUnit, electricUnit, (heat, draw) =>
+    draw > 0 ? heat / draw : null
+  );
+}
+
+/** A calculated thermal output per bucket: electrical watts times the COP of that hour. */
+function thermalPoints(powerRows, copRows, powerUnit) {
+  return joinedSeries(powerRows, copRows, powerUnit, undefined, (watts, cop) =>
+    cop > 0 ? watts * cop : null
+  );
 }
 
 /** The recorder's answer, or null when it has nothing to say. */
@@ -372,10 +384,15 @@ async function fetchStatSeries(hass, entities, start, end, period) {
 /** The curve's live value, on the same normalized scale as its points. */
 function sparkLive(hass, field) {
   if (field.calculate === true) {
-    const heat = powerWatts(hass, field.thermal_power);
     const electric = powerWatts(hass, field.power);
-    if (heat === null || electric === null || electric <= 0) return null;
-    return heat / electric;
+    if (electric === null || electric <= 0) return null;
+    if (field.thermal_power) {
+      const heat = powerWatts(hass, field.thermal_power);
+      return heat === null ? null : heat / electric;
+    }
+    // A thermal output calculated from the draw times a COP sensor.
+    const factor = numberValue(hass, field.cop);
+    return factor === null || factor <= 0 ? null : electric * factor;
   }
   const unit = unitOf(hass, field);
   if (POWER_UNIT_FACTORS[unit] !== undefined) return powerWatts(hass, field);
@@ -396,9 +413,10 @@ async function fetchSparkline(card, scene, spark) {
   const store = spark.store;
   const field = spark.field;
   const hass = scene.hass();
-  const thermal = field.calculate === true ? fieldEntities(field.thermal_power)[0] : null;
-  const electric = field.calculate === true ? fieldEntities(field.power)[0] : null;
-  const ids = thermal ? [thermal, electric] : fieldEntities(field);
+  const inputs = sparkInputs(field);
+  const ids = inputs.length
+    ? inputs.map((input) => fieldEntities(input)[0])
+    : fieldEntities(field);
   let response = null;
   try {
     const now = sparkNow();
@@ -410,13 +428,16 @@ async function fetchSparkline(card, scene, spark) {
   if (card._scene !== scene) return;
   if (response) {
     let points = [];
-    if (thermal) {
-      points = copPoints(
-        response[thermal] || [],
-        response[electric] || [],
-        unitOf(hass, field.thermal_power),
-        unitOf(hass, field.power)
-      );
+    if (inputs.length === 2) {
+      const [first, second] = ids;
+      points = field.thermal_power
+        ? copPoints(
+            response[first] || [],
+            response[second] || [],
+            unitOf(hass, inputs[0]),
+            unitOf(hass, inputs[1])
+          )
+        : thermalPoints(response[first] || [], response[second] || [], unitOf(hass, inputs[0]));
     } else {
       points = statPoints(response[ids[0]] || [], unitOf(hass, field));
     }
@@ -456,7 +477,9 @@ function advanceSparklines(card, scene, hass) {
     spark.update(hass);
     if (hass.callWS && now - store.lastFetch >= SPARK_REFRESH_MS) {
       store.lastFetch = now;
-      fetchSparkline(card, scene, spark);
+      // A rejected answer must not surface as an unhandled rejection; the
+      // curve simply asks again at the next window.
+      fetchSparkline(card, scene, spark).catch(() => {});
     }
   }
 }
@@ -465,10 +488,10 @@ function advanceSparklines(card, scene, hass) {
  *
  * The sparkline layer asks one kind of question ("the hourly means over this
  * window"); the chips below the plant ask others - the day's energy from the
- * buckets' sums, an outside temperature's range from their minima and maxima,
- * a seasonal performance factor as one sum over another. Same recorder, same
- * ten minute cadence: a question is registered once and its answer is kept
- * where the chip finds it on every update pass.
+ * buckets' changes, an outside temperature's range from their minima and
+ * maxima, a seasonal performance factor as one energy sum over another. Same
+ * recorder, same ten minute cadence: a question is registered once and its
+ * answer is kept where the chip finds it on every update pass.
  */
 
 const ENERGY_UNIT_FACTORS = { Wh: 0.001, kWh: 1, MWh: 1000, GWh: 1000000 };
@@ -489,24 +512,55 @@ function startOfPeriod(period, now) {
   return date.getTime();
 }
 
-/** One bucket's energy in kWh - the recorder sums what the sensor counted. */
-function statEnergy(row, fallbackUnit) {
-  if (row.sum === undefined || row.sum === null || !Number.isFinite(row.sum)) return null;
-  const unit = typeof row.unit === "string" ? row.unit : fallbackUnit;
-  const factor = ENERGY_UNIT_FACTORS[unit] !== undefined ? ENERGY_UNIT_FACTORS[unit] : 1;
-  return row.sum * factor;
+/** The unit the recorder sums a power meter in: watts become watt-hours. */
+const POWER_ENERGY_UNITS = { mW: "mWh", W: "Wh", kW: "kWh", MW: "MWh", GW: "GWh" };
+
+/** kWh per unit of an energy reading. Null where the unit says nothing. */
+function energyFactor(unit) {
+  if (typeof unit !== "string" || !unit) return null;
+  const energyUnit = ENERGY_UNIT_FACTORS[unit] !== undefined ? unit : POWER_ENERGY_UNITS[unit];
+  return energyUnit === undefined ? null : ENERGY_UNIT_FACTORS[energyUnit];
 }
 
-/** The energy a window saw, in kWh. */
+/**
+ * The energy a window saw, in kWh: what every bucket added to the counter.
+ *
+ * The recorder hands each row a running `sum` and the `change` that led to
+ * it - only the change is the bucket's energy; the sums added up would count
+ * everything that came before, once per hour. A counter that was reset inside
+ * a bucket reports that reset as a negative change; what it has counted
+ * since is its new sum. A row without a change (an older recorder) is read
+ * as the step of the sum.
+ */
 function statEnergyTotal(rows, fallbackUnit) {
+  const ordered = (Array.isArray(rows) ? rows : [])
+    .filter((row) => row && statTime(row.start) !== null)
+    .sort((a, b) => statTime(a.start) - statTime(b.start));
   let total = 0;
   let seen = false;
-  for (const row of Array.isArray(rows) ? rows : []) {
-    const energy = statEnergy(row, fallbackUnit);
-    if (energy !== null) {
-      total += energy;
-      seen = true;
+  let previous = null;
+  for (const row of ordered) {
+    const before = previous;
+    previous = row;
+    const factor = energyFactor(typeof row.unit === "string" ? row.unit : fallbackUnit);
+    if (factor === null) continue;
+    let change = null;
+    if (Number.isFinite(row.change)) {
+      change = row.change;
+      if (
+        change < 0 &&
+        row.last_reset &&
+        (!before || before.last_reset !== row.last_reset) &&
+        Number.isFinite(row.sum)
+      ) {
+        change = row.sum;
+      }
+    } else if (before && Number.isFinite(row.sum) && Number.isFinite(before.sum)) {
+      change = row.sum - before.sum;
     }
+    if (change === null) continue;
+    total += change * factor;
+    seen = true;
   }
   return seen ? total : null;
 }
@@ -566,7 +620,8 @@ function advanceStats(card, scene, hass) {
   for (const entry of scene.stats.values()) {
     if (now - entry.store.lastFetch < SPARK_REFRESH_MS) continue;
     entry.store.lastFetch = now;
-    fetchStats(card, scene, entry);
+    // Like the curves: a failed question is asked again next window.
+    fetchStats(card, scene, entry).catch(() => {});
   }
 }
 
@@ -867,13 +922,74 @@ const HVAC_LABELS = {
     gas: "Gas",
     high_demand: "Hoher Bedarf",
   },
+  fr: {
+    off: "Arrêt",
+    heat: "Chauffage",
+    cool: "Climatisation",
+    heat_cool: "Chauffage/Climatisation",
+    auto: "Automatique",
+    dry: "Déshumidification",
+    fan_only: "Ventilation",
+    eco: "Éco",
+    performance: "Boost",
+    electric: "Électrique",
+    heat_pump: "Pompe à chaleur",
+    gas: "Gaz",
+    high_demand: "Demande élevée",
+  },
+  it: {
+    off: "Spento",
+    heat: "Riscaldamento",
+    cool: "Raffreddamento",
+    heat_cool: "Riscaldamento/Raffreddamento",
+    auto: "Automatico",
+    dry: "Deumidificazione",
+    fan_only: "Solo ventilazione",
+    eco: "Eco",
+    performance: "Boost",
+    electric: "Elettrico",
+    heat_pump: "Pompa di calore",
+    gas: "Gas",
+    high_demand: "Alta richiesta",
+  },
+  nl: {
+    off: "Uit",
+    heat: "Verwarmen",
+    cool: "Koelen",
+    heat_cool: "Verwarmen/Koelen",
+    auto: "Automatisch",
+    dry: "Drogen",
+    fan_only: "Alleen ventilatie",
+    eco: "Eco",
+    performance: "Boost",
+    electric: "Elektrisch",
+    heat_pump: "Warmtepomp",
+    gas: "Gas",
+    high_demand: "Hoge vraag",
+  },
+  pl: {
+    off: "Wył.",
+    heat: "Grzanie",
+    cool: "Chłodzenie",
+    heat_cool: "Grzanie/Chłodzenie",
+    auto: "Automatyczny",
+    dry: "Osuszanie",
+    fan_only: "Tylko wentylator",
+    eco: "Eco",
+    performance: "Boost",
+    electric: "Elektryczne",
+    heat_pump: "Pompa ciepła",
+    gas: "Gaz",
+    high_demand: "Wysokie zapotrzebowanie",
+  },
 };
 
 /** Human readable label for a select option or an hvac mode. */
 function optionLabel(hass, raw) {
   const key = String(raw);
   const language = hass && hass.locale && hass.locale.language ? hass.locale.language : "en";
-  const table = String(language).toLowerCase().startsWith("de") ? HVAC_LABELS.de : HVAC_LABELS.en;
+  // Every language the card speaks names the modes; the rest reads English.
+  const table = HVAC_LABELS[String(language).slice(0, 2).toLowerCase()] || HVAC_LABELS.en;
   if (table[key.toLowerCase()]) return table[key.toLowerCase()];
   const words = key.replace(/[_-]+/g, " ").trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
@@ -1174,11 +1290,6 @@ function drawPanel(scene, box, title, options) {
   return group;
 }
 
-/**
- * Trims a label with an ellipsis so it cannot run into whatever sits next to
- * it. Measured once the card is laid out, which is why it rides along with the
- * updaters.
- */
 /** Width of a text node, 0 where the browser cannot measure it. */
 function textWidth(node) {
   try {
@@ -1298,7 +1409,9 @@ function createSparkline(scene, block, x, y, field, options) {
       }
       // The wording a hover or a screen reader gets: window, average, range.
       const texts = textsFor(hass);
-      const unit = unitOf(hass, field);
+      // A thermal output calculated from two meters is normalized to watts,
+      // exactly like a power meter's own series.
+      const unit = field.calculate === true && field.cop ? "W" : unitOf(hass, field);
       const decimals =
         field.decimals !== undefined ? field.decimals : unit && POWER_UNIT_FACTORS[unit] === undefined ? 1 : 0;
       const fmt = (value) => {
@@ -1543,6 +1656,10 @@ const TEXTS = {
   en: {
     heatpump: "Heat pump",
     power: "Power",
+    intermediate: "Intermediate circuit",
+    compressor: "Compressor",
+    devices: "Devices",
+    hub_note: "Estimated distribution from power readings",
     cop: "COP",
     eer: "EER",
     outside: "Outside",
@@ -1604,12 +1721,17 @@ const TEXTS = {
     energy_electric: "Electricity",
     spf: "SPF",
     idle: "Standby",
+    auto: "Automatic",
     off: "Off",
     wood_stove: "Wood stove",
   },
   de: {
     heatpump: "Wärmepumpe",
     power: "Leistung",
+    intermediate: "Zwischenkreis",
+    compressor: "Kompressor",
+    devices: "Verbraucher",
+    hub_note: "Geschätzte Verteilung aus den Leistungsmesswerten",
     cop: "COP",
     eer: "EER",
     outside: "Außen",
@@ -1661,6 +1783,7 @@ const TEXTS = {
     water: "Warmwasser",
     defrost: "Abtauen",
     idle: "Bereitschaft",
+    auto: "Automatik",
     off: "Aus",
     wood_stove: "Holzofen",
     thermal_power: "Heizleistung",
@@ -1677,6 +1800,10 @@ const TEXTS = {
   fr: {
     heatpump: "Pompe à chaleur",
     power: "Puissance",
+    intermediate: "Circuit intermédiaire",
+    compressor: "Compresseur",
+    devices: "Appareils",
+    hub_note: "Répartition estimée d'après les mesures de puissance",
     cop: "COP",
     eer: "EER",
     outside: "Extérieur",
@@ -1738,12 +1865,17 @@ const TEXTS = {
     energy_electric: "Électricité",
     spf: "SPF",
     idle: "Veille",
+    auto: "Automatique",
     off: "Arrêt",
     wood_stove: "Poêle à bois",
   },
   it: {
     heatpump: "Pompa di calore",
     power: "Potenza",
+    intermediate: "Circuito intermedio",
+    compressor: "Compressore",
+    devices: "Dispositivi",
+    hub_note: "Distribuzione stimata dalle letture di potenza",
     cop: "COP",
     eer: "EER",
     outside: "Esterna",
@@ -1805,12 +1937,17 @@ const TEXTS = {
     energy_electric: "Elettricità",
     spf: "SPF",
     idle: "Standby",
+    auto: "Automatico",
     off: "Off",
     wood_stove: "Stufa a legna",
   },
   nl: {
     heatpump: "Warmtepomp",
     power: "Vermogen",
+    intermediate: "Tussencircuit",
+    compressor: "Compressor",
+    devices: "Apparaten",
+    hub_note: "Geschatte verdeling op basis van vermogensmetingen",
     cop: "COP",
     eer: "EER",
     outside: "Buiten",
@@ -1872,12 +2009,17 @@ const TEXTS = {
     energy_electric: "Elektriciteit",
     spf: "SPF",
     idle: "Standby",
+    auto: "Automatisch",
     off: "Uit",
     wood_stove: "Houtkachel",
   },
   pl: {
     heatpump: "Pompa ciepła",
     power: "Moc",
+    intermediate: "Obieg pośredni",
+    compressor: "Sprężarka",
+    devices: "Urządzenia",
+    hub_note: "Szacunkowy podział na podstawie odczytów mocy",
     cop: "COP",
     eer: "EER",
     outside: "Zewnętrzna",
@@ -1939,6 +2081,7 @@ const TEXTS = {
     energy_electric: "Prąd",
     spf: "SPF",
     idle: "Gotowość",
+    auto: "Automatyczny",
     off: "Wył.",
     wood_stove: "Piec na drewno",
   },
@@ -2123,13 +2266,64 @@ function alarmActive(hass, cfg) {
 }
 
 /**
+ * The chips a configuration asks for, by their label, in the order they are
+ * laid out: the fault first, so that it is never the one left out when space
+ * runs short.
+ */
+function statusChipLabels(cfg, texts) {
+  const labels = [];
+  if (cfg.alarm || cfg.message) labels.push(texts.fault);
+  if (cfg.reason) labels.push(texts.reason);
+  if (cfg.smart_grid) labels.push(texts.smart_grid);
+  if (cfg.cycles_today) labels.push(texts.starts_today);
+  if (cfg.defrosts_today) labels.push(texts.defrosts_today);
+  if (cfg.energy_thermal) labels.push(texts.energy_thermal);
+  if (cfg.energy_electric) labels.push(texts.energy_electric);
+  if (cfg.spf && cfg.spf.thermal && cfg.spf.electric) labels.push(texts.spf);
+  if (cfg.outside_temp && cfg.outside_temp.day_min_max === true && fieldEntities(cfg.outside_temp).length === 1) {
+    labels.push(texts.outside);
+  }
+  return labels;
+}
+
+/** One chip's width for a label - the estimate the strip lays its rows out with. */
+function statusChipWidth(label) {
+  return label.length * 6.2 + 22;
+}
+
+/**
+ * How many rows the status strip needs to say everything it may have to say.
+ * The chips wrap like text, and the plant is laid out around the rows - so
+ * the count has to be known before anything is drawn. What a chip will say
+ * is not known yet; a value of six characters is assumed.
+ */
+function statusStripRows(cfg, texts, boxWidth) {
+  const labels = statusChipLabels(cfg, texts);
+  if (!labels.length) return 0;
+  let rows = 1;
+  let used = 0;
+  for (const label of labels) {
+    const width = statusChipWidth(`${label}: ${"x".repeat(6)}`);
+    if (used && used + 8 + width > boxWidth) {
+      rows += 1;
+      used = 0;
+    }
+    used += (used ? 8 : 0) + width;
+  }
+  return rows;
+}
+
+/**
  * A slim row of chips below the plant: a red fault chip while something is
  * wrong, the demand reason, the smart-grid state, and small diagnostic pills
  * (compressor starts today, defrost starts today). Everything is optional and
- * the row only exists when at least one field is configured.
+ * the row only exists when at least one field is configured. More chips than
+ * fit on one line wrap onto the next - the scene reserved `rows` of them.
  */
-function drawStatusStrip(scene, box, cfg) {
+function drawStatusStrip(scene, box, cfg, options) {
   const texts = textsFor(scene.hass());
+  const rows = Math.max(1, (options && options.rows) || 1);
+  const ROW_H = 32;
   const group = svgEl("g", { class: "hpfc-status" });
   scene.root.appendChild(group);
 
@@ -2249,7 +2443,11 @@ function drawStatusStrip(scene, box, cfg) {
 
   scene.add(() => {
     const hass = scene.hass();
+    const right = box.x + box.w;
+    // Chip after chip, row after row: the plant left room for `rows` of them.
     let x = box.x;
+    let row = 0;
+    let y = box.y;
     for (const { item, chip, rect, text } of chips) {
       let label = "";
       let show = true;
@@ -2282,21 +2480,30 @@ function drawStatusStrip(scene, box, cfg) {
         chip.style.display = "none";
         continue;
       }
-      const remaining = box.x + box.w - x;
-      let width = label.length * 6.2 + 22;
+      let width = statusChipWidth(label);
+      // What does not fit on this line starts the next, as long as one is reserved.
+      if (x > box.x && x + width > right && row + 1 < rows) {
+        row += 1;
+        x = box.x;
+        y = box.y + row * ROW_H;
+      }
+      const remaining = right - x;
       if (width > remaining) {
+        // On the last line a chip gives way: shortened, or left out.
         const maxChars = Math.floor((remaining - 32) / 6.2);
-        if (maxChars < 4 || x + 46 > box.x + box.w) {
+        if (maxChars < 4 || x + 46 > right) {
           chip.style.display = "none";
           continue;
         }
         label = `${label.slice(0, maxChars)}…`;
-        width = label.length * 6.2 + 22;
+        width = statusChipWidth(label);
       }
       chip.style.display = "";
       text.textContent = label;
       text.setAttribute("x", String(x + 11));
+      text.setAttribute("y", String(y + box.h / 2 + 4));
       rect.setAttribute("x", String(x));
+      rect.setAttribute("y", String(y));
       rect.setAttribute("width", String(width));
       x += width + 8;
     }
@@ -2383,7 +2590,8 @@ function heatPumpPassiveCooling(hass, cfg) {
   return PASSIVE_COOLING_PATTERN.test(text);
 }
 
-function heatPumpRunning(hass, cfg) {  if (cfg.state_entity && cfg.state_entity.entity) return isActive(hass, cfg.state_entity);
+function heatPumpRunning(hass, cfg) {
+  if (cfg.state_entity && cfg.state_entity.entity) return isActive(hass, cfg.state_entity);
   if (cfg.power && cfg.power.entity) {
     const value = powerWatts(hass, cfg.power);
     if (value !== null) return value > (cfg.power_threshold === undefined ? 20 : cfg.power_threshold);
@@ -2681,7 +2889,7 @@ function drawHeatPump(scene, box, cfg) {
     cfg.cop ? { label: texts.cop, field: cfg.cop, compute: copCompute } : null,
     cfg.eer ? { label: texts.eer, field: cfg.eer, compute: eerCompute } : null,
     cfg.outside_temp ? { label: texts.outside, field: cfg.outside_temp, colorize: true } : null,
-    cfg.compressor ? { label: cfg.compressor.name || "Kompressor", field: cfg.compressor } : null,
+    cfg.compressor ? { label: cfg.compressor.name || texts.compressor, field: cfg.compressor } : null,
   ].filter(Boolean);
   const startY = box.y + 52;
   const sparkWidth = box.w - 122;
@@ -3606,7 +3814,7 @@ function drawElectricsHub(scene, box, nodes) {
   }));
   scene.root.appendChild(svgText(box.x + 18, box.y + 27, texts.electrics, { class: "hpfc-title" }));
   scene.root.appendChild(svgText(box.x + box.w * 0.785, box.y + 57,
-    scene.hass().locale?.language?.startsWith("de") ? "Verbraucher" : "Devices",
+    texts.devices,
     { "text-anchor": "middle", class: "hpfc-label" }));
   let device = 0;
   const placed = nodes.map((node) => {
@@ -3676,7 +3884,7 @@ function drawElectricsHub(scene, box, nodes) {
     watchElectricNode(scene, group, node, { label, value, titleWidth: node.isDevice ? box.w * 0.17 - 42 : Math.min(140, box.w * 0.16), glyphY: node.cy - 14, socInLabel: false, socText, autoPower: true, fullLabel: true });
   }
   scene.root.appendChild(svgText(box.x + box.w / 2, box.y + box.h - 14,
-    scene.hass().locale?.language?.startsWith("de") ? "Geschätzte Verteilung aus den Leistungsmesswerten" : "Estimated distribution from power readings",
+    texts.hub_note,
     { "text-anchor": "middle", class: "hpfc-label" }));
 }
 
@@ -3878,7 +4086,7 @@ function drawSolar(scene, box, cfg) {
   group.appendChild(sun);
 
   drawBottomReadouts(scene, group, box, [
-    { label: cfg.collector_temp ? cfg.collector_temp.name || texts.collector : texts.collector, field: cfg.collector_temp, colorize: true },
+    { label: (cfg.collector_temp && cfg.collector_temp.name) || texts.collector, field: cfg.collector_temp, colorize: true },
     cfg.yield ? { label: cfg.yield.name || texts.yield, field: cfg.yield } : null,
   ]);
 
@@ -4439,6 +4647,8 @@ const SECTION_FIELDS = {
     "outside_temp",
     "flow_temp",
     "return_temp",
+    "intermediate_flow_temp",
+    "intermediate_return_temp",
     "compressor",
     "mode",
     "status",
@@ -4531,7 +4741,7 @@ function normalizeSection(raw, fields) {
     const target = FIELD_ALIASES[key] || key;
     if (!fields.includes(target)) continue;
     // A seasonal performance factor is no sensor at all: two energy counters
-    // divided over a period, taken from the recorder's sums.
+    // divided over a period, from what the recorder says they added.
     if (target === "spf" && raw[key] && typeof raw[key] === "object") {
       const thermal = asField(raw[key].thermal || raw[key].thermal_energy);
       const electric = asField(raw[key].electric || raw[key].electric_energy || raw[key].energy);
@@ -4691,8 +4901,9 @@ function normalizeConfig(raw) {
  * A busy dashboard pushes a fresh hass object onto every card whenever *any*
  * entity on the instance changes. Redrawing the whole scheme for that is
  * wasted work, so the card remembers which entities it reads and compares a
- * cheap signature over them: only a change in a state or one of the attributes
- * that shape the drawing or the controls triggers an update pass.
+ * cheap signature over them: only a change in a state, in one of the
+ * attributes that shape the drawing or the controls, or in an attribute a
+ * field was pointed at triggers an update pass.
  */
 
 const WATCHED_ATTRIBUTES = [
@@ -4714,40 +4925,56 @@ const WATCHED_ATTRIBUTES = [
   "supported_features",
 ];
 
-/** Every entity a field (or a calculated field) reads. */
-function collectFieldEntities(field, out) {
+/**
+ * Every entity a field (or a calculated field) reads, and every attribute it
+ * reads by name.
+ */
+function collectField(field, entities, attributes) {
   if (!field) return;
   if (typeof field === "string") {
-    if (field.includes(".")) out.add(field);
+    if (field.includes(".")) entities.add(field);
     return;
   }
   if (Array.isArray(field)) {
-    for (const entry of field) collectFieldEntities(entry, out);
+    for (const entry of field) collectField(entry, entities, attributes);
     return;
   }
   if (typeof field !== "object") return;
-  if (typeof field.entity === "string") out.add(field.entity);
-  if (Array.isArray(field.entities)) {
-    for (const entity of field.entities) {
-      if (typeof entity === "string") out.add(entity);
+  if (typeof field.entity === "string") {
+    entities.add(field.entity);
+    // An attribute a readout is fed by is part of what the card reads. It has
+    // to reach the signature, or the value stays as it was when the card drew.
+    if (field.attribute && typeof field.attribute === "string") {
+      if (!attributes.has(field.entity)) attributes.set(field.entity, new Set());
+      attributes.get(field.entity).add(field.attribute);
     }
   }
-  // A calculated COP names its meters under other keys.
+  if (Array.isArray(field.entities)) {
+    for (const entity of field.entities) {
+      if (typeof entity === "string") entities.add(entity);
+    }
+  }
+  // A calculated COP divides two meters, a calculated thermal output
+  // multiplies two values - both name their inputs under other keys.
   if (field.calculate === true) {
-    collectFieldEntities(field.thermal_power, out);
-    collectFieldEntities(field.heat_output, out);
-    collectFieldEntities(field.power, out);
+    for (const input of [field.thermal_power, field.heat_output, field.power, field.cop]) {
+      collectField(input, entities, attributes);
+    }
   }
   // A seasonal performance factor names its two energy counters.
   if (field.thermal !== undefined || field.electric !== undefined) {
-    collectFieldEntities(field.thermal, out);
-    collectFieldEntities(field.electric, out);
+    collectField(field.thermal, entities, attributes);
+    collectField(field.electric, entities, attributes);
   }
 }
 
-/** Every entity the card reads anywhere in its normalized config. */
-function collectWatchedEntities(config) {
-  const out = new Set();
+/**
+ * What the card reads of its configuration: every entity, and per entity the
+ * attributes fields were pointed at by name.
+ */
+function collectWatched(config) {
+  const entities = new Set();
+  const attributes = new Map();
   const sections = [
     config.heatpump,
     config.pv,
@@ -4760,16 +4987,22 @@ function collectWatchedEntities(config) {
   for (const section of sections) {
     if (!section || typeof section !== "object") continue;
     for (const key of Object.keys(section)) {
-      collectFieldEntities(section[key], out);
+      collectField(section[key], entities, attributes);
     }
   }
-  return out;
+  return { entities, attributes };
 }
 
-/** What the card sees of its entities, folded into one comparable string. */
-function entitySignature(hass, entities) {
+/**
+ * What the card sees of its entities, folded into one comparable string: each
+ * state, the attributes that shape the drawing or the controls, and the
+ * attributes a field reads by name.
+ */
+function entitySignature(hass, watched) {
   let signature = "";
   const states = hass && hass.states ? hass.states : {};
+  const entities = watched instanceof Set ? watched : watched.entities;
+  const attributes = watched instanceof Set ? null : watched.attributes;
   for (const entityId of entities) {
     const st = states[entityId];
     if (!st) {
@@ -4782,6 +5015,14 @@ function entitySignature(hass, entities) {
       for (const attr of WATCHED_ATTRIBUTES) {
         const value = attrs[attr];
         if (value !== undefined) signature += `|${attr}=${String(value)}`;
+      }
+      const named = attributes ? attributes.get(entityId) : null;
+      if (named) {
+        for (const attr of named) {
+          if (WATCHED_ATTRIBUTES.includes(attr)) continue;
+          const value = attrs[attr];
+          if (value !== undefined) signature += `|${attr}=${String(value)}`;
+        }
       }
     }
     signature += ";";
@@ -4806,6 +5047,95 @@ const GEOMETRY = {
   railGap: 92,
   gapY: 16,
 };
+
+/**
+ * A plant with a hydraulic separation - a heat exchanger between the heat
+ * pump and the heating circuit, the way iDM and others build it - has two
+ * circuits where the drawing has one pair of pipes. The intermediate pair
+ * (`intermediate_flow_temp` / `intermediate_return_temp`) then belongs to the
+ * heat pump's own pipes, and `flow_temp` / `return_temp` to what leaves the
+ * tank for the circuits, so the two circuits' temperatures can be read off
+ * next to each other (#44). Without a tank the drawing has one circuit only,
+ * and the intermediate readings have nowhere of their own to sit.
+ */
+function intermediateSplit(config) {
+  const heatpump = config.heatpump || {};
+  return {
+    flow: Boolean(config.buffer) && Boolean(heatpump.intermediate_flow_temp),
+    return: Boolean(config.buffer) && Boolean(heatpump.intermediate_return_temp),
+  };
+}
+
+/**
+ * The temperature pills on a heat pump's pipes. `unit` is where its own flow
+ * and return leave the cabinet, `tank` the side the heating circuit draws
+ * from; without an intermediate circuit every pill sits on the unit.
+ */
+function drawHeatPumpTemperatures(scene, config, unit, tank) {
+  const heatpump = config.heatpump;
+  const texts = textsFor(scene.hass());
+  const split = intermediateSplit(config);
+  if (split.flow) {
+    drawBadge(scene, unit.x, unit.flowY - 16, heatpump.intermediate_flow_temp, {
+      label: `${texts.intermediate} – ${texts.flow}`,
+    });
+  }
+  if (split.return) {
+    drawBadge(scene, unit.x, unit.returnY + 17, heatpump.intermediate_return_temp, {
+      label: `${texts.intermediate} – ${texts.ret}`,
+    });
+  }
+  if (heatpump.flow_temp) {
+    const spot = split.flow ? tank : unit;
+    drawBadge(scene, spot.x, spot.flowY - 16, heatpump.flow_temp, { label: texts.flow });
+  }
+  if (heatpump.return_temp) {
+    const spot = split.return ? tank : unit;
+    drawBadge(scene, spot.x, spot.returnY + 17, heatpump.return_temp, { label: texts.ret });
+  }
+  if (heatpump.flow_rate) {
+    drawBadge(scene, unit.x, unit.flowY + 17, heatpump.flow_rate, { label: texts.flow_rate });
+  }
+}
+
+/**
+ * One side of a distribution spine, drawn stretch by stretch: from the
+ * source's level to the nearest branch, and from every branch to the next.
+ * A stretch carries water only while a consumer *beyond* it draws. Drawn as
+ * one path instead, the rail animated all the way up to a consumer that was
+ * switched off, as long as anything else on that side ran (#42).
+ * `items` are that side's consumers, nearest to the source first; `at` gives
+ * the branch's y; `from` and `to` colour a stretch by the nearest consumer
+ * beyond it.
+ */
+function drawSpine(scene, options) {
+  const { x, sourceY, role, part, segment, at, from, to } = options;
+  const running = (items) => (hass) => items.some((item) => item.running(hass));
+  let startY = sourceY;
+  options.items.forEach((item, index) => {
+    const endY = at(item);
+    // A branch level with the source connection needs no rail above the trunk.
+    if (Math.abs(endY - startY) >= 1) {
+      const beyond = options.items.slice(index);
+      drawPipe(scene, {
+        // Flow leaves the source; returns travel back towards it.
+        points: role === "return" ? [[x, endY], [x, startY]] : [[x, startY], [x, endY]],
+        role,
+        part,
+        segment,
+        from: from(beyond[0]),
+        to: to ? to(beyond[0]) : undefined,
+        active: running(beyond),
+      });
+    }
+    startY = endY;
+  });
+}
+
+/** What a consumer hands back: its return temperature, or its flow's. */
+function returnOf(item) {
+  return item ? item.cfg.return_temp || item.cfg.flow_temp : null;
+}
 
 /**
  * The narrow scene: the plant in one column, for dashboard columns half a
@@ -4840,22 +5170,12 @@ function buildNarrowScene(card, config) {
   if (config.dhw) consumers.push({ kind: "dhw", cfg: config.dhw, h: dhwHeight });
   for (const circuit of config.circuits) consumers.push({ kind: "circuit", cfg: circuit, h: circuitHeight });
 
-  const statusStrip =
-    [
-      config.heatpump.alarm,
-      config.heatpump.message,
-      config.heatpump.reason,
-      config.heatpump.smart_grid,
-      config.heatpump.cycles_today,
-      config.heatpump.defrosts_today,
-      config.heatpump.energy_thermal,
-      config.heatpump.energy_electric,
-      config.heatpump.spf,
-      config.heatpump.outside_temp && config.heatpump.outside_temp.day_min_max === true,
-    ].some(Boolean);
+  // The status strip wraps inside the consumers' width - the rails run down
+  // the right of it - and the column makes room for every row it needs.
+  const statusRows = statusStripRows(config.heatpump, textsFor(card._hass), consumerW);
 
   const topH = Math.max(hpHeight, config.buffer ? bufH : 0);
-  let cursorY = hpY + topH + (statusStrip ? 36 : G.gapY);
+  let cursorY = hpY + topH + (statusRows ? statusRows * 32 + 4 : G.gapY);
   const electrics = hasElectrics(config) ? electricNodes(config) : [];
   const showElectrics = electrics.length > 1;
   const electricsHeight = config.electrics_style === "hub" ? hubHeight(electrics) : 110;
@@ -4894,8 +5214,13 @@ function buildNarrowScene(card, config) {
     },
   };
 
-  if (statusStrip) {
-    drawStatusStrip(scene, { x: G.pad, y: hpY + topH + 4, w: width - G.pad * 2, h: 24 }, config.heatpump);
+  if (statusRows) {
+    drawStatusStrip(
+      scene,
+      { x: G.pad, y: hpY + topH + 4, w: consumerW, h: 24 },
+      config.heatpump,
+      { rows: statusRows }
+    );
   }
 
   // ---- nodes ------------------------------------------------------------
@@ -4949,6 +5274,7 @@ function buildNarrowScene(card, config) {
 
   if (config.buffer) {
     const mid = hpRight + 30;
+    const split = intermediateSplit(config);
     drawPipe(scene, {
       points: [
         [hpRight, hpFlowY],
@@ -4957,7 +5283,7 @@ function buildNarrowScene(card, config) {
         [bufX, bufferFlowY],
       ],
       role: "flow",
-      from: config.heatpump.flow_temp,
+      from: split.flow ? config.heatpump.intermediate_flow_temp : config.heatpump.flow_temp,
       to: config.buffer.top,
       active: heatpump.running,
     });
@@ -4970,7 +5296,7 @@ function buildNarrowScene(card, config) {
       ],
       role: "return",
       from: config.buffer.bottom,
-      to: config.heatpump.return_temp,
+      to: split.return ? config.heatpump.intermediate_return_temp : config.heatpump.return_temp,
       active: heatpump.running,
     });
   } else if (consumers.length) {
@@ -4999,48 +5325,64 @@ function buildNarrowScene(card, config) {
     });
   }
 
-  if (config.heatpump.flow_temp) {
-    drawBadge(scene, hpRight + 28, hpFlowY - 16, config.heatpump.flow_temp, {
-      label: textsFor(scene.hass()).flow,
-    });
-  }
-  if (config.heatpump.return_temp) {
-    drawBadge(scene, hpRight + 28, hpReturnY + 17, config.heatpump.return_temp, {
-      label: textsFor(scene.hass()).ret,
-    });
-  }
-  if (config.heatpump.flow_rate) {
-    drawBadge(scene, hpRight + 28, hpFlowY + 17, config.heatpump.flow_rate, {
-      label: textsFor(scene.hass()).flow_rate,
-    });
-  }
+  drawHeatPumpTemperatures(
+    scene,
+    config,
+    { x: hpRight + 28, flowY: hpFlowY, returnY: hpReturnY },
+    { x: bufX + G.buffer.w + 32, flowY: bufferFlowY, returnY: bufferReturnY }
+  );
 
   // The distribution rails run down the right edge and hand each consumer
-  // its share on the way.
+  // its share on the way: a corner piece where they leave the tank, then one
+  // stretch per consumer - a stretch only moves while a consumer further
+  // down is actually drawing (#42).
   if (consumers.length) {
     const source = config.buffer ? bufX + G.buffer.w : hpRight;
-    drawPipe(scene, {
-      points: [
-        [source, bufferFlowY],
-        [flowRailX, bufferFlowY],
-        [flowRailX, Math.max(...consumers.map((item) => item.inletY))],
-      ],
+    const railFlow = config.buffer ? config.buffer.top : config.heatpump.flow_temp;
+    const railReturn = config.buffer ? config.buffer.bottom : config.heatpump.return_temp;
+    if (config.buffer) {
+      drawPipe(scene, {
+        points: [
+          [source, bufferFlowY],
+          [flowRailX, bufferFlowY],
+        ],
+        role: "flow",
+        part: "flow-trunk",
+        from: railFlow,
+        active: anyConsumer,
+      });
+      drawPipe(scene, {
+        points: [
+          [returnRailX, bufferReturnY],
+          [source, bufferReturnY],
+        ],
+        role: "return",
+        part: "return-trunk",
+        from: returnOf(consumers[0]),
+        to: railReturn,
+        active: anyConsumer,
+      });
+    }
+    drawSpine(scene, {
+      x: flowRailX,
+      sourceY: bufferFlowY,
       role: "flow",
       part: "flow-spine",
-      from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
-      active: anyConsumer,
+      segment: "lower",
+      items: consumers.slice().sort((a, b) => a.inletY - b.inletY),
+      at: (item) => item.inletY,
+      from: () => railFlow,
     });
-    drawPipe(scene, {
-      points: [
-        [returnRailX, Math.max(...consumers.map((item) => item.outletY))],
-        [returnRailX, bufferReturnY],
-        [source, bufferReturnY],
-      ],
+    drawSpine(scene, {
+      x: returnRailX,
+      sourceY: bufferReturnY,
       role: "return",
       part: "return-spine",
-      from: consumers[0] ? consumers[0].cfg.return_temp || consumers[0].cfg.flow_temp : null,
-      to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
-      active: anyConsumer,
+      segment: "lower",
+      items: consumers.slice().sort((a, b) => a.outletY - b.outletY),
+      at: (item) => item.outletY,
+      from: returnOf,
+      to: () => railReturn,
     });
     consumers.forEach((item, index) => {
       const part = item.kind === "dhw" ? "dhw" : `circuit-${index + (config.dhw ? 0 : 1)}`;
@@ -5161,27 +5503,21 @@ function buildScene(card) {
   // The status strip: fault wording, demand reason, smart-grid state, the
   // day's diagnostics and the statistics chips - only drawn when at least one
   // of them is configured.
-  const statusStrip =
-    [
-      config.heatpump.alarm,
-      config.heatpump.message,
-      config.heatpump.reason,
-      config.heatpump.smart_grid,
-      config.heatpump.cycles_today,
-      config.heatpump.defrosts_today,
-      config.heatpump.energy_thermal,
-      config.heatpump.energy_electric,
-      config.heatpump.spf,
-      config.heatpump.outside_temp && config.heatpump.outside_temp.day_min_max === true,
-    ].some(Boolean);
-  const statusH = statusStrip ? 32 : 0;
+  // How many rows of chips the plant has to make room for below it.
+  const statusRows = statusStripRows(config.heatpump, textsFor(card._hass), width - G.pad * 2);
+  const statusH = statusRows * 32;
 
-  const stripY = G.pad + contentH + statusH + (solarLanes ? 88 : G.pad);
-  const electricsHeight = config.electrics_style === "hub" ? hubHeight(electrics) : 110;
-  const height = stripY + (showElectrics ? electricsHeight : 0);
-  const laneBase = G.pad + contentH + statusH;
+  // The solar circuit's lanes run right under the plant, and its pipes drop
+  // to them from the collector at the far left - straight through a row of
+  // chips placed there. With lanes the strip therefore goes below them,
+  // clear of the return badge that hangs under the lower lane.
+  const laneBase = G.pad + contentH + (solarLanes ? 0 : statusH);
   const laneA = laneBase + 20;
   const laneB = laneBase + 54;
+  const stripAt = G.pad + contentH + (solarLanes ? laneB - laneBase + 35 : 4);
+  const stripY = solarLanes ? stripAt + statusH - 4 + G.pad : G.pad + contentH + statusH + G.pad;
+  const electricsHeight = config.electrics_style === "hub" ? hubHeight(electrics) : 110;
+  const height = stripY + (showElectrics ? electricsHeight : 0);
 
   // ---- scene scaffolding ----------------------------------------------
   const svg = svgEl("svg", {
@@ -5205,7 +5541,8 @@ function buildScene(card) {
     svg,
     defs,
     pipeLayer,
-    root: nodeLayer,    updaters: [],
+    root: nodeLayer,
+    updaters: [],
     flags: {},
     hass: () => card._hass,
     spark: new Map(),
@@ -5216,11 +5553,12 @@ function buildScene(card) {
   };
 
   // The status strip sits between the plant and whatever follows below.
-  if (statusStrip) {
+  if (statusRows) {
     drawStatusStrip(
       scene,
-      { x: G.pad, y: G.pad + contentH + 4, w: width - G.pad * 2, h: 24 },
-      config.heatpump
+      { x: G.pad, y: stripAt, w: width - G.pad * 2, h: 24 },
+      config.heatpump,
+      { rows: statusRows }
     );
   }
 
@@ -5294,6 +5632,7 @@ function buildScene(card) {
 
   if (config.buffer) {
     const mid = hpRight + 55;
+    const split = intermediateSplit(config);
     drawPipe(scene, {
       points: [
         [hpRight, hpFlowY],
@@ -5302,7 +5641,7 @@ function buildScene(card) {
         [bufX, bufferFlowY],
       ],
       role: "flow",
-      from: config.heatpump.flow_temp,
+      from: split.flow ? config.heatpump.intermediate_flow_temp : config.heatpump.flow_temp,
       to: config.buffer.top,
       active: heatpump.running,
     });
@@ -5315,7 +5654,7 @@ function buildScene(card) {
       ],
       role: "return",
       from: config.buffer.bottom,
-      to: config.heatpump.return_temp,
+      to: split.return ? config.heatpump.intermediate_return_temp : config.heatpump.return_temp,
       active: heatpump.running,
     });
   } else if (consumers.length) {
@@ -5394,28 +5733,14 @@ function buildScene(card) {
     });
   }
 
-  if (config.heatpump.flow_temp) {
-    drawBadge(scene, hpRight + 28, hpFlowY - 16, config.heatpump.flow_temp, {
-      label: textsFor(scene.hass()).flow,
-    });
-  }
-  if (config.heatpump.return_temp) {
-    drawBadge(scene, hpRight + 28, hpReturnY + 17, config.heatpump.return_temp, {
-      label: textsFor(scene.hass()).ret,
-    });
-  }
-  if (config.heatpump.flow_rate) {
-    drawBadge(scene, hpRight + 28, hpFlowY + 17, config.heatpump.flow_rate, {
-      label: textsFor(scene.hass()).flow_rate,
-    });
-  }
+  drawHeatPumpTemperatures(
+    scene,
+    config,
+    { x: hpRight + 28, flowY: hpFlowY, returnY: hpReturnY },
+    { x: bufX + G.buffer.w + 32, flowY: bufferFlowY, returnY: bufferReturnY }
+  );
 
   // distribution spines and branches
-  const inlets = consumers.map((item) => item.inletY);
-  const outlets = consumers.map((item) => item.outletY);
-  const flowSpan = [Math.min(bufferFlowY, ...inlets), Math.max(bufferFlowY, ...inlets)];
-  const returnSpan = [Math.min(bufferReturnY, ...outlets), Math.max(bufferReturnY, ...outlets)];
-
   if (config.buffer && consumers.length) {
     drawPipe(scene, {
       points: [
@@ -5434,76 +5759,78 @@ function buildScene(card) {
       ],
       role: "return",
       part: "return-trunk",
-      from: consumers[0] ? consumers[0].cfg.return_temp : null,
+      from: returnOf(consumers[0]),
       to: config.buffer.bottom,
       active: anyConsumer,
     });
   }
 
-  // A distributor can have consumers above and below the buffer connection.
-  // One path through the whole rail cannot animate both directions at once,
-  // so each side gets its own path and activity state.
-  const flowAbove = consumers.filter((item) => item.inletY < bufferFlowY - 2);
-  const flowBelow = consumers.filter((item) => item.inletY > bufferFlowY + 2);
-  const returnAbove = consumers.filter((item) => item.outletY < bufferReturnY - 2);
-  const returnBelow = consumers.filter((item) => item.outletY > bufferReturnY + 2);
-  const segmentRunning = (items) => (hass) =>
-    items.some((item) => item.running && item.running(hass));
+  // A distributor can have consumers above and below the source connection,
+  // and the two sides flow in opposite directions - so each side is a spine
+  // of its own, stretch by stretch: the rail between a drawing consumer and
+  // one that is switched off stays still (#42).
+  const railFlow = config.buffer ? config.buffer.top : config.heatpump.flow_temp;
+  const railReturn = config.buffer ? config.buffer.bottom : config.heatpump.return_temp;
+  const nearestFirst = (items, at) => items.slice().sort((a, b) => at(a) - at(b));
+  const flowAbove = nearestFirst(
+    consumers.filter((item) => item.inletY < bufferFlowY - 2),
+    (item) => -item.inletY
+  );
+  const flowBelow = nearestFirst(
+    consumers.filter((item) => item.inletY > bufferFlowY + 2),
+    (item) => item.inletY
+  );
+  const returnAbove = nearestFirst(
+    consumers.filter((item) => item.outletY < bufferReturnY - 2),
+    (item) => -item.outletY
+  );
+  const returnBelow = nearestFirst(
+    consumers.filter((item) => item.outletY > bufferReturnY + 2),
+    (item) => item.outletY
+  );
 
-  if (flowAbove.length) {
-    drawPipe(scene, {
-      points: [
-        [flowRailX, bufferFlowY],
-        [flowRailX, flowSpan[0]],
-      ],
-      role: "flow",
-      part: "flow-spine",
-      segment: "upper",
-      from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
-      active: segmentRunning(flowAbove),
-    });
-  }
-  if (flowBelow.length) {
-    drawPipe(scene, {
-      points: [
-        [flowRailX, bufferFlowY],
-        [flowRailX, flowSpan[1]],
-      ],
-      role: "flow",
-      part: "flow-spine",
-      segment: "lower",
-      from: config.buffer ? config.buffer.top : config.heatpump.flow_temp,
-      active: segmentRunning(flowBelow),
-    });
-  }
-  if (returnAbove.length) {
-    drawPipe(scene, {
-      points: [
-        [returnRailX, returnSpan[0]],
-        [returnRailX, bufferReturnY],
-      ],
-      role: "return",
-      part: "return-spine",
-      segment: "upper",
-      from: returnAbove[0].cfg.return_temp || returnAbove[0].cfg.flow_temp,
-      to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
-      active: segmentRunning(returnAbove),
-    });
-  }
-  if (returnBelow.length) {
-    drawPipe(scene, {
-      points: [
-        [returnRailX, returnSpan[1]],
-        [returnRailX, bufferReturnY],
-      ],
-      role: "return",
-      part: "return-spine",
-      segment: "lower",
-      from: returnBelow[0].cfg.return_temp || returnBelow[0].cfg.flow_temp,
-      to: config.buffer ? config.buffer.bottom : config.heatpump.return_temp,
-      active: segmentRunning(returnBelow),
-    });
-  }
+  drawSpine(scene, {
+    x: flowRailX,
+    sourceY: bufferFlowY,
+    role: "flow",
+    part: "flow-spine",
+    segment: "upper",
+    items: flowAbove,
+    at: (item) => item.inletY,
+    from: () => railFlow,
+  });
+  drawSpine(scene, {
+    x: flowRailX,
+    sourceY: bufferFlowY,
+    role: "flow",
+    part: "flow-spine",
+    segment: "lower",
+    items: flowBelow,
+    at: (item) => item.inletY,
+    from: () => railFlow,
+  });
+  drawSpine(scene, {
+    x: returnRailX,
+    sourceY: bufferReturnY,
+    role: "return",
+    part: "return-spine",
+    segment: "upper",
+    items: returnAbove,
+    at: (item) => item.outletY,
+    from: returnOf,
+    to: () => railReturn,
+  });
+  drawSpine(scene, {
+    x: returnRailX,
+    sourceY: bufferReturnY,
+    role: "return",
+    part: "return-spine",
+    segment: "lower",
+    items: returnBelow,
+    at: (item) => item.outletY,
+    from: returnOf,
+    to: () => railReturn,
+  });
 
   consumers.forEach((item, index) => {
     const part = item.kind === "dhw" ? "dhw" : `circuit-${index + (config.dhw ? 0 : 1)}`;
@@ -6034,9 +6361,13 @@ svg.hpfc-passive .hpfc-circuit.hpfc-cooling .hpfc-wave { animation-duration: 5.6
 .hpfc-component-state { font-size: 9px; font-weight: 600; fill: var(--hpfc-text); }
 .hpfc-valve.hpfc-running .hpfc-valve-body { fill: var(--info-color, #39b0e5); }
 
+/* Anyone who asked the system for less motion gets stillness everywhere:
+   no turning, no travelling dots, no steam, no glow. */
 @media (prefers-reduced-motion: reduce) {
   .hpfc-spin, .hpfc-dots, .hpfc-heatwave, .hpfc-sun, .hpfc-flowing rect,
-  .hpfc-bubbles circle, .hpfc-drops circle { animation: none !important; }
+  .hpfc-bubbles circle, .hpfc-drops circle, .hpfc-steam path,
+  .hpfc-aux.hpfc-on .hpfc-coil, .hpfc-woodstove.hpfc-on .hpfc-flame-inner,
+  .hpfc-heater.hpfc-on .hpfc-heater-rod { animation: none !important; }
 }
 `;
 
@@ -6065,7 +6396,7 @@ class HeatpumpFlowCard extends HTMLElement {
     this._scene = null;
     this._hass = undefined;
     this._language = undefined;
-    this._entities = new Set();
+    this._watched = { entities: new Set(), attributes: new Map() };
     this._signature = null;
     this._control = null;
     this._popover = null;
@@ -6078,7 +6409,7 @@ class HeatpumpFlowCard extends HTMLElement {
   setConfig(config) {
     this._rawConfig = config;
     this._config = normalizeConfig(config);
-    this._entities = collectWatchedEntities(this._config);
+    this._watched = collectWatched(this._config);
     this._signature = null;
     this._scene = null;
     // A new configuration must not inherit another one's curves and answers.
@@ -6096,9 +6427,9 @@ class HeatpumpFlowCard extends HTMLElement {
       this._render();
       return;
     }
-    // A push that changes none of the entities this card reads would redraw
-    // the same drawing; the pass is skipped instead.
-    const signature = entitySignature(hass, this._entities);
+    // A push that changes nothing this card reads would redraw the same
+    // drawing; the pass is skipped instead.
+    const signature = entitySignature(hass, this._watched);
     if (signature === this._signature) return;
     this._signature = signature;
     // The signature is handed over rather than recomputed: a busy instance
@@ -6169,7 +6500,7 @@ class HeatpumpFlowCard extends HTMLElement {
 
   _update(signature) {
     if (!this._scene || !this._hass) return;
-    this._signature = signature !== undefined ? signature : entitySignature(this._hass, this._entities);
+    this._signature = signature !== undefined ? signature : entitySignature(this._hass, this._watched);
     for (const updater of this._scene.updaters) {
       try {
         updater();
@@ -6520,6 +6851,7 @@ const EDITOR_TEXTS = {
     style_tiles: "Tiles (classic)",
     flow_threshold: "Power flow deadband (W)",
     style_flow: "Round nodes on a line",
+    style_hub: "Energy hub",
     show_buffer: "Show buffer tank",
     show_dhw: "Show domestic hot water",
     show_pv: "Show photovoltaics",
@@ -6562,6 +6894,8 @@ const EDITOR_TEXTS = {
     cop: "COP / efficiency",
     flow_temp: "Flow temperature",
     return_temp: "Return temperature",
+    intermediate_flow_temp: "Intermediate circuit, flow temperature",
+    intermediate_return_temp: "Intermediate circuit, return temperature",
     outside_temp: "Outside temperature",
     compressor: "Compressor load",
     thermal_power: "Thermal power (or { calculate: true, power: …, cop: … })",
@@ -6611,6 +6945,7 @@ const EDITOR_TEXTS = {
       direct: "Without a tank · 1 circuit",
       "direct-dual": "Without a tank · 2 circuits",
       "direct-dhw": "Without a tank · hot water · 2 circuits",
+      narrow: "Narrow · one column",
     },
     types: {
       radiator: "Radiators",
@@ -6632,6 +6967,7 @@ const EDITOR_TEXTS = {
     style_tiles: "Kacheln (klassisch)",
     flow_threshold: "Totzone für Leistungsflüsse (W)",
     style_flow: "Runde Knoten auf einer Linie",
+    style_hub: "Energie-Hub",
     show_buffer: "Pufferspeicher anzeigen",
     show_dhw: "Warmwasser anzeigen",
     show_pv: "Photovoltaik anzeigen",
@@ -6674,6 +7010,8 @@ const EDITOR_TEXTS = {
     cop: "COP / Arbeitszahl",
     flow_temp: "Vorlauftemperatur",
     return_temp: "Rücklauftemperatur",
+    intermediate_flow_temp: "Zwischenkreis, Vorlauftemperatur",
+    intermediate_return_temp: "Zwischenkreis, Rücklauftemperatur",
     outside_temp: "Außentemperatur",
     compressor: "Verdichterlast",
     thermal_power: "Thermische Leistung (oder { calculate: true, power: …, cop: … })",
@@ -6723,6 +7061,7 @@ const EDITOR_TEXTS = {
       direct: "Ohne Speicher · 1 Heizkreis",
       "direct-dual": "Ohne Speicher · 2 Heizkreise",
       "direct-dhw": "Ohne Speicher · Warmwasser · 2 Heizkreise",
+      narrow: "Schmal · eine Spalte",
     },
     types: {
       radiator: "Heizkörper",
@@ -6744,6 +7083,7 @@ const EDITOR_TEXTS = {
     style_tiles: "Tuiles (classique)",
     flow_threshold: "Zone morte du flux (W)",
     style_flow: "Nœuds ronds sur une ligne",
+    style_hub: "Hub d'énergie",
     show_buffer: "Afficher le ballon tampon",
     show_dhw: "Afficher l'eau chaude sanitaire",
     show_pv: "Afficher le photovoltaïque",
@@ -6786,6 +7126,8 @@ const EDITOR_TEXTS = {
     cop: "COP / efficacité",
     flow_temp: "Température de départ",
     return_temp: "Température de retour",
+    intermediate_flow_temp: "Circuit intermédiaire, température de départ",
+    intermediate_return_temp: "Circuit intermédiaire, température de retour",
     outside_temp: "Température extérieure",
     compressor: "Charge du compresseur",
     thermal_power: "Puissance thermique (ou { calculate: true, power: …, cop: … })",
@@ -6835,6 +7177,7 @@ const EDITOR_TEXTS = {
       direct: "Sans ballon · 1 circuit",
       "direct-dual": "Sans ballon · 2 circuits",
       "direct-dhw": "Sans ballon · eau chaude · 2 circuits",
+      narrow: "Étroit · une colonne",
     },
     types: {
       radiator: "Radiateurs",
@@ -6856,6 +7199,7 @@ const EDITOR_TEXTS = {
     style_tiles: "Riquadri (classico)",
     flow_threshold: "Zona morta del flusso (W)",
     style_flow: "Nodi rotondi su una linea",
+    style_hub: "Hub energetico",
     show_buffer: "Mostra il puffer",
     show_dhw: "Mostra l'acqua calda",
     show_pv: "Mostra il fotovoltaico",
@@ -6898,6 +7242,8 @@ const EDITOR_TEXTS = {
     cop: "COP / efficienza",
     flow_temp: "Temperatura di mandata",
     return_temp: "Temperatura di ritorno",
+    intermediate_flow_temp: "Circuito intermedio, temperatura di mandata",
+    intermediate_return_temp: "Circuito intermedio, temperatura di ritorno",
     outside_temp: "Temperatura esterna",
     compressor: "Carico del compressore",
     thermal_power: "Potenza termica (oppure { calculate: true, power: …, cop: … })",
@@ -6947,6 +7293,7 @@ const EDITOR_TEXTS = {
       direct: "Senza puffer · 1 circuito",
       "direct-dual": "Senza puffer · 2 circuiti",
       "direct-dhw": "Senza puffer · acqua calda · 2 circuiti",
+      narrow: "Stretto · una colonna",
     },
     types: {
       radiator: "Radiatori",
@@ -6968,6 +7315,7 @@ const EDITOR_TEXTS = {
     style_tiles: "Tegels (klassiek)",
     flow_threshold: "Dode zone van de stroom (W)",
     style_flow: "Ronde knooppunten op een lijn",
+    style_hub: "Energiehub",
     show_buffer: "Toon buffervat",
     show_dhw: "Toon warm water",
     show_pv: "Toon zonnepanelen",
@@ -7010,6 +7358,8 @@ const EDITOR_TEXTS = {
     cop: "COP / rendement",
     flow_temp: "Aanvoertemperatuur",
     return_temp: "Retourtemperatuur",
+    intermediate_flow_temp: "Tussencircuit, aanvoertemperatuur",
+    intermediate_return_temp: "Tussencircuit, retourtemperatuur",
     outside_temp: "Buitentemperatuur",
     compressor: "Compressorbelasting",
     thermal_power: "Warmtevermogen (of { calculate: true, power: …, cop: … })",
@@ -7059,6 +7409,7 @@ const EDITOR_TEXTS = {
       direct: "Zonder vat · 1 kring",
       "direct-dual": "Zonder vat · 2 kringen",
       "direct-dhw": "Zonder vat · warm water · 2 kringen",
+      narrow: "Smal · één kolom",
     },
     types: {
       radiator: "Radiatoren",
@@ -7080,6 +7431,7 @@ const EDITOR_TEXTS = {
     style_tiles: "Kafelki (klasycznie)",
     flow_threshold: "Strefa martwa przepływu (W)",
     style_flow: "Okrągłe węzły na linii",
+    style_hub: "Hub energii",
     show_buffer: "Pokaż zasobnik buforowy",
     show_dhw: "Pokaż ciepłą wodę użytkową",
     show_pv: "Pokaż fotowoltaikę",
@@ -7122,6 +7474,8 @@ const EDITOR_TEXTS = {
     cop: "COP / sprawność",
     flow_temp: "Temperatura zasilania",
     return_temp: "Temperatura powrotu",
+    intermediate_flow_temp: "Obieg pośredni, temperatura zasilania",
+    intermediate_return_temp: "Obieg pośredni, temperatura powrotu",
     outside_temp: "Temperatura zewnętrzna",
     compressor: "Obciążenie sprężarki",
     thermal_power: "Moc cieplna (lub { calculate: true, power: …, cop: … })",
@@ -7171,6 +7525,7 @@ const EDITOR_TEXTS = {
       direct: "Bez zasobnika · 1 obieg",
       "direct-dual": "Bez zasobnika · 2 obiegi",
       "direct-dhw": "Bez zasobnika · c.w.u. · 2 obiegi",
+      narrow: "Wąski · jedna kolumna",
     },
     types: {
       radiator: "Grzejniki",
@@ -7197,6 +7552,8 @@ const EDITOR_SECTIONS = {
     "eer",
     "flow_temp",
     "return_temp",
+    "intermediate_flow_temp",
+    "intermediate_return_temp",
     "outside_temp",
     "compressor",
     "aux_heat",
@@ -7381,7 +7738,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
             options: [
               { value: "tiles", label: texts.style_tiles },
               { value: "flow", label: texts.style_flow },
-              { value: "hub", label: "Hub" },
+              { value: "hub", label: texts.style_hub },
             ],
           },
         },

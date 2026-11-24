@@ -51,6 +51,7 @@ empty, a section you set to `false` is not drawn at all.
 | `compressor` | Compressor load in percent — also sets the fan speed |
 | `flow_temp` | Flow temperature: badge and pipe colour towards the tank |
 | `return_temp` | Return temperature: badge and pipe colour back from the tank |
+| `intermediate_flow_temp`, `intermediate_return_temp` | For a plant with a hydraulic separation (#44): the heat pump's own circuit, between the heat pump and the heat exchanger. The pair sits on the pipes from the heat pump to the tank and colours them, and `flow_temp` / `return_temp` move to the tank's outlet, where they show what the heating circuit receives. Needs a buffer tank — it is what separates the two circuits on the drawing |
 | `fan` | `false` for a brine-to-water or water-to-water unit: no outdoor fan is drawn — two brine ports instead — and defrost vapour stays hidden |
 | `alarm`, `message` | A fault (`alarm`, binary sensor) turns the panel's frame red; `message` puts the controller's wording in the status strip below the plant |
 | `reason` | Why the plant runs right now — the demand reason, as a chip in the status strip |
@@ -67,6 +68,8 @@ temperature with `day_min_max` is configured, and the fault chip appears only
 while a fault is actually reported — a message that says there is nothing to
 report counts as quiet. Every chip opens the more-info dialog of its entity,
 and the statistics chips say nothing at all while the recorder has no answer.
+More chips than fit on one line continue on the next; the plant makes room for
+every line they need. The fault comes first, so it is never the one left out.
 
 `cop` takes the long form too: `{ calculate: true, thermal_power: sensor.heat_output, power: sensor.hp_power }`
 divides the thermal output by the electrical draw, both normalized to watts, so
@@ -76,6 +79,30 @@ works.
 
 Only the first three of `power`, `cop`, `outside_temp`, `compressor` are drawn —
 the rest is available through more-info.
+
+**A hydraulic separation (#44).** Where a heat exchanger divides the heat
+pump's circuit from the heating circuit, each has its own pair of probes:
+
+```yaml
+heatpump:
+  flow_temp: sensor.heating_flow                 # the heating circuit's side
+  return_temp: sensor.heating_return
+  intermediate_flow_temp: sensor.hp_circuit_flow     # the heat pump's side
+  intermediate_return_temp: sensor.hp_circuit_return
+```
+
+The intermediate pair is shown on the pipes from the heat pump to the tank and
+gives them their colour; `flow_temp` and `return_temp` move to the tank's
+outlet. The difference between the two circuits — what the exchanger loses —
+is readable at a glance. One of the two readings is enough to move that side.
+Without a buffer tank the drawing has a single circuit, and the intermediate
+readings are not drawn.
+
+**The day's energy from a lifetime counter.** `{ entity: <lifetime counter>,
+today: true }` adds up what the recorder says the counter added in each hourly
+bucket since midnight — the same arithmetic the Energy dashboard uses. It
+works for a power meter as well: the recorder sums a power sensor in
+watt-hours, so two `W` sensors make a working `spf`.
 
 **Is it running?** The card asks, in this order: `state_entity` → `power` above
 `power_threshold` → `compressor` above 0 → the state of `entity` → the text of
@@ -338,6 +365,8 @@ A `climate` or `water_heater` entity used as `target_temp`, `temp` or
 `target_temp: climate.circuit_a` shows the setpoint rather than the word
 “heat”.
 
+An `attribute` is watched like a state: a value fed by one follows it.
+
 ## Sparklines
 
 `sparkline: true` — or `sparkline: { hours: 12 }` for a window of your own,
@@ -356,7 +385,10 @@ space the readout already has.
 * **A calculated COP gets its curve too**: `cop: { calculate: true,
   thermal_power: …, power: …, sparkline: true }` divides the thermal series
   by the electrical one, bucket by bucket — the curve is the day's
-  efficiency, not a guess from two live numbers.
+  efficiency, not a guess from two live numbers. A calculated thermal output
+  does the same with a product: `thermal_power: { calculate: true, power: …,
+  cop: …, sparkline: true }` is the electrical series times the COP of each
+  hour.
 * A hover (or a screen reader) gets the wording: window, average, minimum,
   maximum.
 * A field fed by a whole list of entities draws no curve — there is no
