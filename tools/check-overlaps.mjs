@@ -13,7 +13,7 @@ const candidate = process.env.CHROMIUM_PATH || "/opt/pw-browsers/chromium";
 const browser = await chromium.launch(existsSync(candidate) ? { executablePath: candidate } : {});
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
 
-const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "cooling", "advanced", "circuits", "extras", "electrics", "energy-flow", "energy-hub", "narrow"];
+const layouts = ["compact", "single", "dual", "dhw-dual", "pv-dual", "full", "cooling", "advanced", "circuits", "extras", "electrics", "energy-flow", "energy-hub", "narrow", "intermediate"];
 // German words are the longer ones - "Zusatzheizung" against "Aux heat" - so a
 // label that fits in English can still collide in the translation.
 const languages = ["en", "de"];
@@ -53,6 +53,29 @@ for (const layout of layouts) {
             found.push(`route through "${box.text}"`);
             break;
           }
+        }
+      }
+    }
+
+    // No pipe may run through a status chip: the solar circuit drops to its
+    // lanes from the far left, right where a row of chips would sit.
+    const chips = [...root.querySelectorAll(".hpfc-status-chip")]
+      .filter((chip) => chip.style.display !== "none")
+      .map((chip) => chip.querySelector("rect").getBBox());
+    for (const pipe of root.querySelectorAll(".hpfc-pipe")) {
+      const length = pipe.getTotalLength();
+      for (let at = 0; at <= length; at += 2) {
+        const point = pipe.getPointAtLength(at);
+        const hit = chips.some(
+          (box) =>
+            point.x > box.x - 5 &&
+            point.x < box.x + box.width + 5 &&
+            point.y > box.y - 5 &&
+            point.y < box.y + box.height + 5
+        );
+        if (hit) {
+          found.push(`pipe through a status chip at ${Math.round(point.x)},${Math.round(point.y)}`);
+          break;
         }
       }
     }

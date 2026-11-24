@@ -29,8 +29,10 @@ die Live-Werte genau dort dar, wo sie hingehören.
   auf einen Sollwert öffnet ein Plus/Minus-Stellfeld. Langes Drücken öffnet
   immer den Info-Dialog.
 * **Jeder Heizkreis antwortet für sich.** Dass Kreis A läuft, sagt nichts über
-  Kreis D: jedes Panel, jede Pumpe und jedes Rohr zeigt den eigenen Zustand.
-* **Achtzehn fertige Layouts** – von der kompakten Karte mit einem Kreis bis zur
+  Kreis D: jedes Panel, jede Pumpe und jedes Rohr zeigt den eigenen Zustand –
+  und ein Schienenabschnitt endet dort, wo das Wasser endet: am letzten Kreis,
+  der zieht.
+* **Neunzehn fertige Layouts** – von der kompakten Karte mit einem Kreis bis zur
   kompletten Anlage, mit oder ohne Warmwasser, PV, Solarthermie oder Puffer.
 * **Grafischer Editor** – YAML ist möglich, aber nicht nötig.
 * **Nichts ist Pflicht.** Fehlt ein Sensor, bleibt die Stelle einfach leer,
@@ -90,6 +92,11 @@ was das Layout mitbringt.
 **`dual` – Heizkörper und Fußbodenheizung**
 
 ![dual](docs/images/dual.png)
+
+**Mit hydraulischer Trennung (#44) – der Zwischenkreis der Wärmepumpe und der
+Heizkreis dahinter, jeder mit seinem eigenen Temperaturpaar**
+
+![Zwischenkreis](docs/images/intermediate.png)
 
 **`dhw-dual` – Warmwasser und zwei Kreise, ohne PV, ohne Solarthermie**
 
@@ -364,7 +371,7 @@ Designgröße würde die Zeichnung nur größer, nicht lesbarer – auf einem 4K
 | `alarm`, `message` | Eine Störung rahmt das Panel rot; der Meldungstext des Reglers landet in der Statusleiste unter der Anlage |
 | `reason`, `smart_grid`, `cycles_today`, `defrosts_today` | Statusleiste unter der Anlage: warum sie läuft, der SG-Ready-Status, die Verdichter- und Abtaustarts des Tages |
 | `cop` (Langform) | `{ calculate: true, thermal_power: sensor.heizleistung, power: sensor.wp_leistung }` rechnet die Arbeitszahl direkt in der Karte aus zwei Zählern; `decimals` optional (Standard 2). Ein einfacher COP-Sensor bleibt unterstützt |
-| `sparkline` (Langform) | `sparkline: true` (oder `{ hours: n }`, 1–168) zeichnet hinter jeden Zahlenwert seine jüngste Historie als leise Kurve — die Stundenscheiben des Recorders, solange die fehlen eine Minute-für-Minute-Aufzeichnung der Karte. Eine berechnete Arbeitszahl teilt ihre beiden Serien Scheibe für Scheibe |
+| `sparkline` (Langform) | `sparkline: true` (oder `{ hours: n }`, 1–168) zeichnet hinter jeden Zahlenwert seine jüngste Historie als leise Kurve — die Stundenscheiben des Recorders, solange die fehlen eine Minute-für-Minute-Aufzeichnung der Karte. Eine berechnete Arbeitszahl teilt ihre beiden Serien Scheibe für Scheibe, eine berechnete Heizleistung multipliziert ihre beiden |
 | `eer` | Das Kühl-Pendant zur Arbeitszahl — ein einfacher Sensor, oder `{ calculate: true, power: …, thermal_power: … }` aus zwei Zählern |
 | `passive_cooling` | Binärsensor (oder ein Statustext „natürliche/passive Kühlung“) — der Ventilator steht still und die Wellen fallen sanft, weil kein Verdichter läuft |
 | `energy_thermal`, `energy_electric` | Die Tagesbilanz als Status-Chips: ein einfacher Heute-Zähler (kWh), oder `{ entity: <Lebenszähler>, today: true }` summiert die Rekorder-Scheiben seit Mitternacht |
@@ -372,6 +379,7 @@ Designgröße würde die Zeichnung nur größer, nicht lesbarer – auf einem 4K
 | `fan` | `false` für Sole/Wasser- oder Wasser/Wasser-Geräte: kein Außengerät-Ventilator — stattdessen zwei Sole-Anschlüsse — und kein Abtau-Dampf |
 | `cooling` | Binärsensor, der die Kühl-Darstellung erzwingt; ohne ihn genügt ein Status-/Modustext „Kühlen“ — die Rohre tragen ihre kalten Farben, die Wellen der Emitter fallen kühlblau, der Ventilatorring wird blau |
 | `flow_temp`, `return_temp` | Färben und beschriften die Rohre zum Speicher |
+| `intermediate_flow_temp`, `intermediate_return_temp` | Für eine Anlage mit hydraulischer Trennung (#44): der eigene Kreis der Wärmepumpe, zwischen Wärmepumpe und Wärmetauscher. Das Paar sitzt auf den Rohren von der Wärmepumpe zum Speicher und färbt sie; `flow_temp` / `return_temp` rücken dafür an den Speicherausgang und zeigen, was der Heizkreis bekommt. Braucht einen Pufferspeicher |
 | `power_threshold` | Watt, ab denen die Wärmepumpe als laufend gilt (Standard `20`) |
 
 Ohne `state_entity` wird der Reihe nach `power` > Schwelle, `compressor` > 0 und
@@ -546,6 +554,9 @@ Minute Buch. Ein Hover über die Kurve nennt Fenster, Mittel und Spanne. Ein
 Wert, der aus einer ganzen Reihe von Entitäten gespeist wird, zeichnet keine
 Kurve – es gäbe keine eine Serie.
 
+`attribute` liest statt des Zustands ein Attribut, und die Karte beobachtet es
+wie einen Zustand: Der Wert folgt dem Attribut.
+
 `tap_action` und `hold_action` folgen der üblichen Home-Assistant-Syntax
 (`more-info`, `toggle`, `navigate`, `url`, `perform-action`, `none`) und lassen
 sich an jedem Element setzen – Wärmepumpe, Speicher, Heizkreis oder einzelner
@@ -566,7 +577,7 @@ Schema Vorlauf rot / Rücklauf blau.
   Karte im Browser, ganz ohne Home Assistant
 * **[Wiki](https://github.com/Xerolux/heatpump-flow-card/wiki)** – Installation,
   alle Optionen, Bedienung, Problemlösung, Entwicklung
-* **[Beispiele](examples)** – vierzehn fertige Konfigurationen, darunter ein
+* **[Beispiele](examples)** – fünfzehn fertige Konfigurationen, darunter ein
   komplettes Dashboard
 
 ## Entwicklung

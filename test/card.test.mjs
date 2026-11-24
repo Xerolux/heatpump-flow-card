@@ -3000,3 +3000,620 @@ test("a narrow card with sources falls back to the wide scene", async () => {
   assert.ok(result.panels >= 3);
   assert.deepEqual(pageErrors, []);
 });
+
+test("a rail stretch only moves while a consumer beyond it draws (#42)", async () => {
+  await page.goto(`${previewUrl}?layout=dual`);
+  const result = await page.evaluate(() => {
+    const read = (states) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "dual",
+        buffer: false,
+        heatpump: { state_entity: "binary_sensor.compressor" },
+        dhw: { pump: "binary_sensor.dhw_pump" },
+        circuits: [
+          { type: "radiator", pump: "binary_sensor.circuit_a_pump" },
+          { type: "underfloor", pump: "binary_sensor.circuit_b_pump" },
+        ],
+      });
+      document.body.appendChild(card);
+      const hass = window.makeHass("en");
+      card.hass = { ...hass, states: { ...hass.states, ...states } };
+      // Nearest to the heat pump first, the order the stretches are drawn in.
+      const stretches = (part, segment) =>
+        [
+          ...card.shadowRoot.querySelectorAll(
+            `.hpfc-pipe-group[data-part="${part}"][data-segment="${segment}"]`
+          ),
+        ].map((group) => !group.classList.contains("hpfc-stopped"));
+      const out = {
+        flowUpper: stretches("flow-spine", "upper"),
+        flowLower: stretches("flow-spine", "lower"),
+        returnUpper: stretches("return-spine", "upper"),
+        returnLower: stretches("return-spine", "lower"),
+      };
+      card.remove();
+      return out;
+    };
+    const state = (pumps) => ({
+      "binary_sensor.compressor": { state: "on", attributes: {} },
+      ...Object.fromEntries(
+        Object.entries(pumps).map(([entity, on]) => [entity, { state: on ? "on" : "off", attributes: {} }])
+      ),
+    });
+    const dhw = "binary_sensor.dhw_pump";
+    const radiators = "binary_sensor.circuit_a_pump";
+    const underfloor = "binary_sensor.circuit_b_pump";
+    return {
+      radiators: read(state({ [dhw]: false, [radiators]: true, [underfloor]: false })),
+      hotWater: read(state({ [dhw]: true, [radiators]: false, [underfloor]: false })),
+      underfloor: read(state({ [dhw]: false, [radiators]: false, [underfloor]: true })),
+    };
+  });
+
+  // Two consumers hang above the heat pump's flow and one below: two
+  // stretches lead up, one leads down.
+  for (const scene of Object.values(result)) {
+    assert.equal(scene.flowUpper.length, 2, "a stretch to the radiators, one on to the hot water");
+    assert.equal(scene.returnUpper.length, 2);
+    assert.equal(scene.flowLower.length, 1);
+    assert.equal(scene.returnLower.length, 1);
+  }
+  // The radiators draw, the hot water above them does not: the last stretch
+  // up to the tank stays still, the way the reporter of #42 expected.
+  assert.deepEqual(result.radiators.flowUpper, [true, false]);
+  assert.deepEqual(result.radiators.returnUpper, [true, false]);
+  assert.deepEqual(result.radiators.flowLower, [false]);
+  assert.deepEqual(result.radiators.returnLower, [false]);
+  // Only the topmost consumer draws: everything up to it moves, nothing below.
+  assert.deepEqual(result.hotWater.flowUpper, [true, true]);
+  assert.deepEqual(result.hotWater.returnUpper, [true, true]);
+  assert.deepEqual(result.hotWater.flowLower, [false]);
+  assert.deepEqual(result.hotWater.returnLower, [false]);
+  // Only the one below draws.
+  assert.deepEqual(result.underfloor.flowUpper, [false, false]);
+  assert.deepEqual(result.underfloor.returnUpper, [false, false]);
+  assert.deepEqual(result.underfloor.flowLower, [true]);
+  assert.deepEqual(result.underfloor.returnLower, [true]);
+  assert.deepEqual(pageErrors, []);
+});
+
+test("the one-column layout keeps its rail still past a consumer that is off", async () => {
+  await page.goto(`${previewUrl}?layout=narrow`);
+  const result = await page.evaluate(() => {
+    const root = document.getElementById("card-narrow").shadowRoot;
+    const active = (part, segment) =>
+      [
+        ...root.querySelectorAll(`.hpfc-pipe-group[data-part="${part}"][data-segment="${segment}"]`),
+      ].map((group) => !group.classList.contains("hpfc-stopped"));
+    // The demo plant: hot water on, radiators on, underfloor heating off.
+    return { flow: active("flow-spine", "lower"), return: active("return-spine", "lower") };
+  });
+  // Three consumers down the rail: the stretch on to the underfloor heating
+  // is the only one that carries nothing.
+  assert.deepEqual(result.flow, [true, true, false]);
+  assert.deepEqual(result.return, [true, true, false]);
+});
+
+test("a readout fed by an attribute follows that attribute", async () => {
+  await page.goto(`${previewUrl}?layout=dual`);
+  const result = await page.evaluate(async () => {
+    // The card updates on the frames after a push; let each one settle.
+    const settle = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const values = (card) =>
+      [...card.shadowRoot.querySelectorAll(".hpfc-heatpump .hpfc-readout .hpfc-value")].map(
+        (node) => node.textContent
+      );
+    const base = window.makeHass("en");
+
+    // One device entity carrying its readings as attributes.
+    const box = document.createElement("heatpump-flow-card");
+    box.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        state_entity: "binary_sensor.compressor",
+        cop: { entity: "sensor.hp_box", attribute: "cop" },
+        thermal_power: {
+          calculate: true,
+          power: { entity: "sensor.hp_box", attribute: "p_el" },
+          cop: { entity: "sensor.hp_box", attribute: "cop" },
+        },
+      },
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(box);
+    const pushBox = async (attributes) => {
+      box.hass = { ...base, states: { ...base.states, "sensor.hp_box": { state: "heat", attributes } } };
+      await settle();
+      return values(box);
+    };
+    const boxBefore = await pushBox({ cop: 3.1, p_el: 400 });
+    const boxAfter = await pushBox({ cop: 4.8, p_el: 1900 });
+    box.remove();
+
+    // A COP sensor of its own behind a calculated thermal output.
+    const metered = document.createElement("heatpump-flow-card");
+    metered.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        state_entity: "binary_sensor.compressor",
+        thermal_power: { calculate: true, power: "sensor.hp_power", cop: "sensor.hp_cop" },
+      },
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(metered);
+    const push = async (overrides) => {
+      metered.hass = { ...base, states: { ...base.states, ...overrides } };
+      await settle();
+      return values(metered);
+    };
+    const copOnly = await push({ "sensor.hp_cop": { state: "5.0", attributes: {} } });
+    const powerOnly = await push({
+      "sensor.hp_cop": { state: "5.0", attributes: {} },
+      "sensor.hp_power": { state: "1000", attributes: { unit_of_measurement: "W" } },
+    });
+    metered.remove();
+    return { boxBefore, boxAfter, copOnly, powerOnly };
+  });
+  // Before the fix the values stayed at the first reading until an
+  // unrelated entity changed.
+  assert.deepEqual(result.boxBefore, ["1.2 kW", "3.1"]);
+  assert.deepEqual(result.boxAfter, ["9.1 kW", "4.8"]);
+  assert.deepEqual(result.copOnly, ["10.7 kW"]);
+  assert.deepEqual(result.powerOnly, ["5.0 kW"]);
+  assert.deepEqual(pageErrors, []);
+});
+
+test("the day's energy and the SPF are what the buckets added, not their running sums", async () => {
+  await page.goto(`${previewUrl}?layout=dual`);
+  await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.id = "card-recorder";
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        entity: "switch.heat_pump",
+        energy_thermal: { entity: "sensor.energy_heat", today: true },
+        energy_electric: { entity: "sensor.energy_total", today: true },
+        spf: { thermal: "sensor.energy_heat", electric: "sensor.energy_draw", period: "day" },
+      },
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    const at = (hoursAgo) => new Date(Date.now() - hoursAgo * 3600000).toISOString();
+    // Rows the way the recorder serves them: a running `sum` and the
+    // `change` that led to it - never a bucket's energy in the sum alone.
+    const series = {
+      // a lifetime counter that has seen 2,200 kWh before the window
+      "sensor.energy_total": [
+        { start: at(3), change: 0.5, sum: 2200.0, last_reset: null },
+        { start: at(2), change: 0.4, sum: 2200.4, last_reset: null },
+        { start: at(1), change: 0.6, sum: 2201.0, last_reset: null },
+      ],
+      // a power meter in watts: the recorder sums it in watt-hours
+      "sensor.energy_heat": [
+        { start: at(3), mean: 5000, change: 5000, sum: 5000 },
+        { start: at(2), mean: 6000, change: 6000, sum: 11000 },
+      ],
+      // a counter that was reset inside the window
+      "sensor.energy_draw": [
+        { start: at(3), change: 3.0, sum: 3.0, last_reset: at(5) },
+        { start: at(2), change: -2.0, sum: 1.0, last_reset: at(2) },
+        { start: at(1), change: 0.5, sum: 1.5, last_reset: at(2) },
+      ],
+    };
+    hass.states = {
+      ...hass.states,
+      "sensor.energy_total": { state: "2201.0", attributes: { unit_of_measurement: "kWh" } },
+      "sensor.energy_heat": { state: "6000", attributes: { unit_of_measurement: "W", device_class: "power" } },
+      "sensor.energy_draw": { state: "1.5", attributes: { unit_of_measurement: "kWh" } },
+    };
+    hass.callWS = (msg) =>
+      Promise.resolve(Object.fromEntries(msg.statistic_ids.map((id) => [id, series[id] || []])));
+    card.hass = hass;
+  });
+  await page.waitForFunction(() => {
+    const chips = [
+      ...document.getElementById("card-recorder").shadowRoot.querySelectorAll(".hpfc-status-chip"),
+    ];
+    return chips.length === 3 && chips.every((chip) => chip.style.display !== "none");
+  });
+  const labels = await page.evaluate(() =>
+    [...document.getElementById("card-recorder").shadowRoot.querySelectorAll(".hpfc-status-chip")].map(
+      (chip) => chip.querySelector("text").textContent
+    )
+  );
+  assert.deepEqual(labels, ["Heat: 11.0 kWh", "Electricity: 1.5 kWh", "SPF: 2.44"]);
+  assert.deepEqual(pageErrors, []);
+  await page.evaluate(() => document.getElementById("card-recorder").remove());
+});
+
+test("rows without a change are read as the steps of their running sum", async () => {
+  await page.goto(`${previewUrl}?layout=dual`);
+  await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.id = "card-recorder-plain";
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        entity: "switch.heat_pump",
+        energy_electric: { entity: "sensor.energy_total", today: true },
+      },
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    const hass = window.makeHass("en");
+    hass.states = {
+      ...hass.states,
+      "sensor.energy_total": { state: "12.5", attributes: { unit_of_measurement: "kWh" } },
+    };
+    hass.callWS = () =>
+      Promise.resolve({
+        // The step of the sum is the bucket's energy; the first row has no
+        // earlier one and says nothing.
+        "sensor.energy_total": [{ start: "2026-11-24T05:00:00+00:00", sum: 10.0 }, { start: "2026-11-24T06:00:00+00:00", sum: 12.5 }],
+      });
+    card.hass = hass;
+  });
+  await page.waitForFunction(() => {
+    const chip = document
+      .getElementById("card-recorder-plain")
+      .shadowRoot.querySelector(".hpfc-status-energy_electric");
+    return chip && chip.style.display !== "none";
+  });
+  const label = await page.evaluate(
+    () =>
+      document
+        .getElementById("card-recorder-plain")
+        .shadowRoot.querySelector(".hpfc-status-energy_electric text").textContent
+  );
+  assert.equal(label, "Electricity: 2.5 kWh");
+  assert.deepEqual(pageErrors, []);
+  await page.evaluate(() => document.getElementById("card-recorder-plain").remove());
+});
+
+test("a thermal output calculated from the draw and a COP carries a curve too", async () => {
+  await page.goto(`${previewUrl}?layout=dual`);
+  await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.id = "card-thermal-curve";
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        state_entity: "binary_sensor.compressor",
+        thermal_power: { calculate: true, power: "sensor.hp_power", cop: "sensor.hp_cop", sparkline: true },
+      },
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("en");
+  });
+  await page.waitForFunction(() => {
+    const spark = document
+      .getElementById("card-thermal-curve")
+      .shadowRoot.querySelector(".hpfc-heatpump .hpfc-spark");
+    return spark && !spark.classList.contains("hpfc-spark-empty");
+  });
+  const result = await page.evaluate(() => {
+    const readout = document
+      .getElementById("card-thermal-curve")
+      .shadowRoot.querySelector(".hpfc-heatpump .hpfc-readout");
+    return {
+      value: readout.querySelector(".hpfc-value").textContent,
+      title: readout.querySelector(".hpfc-spark title").textContent,
+      tip: readout.querySelector(".hpfc-spark-tip").style.display,
+    };
+  });
+  assert.equal(result.value, "9.2 kW");
+  // The curve is electrical watts times the COP of each hour - in kilowatts
+  // like the value it sits behind.
+  assert.match(result.title, /^Last 24 h · ⌀ \d+\.\d kW · ↓ \d+\.\d kW · ↑ \d+\.\d kW$/);
+  assert.equal(result.tip, "", "the live tip is drawn");
+  assert.deepEqual(pageErrors, []);
+  await page.evaluate(() => document.getElementById("card-thermal-curve").remove());
+});
+
+test("no language is left with another one's wording", async () => {
+  await page.goto(`${previewUrl}?layout=energy-hub`);
+  // The mode names of a climate entity, as the popover offers them.
+  const modes = {
+    en: ["Off", "Auto", "Heat", "Cool"],
+    de: ["Aus", "Automatik", "Heizen", "Kühlen"],
+    fr: ["Arrêt", "Automatique", "Chauffage", "Climatisation"],
+    it: ["Spento", "Automatico", "Riscaldamento", "Raffreddamento"],
+    nl: ["Uit", "Automatisch", "Verwarmen", "Koelen"],
+    pl: ["Wył.", "Automatyczny", "Grzanie", "Chłodzenie"],
+  };
+  const expected = {
+    en: ["Compressor", "Devices", "Energy hub", "Narrow · one column", "Automatic"],
+    de: ["Kompressor", "Verbraucher", "Energie-Hub", "Schmal · eine Spalte", "Automatik"],
+    fr: ["Compresseur", "Appareils", "Hub d'énergie", "Étroit · une colonne", "Automatique"],
+    it: ["Compressore", "Dispositivi", "Hub energetico", "Stretto · una colonna", "Automatico"],
+    nl: ["Compressor", "Apparaten", "Energiehub", "Smal · één kolom", "Automatisch"],
+    pl: ["Sprężarka", "Urządzenia", "Hub energii", "Wąski · jedna kolumna", "Automatyczny"],
+  };
+  const result = await page.evaluate((languages) => {
+    const out = {};
+    for (const lang of languages) {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig({
+        type: "custom:heatpump-flow-card",
+        layout: "dual",
+        electrics_style: "hub",
+        heatpump: {
+          state_entity: "binary_sensor.compressor",
+          mode: "select.system_mode",
+          compressor: "sensor.compressor_load",
+        },
+        pv: window.previewConfigs["energy-hub"].pv,
+        buffer: {},
+        circuits: [{ type: "radiator", mode: "climate.circuit_a", pump: "binary_sensor.circuit_a_pump" }],
+      });
+      document.body.appendChild(card);
+      card.hass = window.makeHass(lang);
+      const root = card.shadowRoot;
+      root.querySelector(".hpfc-circuit .hpfc-chip").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      const editor = document.createElement("heatpump-flow-card-editor");
+      document.body.appendChild(editor);
+      editor.setConfig({ type: "custom:heatpump-flow-card", layout: "narrow" });
+      editor.hass = window.makeHass(lang);
+      const schema = editor._schema(editor._toData(editor._config), editor._texts);
+      const option = (row, value) =>
+        row.selector.select.options.find((entry) => entry.value === value).label;
+      out[lang] = {
+        compressor: root.querySelector(".hpfc-heatpump .hpfc-readout .hpfc-label").textContent,
+        devices: [...root.querySelectorAll("svg text")].map((node) => node.textContent),
+        hub: option(schema.find((entry) => entry.name === "electrics_style"), "hub"),
+        narrow: option(schema.find((entry) => entry.name === "layout"), "narrow"),
+        mode: root.querySelector(".hpfc-heatpump .hpfc-chip text").textContent,
+        hvacModes: [...root.querySelectorAll(".hpfc-pop-options button")].map((button) => button.textContent),
+      };
+      card.remove();
+      editor.remove();
+    }
+    return out;
+  }, Object.keys(expected));
+  for (const [lang, [compressor, devices, hub, narrow, mode]] of Object.entries(expected)) {
+    assert.equal(result[lang].compressor, compressor, `${lang} names the compressor load`);
+    assert.ok(result[lang].devices.includes(devices), `${lang} names the hub's devices`);
+    assert.equal(result[lang].hub, hub);
+    assert.equal(result[lang].narrow, narrow, `${lang} names the narrow layout`);
+    assert.equal(result[lang].mode, mode, `${lang} names the automatic mode`);
+    assert.deepEqual(result[lang].hvacModes, modes[lang], `${lang} names the heating modes`);
+  }
+  assert.deepEqual(pageErrors, []);
+});
+
+test("with an intermediate circuit the tank's side shows the heating circuit's own temperatures (#44)", async () => {
+  await page.goto(`${previewUrl}?layout=intermediate&lang=en`);
+  const result = await page.evaluate(() => {
+    const badges = (card) =>
+      [...card.shadowRoot.querySelectorAll(".hpfc-badge")].map((badge) => ({
+        text: badge.querySelector("text").textContent,
+        x: Number(badge.querySelector("text").getAttribute("x")),
+        label: badge.getAttribute("aria-label"),
+        fill: badge.querySelector("rect").style.fill,
+      }));
+    const preview = window.previewConfigs.intermediate;
+    const wide = document.getElementById("card-intermediate");
+    const svg = wide.shadowRoot.querySelector("svg");
+    // The colour the heat pump's flow pipe leaves the cabinet with.
+    const toTank = svg.querySelector(".hpfc-pipe-group:not([data-part]) .hpfc-pipe");
+    const gradient = toTank.getAttribute("stroke").replace(/^url\(#(.+)\)$/, "$1");
+    const start = svg.querySelector(`#${gradient} stop`).getAttribute("stop-color");
+
+    const draw = (config, id) => {
+      const card = document.createElement("heatpump-flow-card");
+      card.setConfig(config);
+      document.body.appendChild(card);
+      card.hass = window.makeHass("en");
+      const out = badges(card);
+      card.remove();
+      return out;
+    };
+    return {
+      wide: badges(wide),
+      pipeStart: start,
+      narrow: draw({ ...preview, layout: "narrow" }),
+      withoutTank: draw({ ...preview, buffer: false }),
+      onlyFlow: draw({
+        ...preview,
+        heatpump: { ...preview.heatpump, intermediate_return_temp: undefined },
+      }),
+    };
+  });
+
+  // The heat pump's own pipes carry the intermediate pair; the heating
+  // circuit's pair sits where it leaves the tank.
+  assert.deepEqual(
+    result.wide.map((badge) => badge.text),
+    ["43.8 °C", "39.3 °C", "41.3 °C", "38.4 °C", "18.4 l/min"]
+  );
+  assert.deepEqual(
+    result.wide.map((badge) => badge.label),
+    ["Intermediate circuit – Flow", "Intermediate circuit – Return", "Flow", "Return", "Flow rate"]
+  );
+  const [intermediateFlow, intermediateReturn, flow, ret, rate] = result.wide;
+  assert.equal(intermediateFlow.x, rate.x, "the intermediate pair sits on the heat pump's pipes");
+  assert.equal(intermediateReturn.x, rate.x);
+  assert.equal(flow.x, ret.x, "the heating circuit's pair sits on the tank's outlet");
+  assert.ok(flow.x > intermediateFlow.x + 60, "and that is on the other side of the tank");
+  assert.equal(flow.x - intermediateFlow.x, ret.x - intermediateReturn.x);
+  // The pipe from the heat pump to the tank takes its colour from the
+  // intermediate circuit, the water it actually carries.
+  assert.equal(result.pipeStart, intermediateFlow.fill);
+
+  // One column: the same four readings.
+  assert.deepEqual(
+    result.narrow.map((badge) => badge.text),
+    ["43.8 °C", "39.3 °C", "41.3 °C", "38.4 °C", "18.4 l/min"]
+  );
+  // Without a tank there is one circuit only, and the intermediate pair has
+  // nowhere of its own to sit.
+  assert.deepEqual(
+    result.withoutTank.map((badge) => badge.text),
+    ["41.3 °C", "38.4 °C", "18.4 l/min"]
+  );
+  // One of the two is enough to move that side's reading.
+  assert.deepEqual(
+    result.onlyFlow.map((badge) => badge.text),
+    ["43.8 °C", "41.3 °C", "38.4 °C", "18.4 l/min"]
+  );
+  assert.equal(result.onlyFlow[0].x, result.onlyFlow[3].x,
+    "the intermediate flow sits on the heat pump, next to the flow rate");
+  assert.ok(result.onlyFlow[1].x > result.onlyFlow[0].x + 60, "only the flow moved to the tank");
+  assert.equal(result.onlyFlow[2].x, result.onlyFlow[0].x, "the return stays on the heat pump");
+  assert.deepEqual(pageErrors, []);
+});
+
+test("the editor offers the intermediate circuit and keeps its sensors", async () => {
+  await page.goto(`${previewUrl}?layout=intermediate`);
+  const result = await page.evaluate(() => {
+    const editor = document.createElement("heatpump-flow-card-editor");
+    const config = {
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: {
+        flow_temp: "sensor.heating_flow_temperature",
+        return_temp: "sensor.heating_return_temperature",
+        intermediate_flow_temp: "sensor.intermediate_flow_temperature",
+        intermediate_return_temp: "sensor.intermediate_return_temperature",
+      },
+      buffer: { top: "sensor.buffer_top" },
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    };
+    editor.setConfig(config);
+    editor.hass = window.makeHass("de");
+    const data = editor._toData(config);
+    const schema = editor._schema(data, editor._texts);
+    const hpRow = schema.find((row) => row.name === "heatpump");
+    const fields = hpRow.schema.flatMap((row) => (row.type === "grid" ? row.schema.map((f) => f.name) : [row.name]));
+    return {
+      fields,
+      roundTrip: editor._toConfig(data).heatpump,
+      computeLabel: editor._texts.intermediate_flow_temp,
+    };
+  });
+  for (const field of ["intermediate_flow_temp", "intermediate_return_temp"]) {
+    assert.ok(result.fields.includes(field), `editor is missing ${field}`);
+  }
+  assert.deepEqual(result.roundTrip, {
+    flow_temp: "sensor.heating_flow_temperature",
+    return_temp: "sensor.heating_return_temperature",
+    intermediate_flow_temp: "sensor.intermediate_flow_temperature",
+    intermediate_return_temp: "sensor.intermediate_return_temperature",
+  });
+  assert.equal(result.computeLabel, "Zwischenkreis, Vorlauftemperatur");
+});
+
+test("no pipe runs through the status strip", async () => {
+  // `full` is the layout with the most going on below the plant: solar lanes
+  // dropping in from the collector, and the row of chips.
+  await page.goto(`${previewUrl}?layout=full`);
+  const result = await page.evaluate(() => {
+    const svg = document.getElementById("card-full").shadowRoot.querySelector("svg");
+    const chips = [...svg.querySelectorAll(".hpfc-status-chip")]
+      .filter((chip) => chip.style.display !== "none")
+      .map((chip) => chip.querySelector("rect").getBBox());
+    const crossed = [];
+    for (const pipe of svg.querySelectorAll(".hpfc-pipe")) {
+      const length = pipe.getTotalLength();
+      for (let at = 0; at <= length; at += 2) {
+        const point = pipe.getPointAtLength(at);
+        const hit = chips.some(
+          (box) =>
+            point.x > box.x - 5 &&
+            point.x < box.x + box.width + 5 &&
+            point.y > box.y - 5 &&
+            point.y < box.y + box.height + 5
+        );
+        if (hit) {
+          crossed.push(`${pipe.parentNode.getAttribute("class")} at ${Math.round(point.x)},${Math.round(point.y)}`);
+          break;
+        }
+      }
+    }
+    return { chips: chips.length, crossed };
+  });
+  assert.ok(result.chips >= 5, "the demo plant configures a full strip");
+  assert.deepEqual(result.crossed, [], "a pipe through a chip makes both hard to read");
+});
+
+test("the status strip wraps onto another line instead of hiding chips", async () => {
+  await page.goto(`${previewUrl}?layout=narrow`);
+  // The demo's narrow plant carries every chip there is - too many for one
+  // line of a phone-wide column, and in German for the second card.
+  await page.evaluate(() => {
+    const card = document.createElement("heatpump-flow-card");
+    card.id = "card-strip-dual";
+    card.setConfig({
+      type: "custom:heatpump-flow-card",
+      layout: "dual",
+      heatpump: window.previewConfigs.narrow.heatpump,
+      buffer: {},
+      circuits: [{ type: "radiator", pump: "binary_sensor.circuit_a_pump" }],
+    });
+    document.body.appendChild(card);
+    card.hass = window.makeHass("de");
+  });
+  await page.waitForFunction(
+    (count) =>
+      ["card-narrow", "card-strip-dual"].every((id) =>
+        [
+          ...document.getElementById(id).shadowRoot.querySelectorAll(".hpfc-status-chip"),
+        ].filter((chip) => chip.style.display !== "none").length >= count
+      ),
+    8
+  );
+  const result = await page.evaluate(() => {
+    const read = (id) => {
+      const card = document.getElementById(id);
+      const svg = card.shadowRoot.querySelector("svg");
+      const limit = Number(svg.getAttribute("viewBox").split(" ")[2]);
+      const chips = [...svg.querySelectorAll(".hpfc-status-chip")]
+        .filter((chip) => chip.style.display !== "none")
+        .map((chip) => {
+          const box = chip.querySelector("rect").getBBox();
+          return { label: chip.querySelector("text").textContent, x: box.x, right: box.x + box.width, y: box.y };
+        });
+      const lines = [...new Set(chips.map((chip) => chip.y))];
+      // On every line: in order, clear of each other, and inside the drawing.
+      const tidy = lines.every((y) =>
+        chips
+          .filter((chip) => chip.y === y)
+          .every((chip, index, line) =>
+            index === 0 || line.slice(0, index).every((other) => other.right + 4 <= chip.x)
+          )
+      );
+      return {
+        chips,
+        lines: lines.length,
+        tidy,
+        inside: chips.every((chip) => chip.x >= 0 && chip.right <= limit),
+      };
+    };
+    return { narrow: read("card-narrow"), dual: read("card-strip-dual") };
+  });
+  for (const [name, strip] of Object.entries(result)) {
+    assert.equal(strip.chips.length, 8, `${name}: every configured chip is shown`);
+    assert.ok(strip.chips.every((chip) => !chip.label.endsWith("…")), `${name}: none is cut short`);
+    assert.equal(strip.tidy, true, `${name}: the chips of a line do not overlap`);
+    assert.equal(strip.inside, true, `${name}: the chips stay inside the drawing`);
+  }
+  // One column of a phone is too narrow for eight chips: they take several lines.
+  assert.ok(result.narrow.lines >= 2, `narrow: expected several lines, got ${result.narrow.lines}`);
+  await page.evaluate(() => document.getElementById("card-strip-dual").remove());
+  assert.deepEqual(pageErrors, []);
+});

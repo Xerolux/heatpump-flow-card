@@ -201,6 +201,21 @@ window.demoStates["sensor.hp_thermal_power"] = {
   state: "6.2",
   attributes: { friendly_name: "Thermal power", unit_of_measurement: "kW" },
 };
+// A hydraulically separated plant: the heat pump's intermediate circuit and
+// the heating circuit it feeds through a heat exchanger, each with a pair of
+// probes of its own.
+for (const [key, value, name] of [
+  ["intermediate_flow_temperature", "43.8", "Intermediate circuit, flow"],
+  ["intermediate_return_temperature", "39.3", "Intermediate circuit, return"],
+  ["heating_flow_temperature", "41.3", "Heating circuit, flow"],
+  ["heating_return_temperature", "38.4", "Heating circuit, return"],
+]) {
+  window.demoStates[`sensor.${key}`] = {
+    entity_id: `sensor.${key}`,
+    state: value,
+    attributes: { friendly_name: name, unit_of_measurement: "°C", device_class: "temperature" },
+  };
+}
 window.demoStates["binary_sensor.hp_alarm"] = {
   entity_id: "binary_sensor.hp_alarm",
   state: "on",
@@ -331,9 +346,13 @@ window.demoStatistics = (ids, startTime, endTime) => {
   const shapes = {
     "sensor.hp_power": { kind: "power", base: 400, amp: 1900, unit: null, time: "s" },
     "sensor.hp_thermal_power": { kind: "power", base: 1.4, amp: 4.9, unit: "kW", time: "iso" },
-    // Energy totals answer in sums: what each bucket added to the counter.
-    "sensor.hp_thermal_energy_total": { kind: "energy", base: 1.4, amp: 0.9, unit: "kWh", time: "ms" },
-    "sensor.hp_electric_energy_total": { kind: "energy", base: 0.45, amp: 0.25, unit: "kWh", time: "s" },
+    // A COP answers in means, like any unitless reading.
+    "sensor.hp_cop": { kind: "reading", base: 3.1, amp: 1.5, unit: null, time: "iso" },
+    // Energy totals answer with a running `sum` and the `change` that led to
+    // it: only the change is what a bucket added, the sum is what the
+    // counter has counted since it started.
+    "sensor.hp_thermal_energy_total": { kind: "energy", base: 1.4, amp: 0.9, unit: "kWh", time: "ms", total: 8420.5 },
+    "sensor.hp_electric_energy_total": { kind: "energy", base: 0.45, amp: 0.25, unit: "kWh", time: "s", total: 2210.3 },
     // A temperature answers in minima and maxima per bucket.
     "sensor.outside_temperature": { kind: "temp", base: 6, amp: 2.2, unit: null, time: "iso" },
   };
@@ -346,31 +365,42 @@ window.demoStatistics = (ids, startTime, endTime) => {
     }
     const rows = [];
     const hours = Math.max(1, Math.round((end - start) / 3600000));
-    for (let i = hours; i >= 1; i--) {
-      const t = end - i * 3600000;
-      // A day of compressor cycles: quiet at night, busy around noon.
-      const phase = Math.max(0, Math.sin(((hours - i) / hours) * Math.PI * 2 - Math.PI / 2));
-      const row = {
-        start:
-          shape.time === "s"
-            ? Math.round(t / 1000)
-            : shape.time === "iso"
-              ? new Date(t).toISOString()
-              : Math.round(t),
-      };
-      if (shape.kind === "power") {
-        const mean = shape.base + shape.amp * phase;
+    // A day of compressor cycles: quiet at night, busy around noon.
+    const phase = (index) => Math.max(0, Math.sin((index / hours) * Math.PI * 2 - Math.PI / 2));
+    // The counter grows while the plant runs, and stands still at night.
+    const adds = [];
+    for (let index = 0; index < hours; index++) {
+      const p = phase(index);
+      adds.push(Number((shape.base * (0.25 + p) + shape.amp * p * p).toFixed(3)));
+    }
+    // A lifetime counter ends the window where its sensor stands; the row
+    // before the window is where the first change starts.
+    const sums = [];
+    let running = shape.total || adds.reduce((sum, add) => sum + add, 0);
+    for (let index = hours - 1; index >= 0; index--) {
+      sums[index] = Number(running.toFixed(3));
+      running -= adds[index];
+    }
+    const before = Number(running.toFixed(3));
+    for (let index = 0; index < hours; index++) {
+      const t = end - (hours - index) * 3600000;
+      const p = phase(index);
+      const stamp = (at) =>
+        shape.time === "s" ? Math.round(at / 1000) : shape.time === "iso" ? new Date(at).toISOString() : Math.round(at);
+      const row = { start: stamp(t), end: stamp(t + 3600000) };
+      if (shape.kind === "power" || shape.kind === "reading") {
+        const mean = shape.base + shape.amp * p;
         row.mean = Number(mean.toFixed(2));
         row.min = Number((mean * 0.9).toFixed(2));
         row.max = Number((mean * 1.1).toFixed(2));
       } else if (shape.kind === "energy") {
-        // the counter grows while the plant runs, and stands still at night
-        row.sum = Number((shape.base * (0.25 + phase) + shape.amp * phase * phase).toFixed(3));
+        row.change = Number((sums[index] - (index ? sums[index - 1] : before)).toFixed(3));
+        row.sum = sums[index];
+        row.last_reset = null;
       } else if (shape.kind === "temp") {
         // the day's swing: cold at six, mild at three
-        const angle = ((hours - i) / hours) * Math.PI * 2 - Math.PI / 2;
-        row.min = Number((shape.base - shape.amp + shape.amp * Math.max(0, Math.sin(angle))).toFixed(1));
-        row.max = Number((shape.base + shape.amp * Math.max(0, Math.sin(angle))).toFixed(1));
+        row.min = Number((shape.base - shape.amp + shape.amp * p).toFixed(1));
+        row.max = Number((shape.base + shape.amp * p).toFixed(1));
         row.mean = Number(((row.min + row.max) / 2).toFixed(1));
       }
       if (shape.unit) row.unit = shape.unit;

@@ -53,6 +53,7 @@ gezeichnet, ein Abschnitt auf `false` gar nicht.
 | `compressor` | Verdichterlast in Prozent – bestimmt auch die Drehzahl des Ventilators |
 | `flow_temp` | Vorlauf: Pille und Rohrfarbe Richtung Speicher |
 | `return_temp` | Rücklauf: Pille und Rohrfarbe zurück |
+| `intermediate_flow_temp`, `intermediate_return_temp` | Für eine Anlage mit hydraulischer Trennung (#44): der eigene Kreis der Wärmepumpe, zwischen Wärmepumpe und Wärmetauscher. Das Paar sitzt auf den Rohren von der Wärmepumpe zum Speicher und färbt sie; `flow_temp` / `return_temp` rücken an den Speicherausgang und zeigen dort, was der Heizkreis bekommt. Braucht einen Pufferspeicher – er ist es, der die beiden Kreise auf der Zeichnung trennt |
 | `fan` | `false` für Sole/Wasser- oder Wasser/Wasser-Geräte: kein Außengerät-Ventilator — stattdessen zwei Sole-Anschlüsse — und kein Abtau-Dampf |
 | `alarm`, `message` | Eine Störung (`alarm`, Binary Sensor) rahmt das Panel rot; `message` schreibt den Meldungstext des Reglers in die Statusleiste unter die Anlage |
 | `reason` | Warum sie gerade läuft – der Anforderungsgrund, als Chip in der Statusleiste |
@@ -69,6 +70,9 @@ oder eine Außentemperatur mit `day_min_max` gesetzt ist; der Störungs-Chip
 erscheint nur, solange wirklich eine Störung gemeldet wird – eine Meldung „keine
 Meldung“ zählt als still. Jeder Chip öffnet das More-Info seiner Entität, und
 die Statistik-Chips bleiben stumm, solange der Recorder keine Antwort hat.
+Passt nicht alles auf eine Zeile, geht es in der nächsten weiter; die Anlage
+macht für jede benötigte Zeile Platz. Die Störung steht vorne und fällt darum
+nie weg.
 
 `cop` kennt auch die Langform: `{ calculate: true, thermal_power: sensor.heizleistung, power: sensor.wp_leistung }`
 teilt die Heizleistung durch die elektrische Aufnahme, beide vorher einheitlich
@@ -78,6 +82,31 @@ COP-Sensor bleibt unterstützt.
 
 Von `power`, `cop`, `outside_temp` und `compressor` werden die ersten drei
 gezeichnet.
+
+**Hydraulische Trennung (#44).** Trennt ein Wärmetauscher den Kreis der
+Wärmepumpe vom Heizkreis, hat jeder sein eigenes Temperaturpaar:
+
+```yaml
+heatpump:
+  flow_temp: sensor.heizkreis_vorlauf            # Seite des Heizkreises
+  return_temp: sensor.heizkreis_ruecklauf
+  intermediate_flow_temp: sensor.wp_kreis_vorlauf     # Seite der Wärmepumpe
+  intermediate_return_temp: sensor.wp_kreis_ruecklauf
+```
+
+Das Zwischenkreis-Paar steht auf den Rohren von der Wärmepumpe zum Speicher
+und gibt ihnen die Farbe; `flow_temp` und `return_temp` rücken an den
+Speicherausgang. Der Unterschied zwischen beiden Kreisen – was der
+Wärmetauscher verliert – ist so auf einen Blick lesbar. Einer der beiden Werte
+genügt, um diese Seite zu verschieben. Ohne Pufferspeicher hat die Zeichnung
+nur einen Kreis, und die Zwischenkreis-Werte werden nicht gezeichnet.
+
+**Die Tagesenergie aus einem Lebenszähler.** `{ entity: <Lebenszähler>,
+today: true }` zählt zusammen, was der Zähler laut Recorder seit Mitternacht in
+jeder Stundenscheibe dazu gewonnen hat – dieselbe Rechnung wie im
+Energie-Dashboard. Das geht auch mit einem Leistungsmesser: Der Recorder
+summiert einen Leistungssensor in Wattstunden, aus zwei `W`-Sensoren wird so
+eine brauchbare `spf`.
 
 **Läuft sie?** Die Karte fragt der Reihe nach: `state_entity` → `power` über
 `power_threshold` → `compressor` über 0 → Zustand von `entity` → Text von
@@ -236,6 +265,9 @@ Eine `climate`- oder `water_heater`-Entität als `target_temp`, `temp` oder
 `room_temp` liest automatisch das passende Attribut – `target_temp:
 climate.hk_a` zeigt also den Sollwert und nicht das Wort „heat“.
 
+Ein `attribute` wird beobachtet wie ein Zustand: Ein Wert, der daraus gespeist
+wird, folgt ihm.
+
 ## Verlaufskurven
 
 `sparkline: true` – oder `sparkline: { hours: 12 }` für ein eigenes Fenster
@@ -254,7 +286,10 @@ Panel: Die Kurve lebt in dem Platz, den der Wert ohnehin hat.
 * **Eine berechnete Arbeitszahl bekommt ihre Kurve ebenfalls**: `cop:
   { calculate: true, thermal_power: …, power: …, sparkline: true }` teilt die
   Wärmeserie durch die elektrische, Scheibe für Scheibe – die Kurve ist der
-  Wirkungsgrad des Tages, nicht eine Schätzung aus zwei Live-Werten.
+  Wirkungsgrad des Tages, nicht eine Schätzung aus zwei Live-Werten. Eine
+  berechnete Heizleistung macht dasselbe mit einem Produkt: `thermal_power:
+  { calculate: true, power: …, cop: …, sparkline: true }` ist die elektrische
+  Serie mal der COP der jeweiligen Stunde.
 * Ein Hover (oder ein Screenreader) bekommt den Wortlaut: Fenster, Mittel,
   Minimum, Maximum.
 * Ein Wert, der aus einer ganzen Liste von Entitäten gespeist wird, zeichnet

@@ -107,7 +107,7 @@
       <h1><img src="./icon.svg" alt="" width="52" height="52" />Heat Pump Flow Card</h1>
       <p class="lede">
         An animated hydraulic scheme for Home Assistant. Heat pump, buffer tank, hot water,
-        photovoltaics, solar thermal and up to four heating circuits — with the live values where
+        photovoltaics, solar thermal and up to seven heating circuits — with the live values where
         they belong on the drawing. Everything below is the real card, running on demo data.
       </p>
       <div class="bar">
@@ -121,6 +121,8 @@
         <button type="button" data-layout="electrics">battery, grid &amp; wallbox</button>
         <button type="button" data-layout="energy-flow">energy line</button>
         <button type="button" data-layout="energy-hub">energy hub</button>
+        <button type="button" data-layout="narrow">one column</button>
+        <button type="button" data-layout="intermediate">intermediate circuit</button>
         <span class="spacer"></span>
         <button type="button" id="language" title="The card follows the Home Assistant language">
           Deutsch
@@ -179,6 +181,8 @@
         electrics: "The heat pump in standby: every watt goes to the battery and the grid",
         "energy-flow": "Electrical flow on a line",
         "energy-hub": "Electrical hub — estimated source-to-device distribution",
+        narrow: "The plant in one column, for a dashboard column half a phone wide",
+        intermediate: "A hydraulic separation: the heat pump's intermediate circuit and the heating circuit it feeds, each with its own temperatures",
       };
       const stage = document.getElementById("stage");
       const title = document.getElementById("demo-title");

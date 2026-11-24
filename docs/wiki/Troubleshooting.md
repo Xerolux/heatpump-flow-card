@@ -52,6 +52,22 @@ So a circuit with a pump entity that reports `off` stays idle even while the
 heat pump runs — which is usually correct, and is the point: circuit A running
 says nothing about circuit D.
 
+## A pipe moves although its pump is off
+
+Every stretch of the distributor belongs to the consumers beyond it: with the
+radiators running and the hot water off, the rail stops at the radiators'
+branch. If the pipe to a switched-off consumer still moves, either that
+consumer counts as running — see the order above — or the browser is running
+another copy of the card than you think. The console logs
+`HEATPUMP-FLOW-CARD v…` when the file loads; hard refresh and let HACS
+download again.
+
+## The day's energy is far too high
+
+Up to 1.15.0 the `today: true` chips and the `spf` added the recorder's running
+totals instead of what each hour added — on a lifetime counter a number in the
+thousands. Since 1.16.0 they take each bucket's change.
+
 ## The heat pump never looks like it is running
 
 Without `state_entity` the card falls back to `power` above `power_threshold`

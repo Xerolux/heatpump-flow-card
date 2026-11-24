@@ -20,6 +20,7 @@ and can be pasted into a manual card editor as they are.
 | `12-energy-hub.yaml` | The hub style: PV, grid, battery and the devices joined by curved connections |
 | `13-viessmann-oil.yaml` | A Viessmann oil boiler instead of a heat pump, without a buffer tank — vendor neutral |
 | `14-history.yaml` | Sparklines behind the readouts, the day's energy chips and the seasonal performance factor |
+| `15-intermediate-circuit.yaml` | A hydraulic separation: the heat pump's intermediate circuit and the heating circuit behind it, four temperatures around the tank |
 
 ## Every circuit keeps its own state
 
@@ -27,8 +28,8 @@ and can be pasted into a manual card editor as they are.
 
 Circuit A is being served and circuit C is too; B is parked by its time program
 and D is switched off. Each panel, each pump and each pipe answers for its own
-circuit — only the distributor between the tank and the circuits carries water
-as long as *any* circuit draws.
+circuit — and so does every stretch of the distributor between the tank and the
+circuits: it carries water only as far as the last circuit that draws.
 
 ```yaml
 circuits:
