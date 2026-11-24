@@ -20,6 +20,14 @@ Four places state the version and a release refuses to publish unless they
 agree: `CARD_VERSION` in `dist/heatpump-flow-card.js`, `package.json`, the git
 tag and the section heading in the changelog.
 
+## How the notes read
+
+Since 1.16.1 every changelog section follows one style — a short narrative
+intro, the upgrade notes first, then fixed emoji groups (`✨ New`, `🐛
+Bugfixes`, `💼 Maintenance`, `❤️ Thanks`) with short bullets that link the
+issue instead of restating it. A test pins that style, and the rules live
+beside the release steps in [Development](Development).
+
 ## Updating
 
 In Home Assistant: **HACS → Dashboard → Heat Pump Flow Card → Redownload**, pick

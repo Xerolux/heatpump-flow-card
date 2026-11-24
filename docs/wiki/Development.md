@@ -91,6 +91,37 @@ it, and re-run **Actions → Documentation → Run workflow**. From then on the
 sync overwrites everything and nobody edits the wiki directly - changes made
 there are lost on the next push.
 
+## Release Notes Style
+
+The changelog section of a version becomes the release notes verbatim — the
+release workflow extracts it, and those notes are what users read in the HACS
+update dialog. Write them for that reader, not as an internal audit log:
+
+- Open with one or two sentences of narrative that say *why the release
+  matters*, not just what it contains.
+- Follow the narrative with `### ⚠️ Upgrade notes`, and keep that block to at
+  most five bullets: one-time resets (a model that relearns), counters that
+  start fresh with the new version, new options or entities worth enabling,
+  and whether rolling back to the previous version is safe. When nothing
+  else applies, the rollback bullet alone is a valid block. The upgrade block
+  is the first section heading of every release's notes.
+- Group the remaining entries under these emoji headers and no others:
+  `### ✨ New`, `### 🐛 Bugfixes`, `### 💼 Maintenance`, `### ❤️ Thanks`.
+- Lead every bullet with a short bold phrase, then explain in one or two
+  sentences — about 60 words at most. Link the issue (`#42`) instead of
+  restating the report.
+- Credit reporters and contributors by @mention under `### ❤️ Thanks`
+  whenever a release was shaped by field data.
+- Keep the technical depth, but keep it readable — a user should understand
+  the first screen without scrolling.
+- `test/changelog-style.test.mjs` fails the build when a section newer than
+  1.16.0 opens without the upgrade block, uses a header outside the set
+  above, or carries a bullet beyond 60 words. Sections already released keep
+  the shape they were published with.
+- Section headings inside a version stay `###` so the `## [version]` heading
+  keeps its hierarchy; never rename the `## [version] - date` headings, the
+  release workflow matches them exactly.
+
 ## Releasing
 
 1. Bump `CARD_VERSION` in `dist/heatpump-flow-card.js` and `version` in
